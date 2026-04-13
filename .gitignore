@@ -1,0 +1,13 @@
+# バックアップファイル
+*.backup*.js
+*.backup*.html
+*.backup*.css
+backup_*/
+
+# ローカル開発サーバー
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db

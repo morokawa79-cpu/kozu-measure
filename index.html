@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公図 計測ツール</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <header id="toolbar">
+    <div class="tb-group">
+      <div class="mode-tabs">
+        <button id="btn-mode-measure" class="btn-mode active-mode">📐 計測</button>
+        <button id="btn-mode-subdivision" class="btn-mode">🏘 分譲地</button>
+      </div>
+      <span class="tb-sep"></span>
+      <button id="btn-open" class="btn-primary">PDF を開く</button>
+      <input type="file" id="file-input" accept=".pdf" style="display:none">
+      <button id="btn-open-image" class="btn-secondary">Googleマップ画像</button>
+      <input type="file" id="image-input" accept="image/*" style="display:none">
+      <button id="btn-rotate-image" class="btn-secondary">🔄 90°回転</button>
+      <div id="page-nav" class="tb-group hidden">
+        <button id="btn-prev" disabled>◀</button>
+        <span id="page-info">1 / 1</span>
+        <button id="btn-next" disabled>▶</button>
+      </div>
+    </div>
+    <div class="tb-group tb-center">
+      <span id="scale-display" class="scale-badge unset">縮尺: 未設定</span>
+      <button id="btn-scale-500" class="btn-scale-quick">1/500</button>
+      <button id="btn-calibrate" class="btn-small">縮尺設定</button>
+      <button id="btn-fit" class="btn-small">全体表示</button>
+    </div>
+    <div class="tb-group">
+      <button id="btn-undo" class="btn-secondary">↩ 戻す</button>
+      <button id="btn-redo" class="btn-secondary">↪ 進む</button>
+      <button id="btn-clear" class="btn-secondary">クリア</button>
+      <button id="btn-save-png" class="btn-secondary">PNG保存</button>
+      <button id="btn-save-json" class="btn-primary">保存</button>
+      <button id="btn-load-json" class="btn-secondary">読み込み</button>
+      <input type="file" id="json-input" accept=".json" style="display:none">
+      <button id="btn-print" class="btn-secondary">印刷</button>
+      <button id="btn-help-toggle" class="btn-secondary" title="ヘルプ表示切替" style="min-width:28px;padding:5px 8px;font-size:13px">?</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <!-- 左サイドバー（計測モード） -->
+    <aside id="tools">
+      <div class="tool-section-label">計測</div>
+      <button class="tool-btn active" data-mode="distance">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="20" x2="20" y2="4"/>
+          <circle cx="4" cy="20" r="2" fill="currentColor"/>
+          <circle cx="20" cy="4" r="2" fill="currentColor"/>
+        </svg>
+        <span>2点距離</span>
+      </button>
+      <button class="tool-btn" data-mode="polyline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="4,20 10,8 16,14 20,4"/>
+          <circle cx="4" cy="20" r="2" fill="currentColor"/>
+          <circle cx="10" cy="8" r="2" fill="currentColor"/>
+          <circle cx="16" cy="14" r="2" fill="currentColor"/>
+          <circle cx="20" cy="4" r="2" fill="currentColor"/>
+        </svg>
+        <span>折れ線</span>
+      </button>
+      <button class="tool-btn" data-mode="area">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="4,20 20,20 20,8 12,4 4,8" fill="currentColor" fill-opacity="0.2"/>
+          <polygon points="4,20 20,20 20,8 12,4 4,8"/>
+        </svg>
+        <span>面積</span>
+      </button>
+      <button class="tool-btn toggle-on" id="btn-side-lengths" title="面積の辺の長さ表示ON/OFF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="12" x2="20" y2="12"/>
+          <line x1="4" y1="10" x2="4" y2="14"/>
+          <line x1="20" y1="10" x2="20" y2="14"/>
+          <text x="12" y="9" text-anchor="middle" font-size="5" fill="currentColor" stroke="none">m</text>
+        </svg>
+        <span>辺の長さ</span>
+      </button>
+      <div class="tool-divider"></div>
+      <div class="tool-section-label">操作</div>
+      <button class="tool-btn" data-mode="pan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 4v16M4 12h16"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>パン</span>
+      </button>
+      <button class="tool-btn" data-mode="select">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 3l14 9-7 1-4 7-3-17z"/>
+        </svg>
+        <span>移動</span>
+      </button>
+      <button class="tool-btn" data-mode="text">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 7V5h16v2M9 5v14M15 5v14M9 19h6"/>
+        </svg>
+        <span>メモ</span>
+      </button>
+      <button class="tool-btn" data-mode="arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="5" y1="19" x2="19" y2="5"/>
+          <polyline points="11,5 19,5 19,13"/>
+        </svg>
+        <span>矢印</span>
+      </button>
+      <button class="tool-btn" data-mode="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="6" y1="18" x2="13" y2="10"/>
+          <rect x="12" y="4" width="8" height="7" rx="1"/>
+        </svg>
+        <span>引出線</span>
+      </button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn" id="btn-undo-side">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9,14 4,9 9,4"/>
+          <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+        </svg>
+        <span>1点戻す</span>
+      </button>
+      <div class="tool-divider"></div>
+      <button class="tool-btn toggle-on" id="btn-measure-snap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
+        <span>スナップ</span>
+      </button>
+      <div class="tool-divider"></div>
+      <div class="tool-section-label">使用色</div>
+      <div class="stroke-color-picker">
+        <div class="sc-swatch active-sc" data-sc="#f87171" style="background:#f87171"></div>
+        <div class="sc-swatch" data-sc="#60a5fa" style="background:#60a5fa"></div>
+        <div class="sc-swatch" data-sc="#34d399" style="background:#34d399"></div>
+        <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
+        <div class="sc-swatch" data-sc="#a78bfa" style="background:#a78bfa"></div>
+        <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
+        <div class="sc-swatch" data-sc="#38bdf8" style="background:#38bdf8"></div>
+        <div class="sc-swatch" data-sc="#f472b6" style="background:#f472b6"></div>
+        <div class="sc-swatch" data-sc="#ffffff" style="background:#fff"></div>
+        <div class="sc-swatch" data-sc="#1e293b" style="background:#1e293b;border-color:#475569"></div>
+      </div>
+      <div class="tool-divider"></div>
+      <div class="zoom-info" id="zoom-info">100%</div>
+    </aside>
+
+    <!-- 分譲地サイドバー -->
+    <aside id="tools-subdivision" class="hidden">
+
+      <!-- ── 描画 ── -->
+      <div class="sb-section-title">描画</div>
+      <div class="lot-tool-grid">
+        <button class="btn-lot-tool active" id="btn-lot-draw" data-help="クリックで頂点を追加し、ダブルクリックで区画を確定します。頂点・交点に近づくと自動で吸着します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><polygon points="4,4 20,4 20,20 4,20"/></svg>区画
+        </button>
+        <button class="btn-lot-tool" id="btn-road-draw" data-help="道路の形状をポリゴンで描きます。ダブルクリックで確定。グレーで表示されます。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><rect x="3" y="9" width="18" height="6" rx="1"/></svg>道路
+        </button>
+        <button class="btn-lot-tool" id="btn-lot-split" data-help="① 分割したい区画をクリックして選択（オレンジ枠表示）→ ② 分割線を折れ線で描く → ③ ダブルクリックで分割確定。Escでキャンセル。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><line x1="4" y1="20" x2="20" y2="4"/><polyline points="14,4 20,4 20,10"/></svg>選択分割
+        </button>
+        <button class="btn-lot-tool" id="btn-lot-split-all" data-help="折れ線を描いてダブルクリックすると、線が交差するすべての区画を一度に分割します。不正な形状になる場合はキャンセルされます。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><line x1="5" y1="19" x2="19" y2="5"/><line x1="3" y1="12" x2="21" y2="12"/></svg>一括分割
+        </button>
+        <button class="btn-lot-tool" id="btn-lot-merge" data-help="合筆する2つの区画を順にクリックすると自動で結合します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><rect x="2" y="5" width="9" height="14" rx="1"/><rect x="13" y="5" width="9" height="14" rx="1"/><polyline points="11,9 14,12 11,15"/></svg>合筆
+        </button>
+        <button class="btn-lot-tool" id="btn-corner-cut" data-help="① 隅切りする区画をクリック → ② 切り取りたい頂点をクリック → ③ 底辺の長さを入力して実行。切り取った三角形は区画として残ります。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;display:block;margin:0 auto 3px"><polyline points="4,20 4,4 20,4"/><line x1="4" y1="12" x2="12" y2="4"/></svg>隅切り
+        </button>
+      </div>
+      <!-- 選択分割: 区画選択後に表示 -->
+      <div id="split-clear-row" class="hidden" style="margin-top:6px">
+        <button id="btn-split-clear" class="btn-lot-tool" style="width:100%;color:#f97316;border-color:#7c2d12">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>区画選択をクリア（右クリックでも解除）
+        </button>
+      </div>
+
+      <!-- ── ガイド ── -->
+      <div class="sb-section-title" style="margin-top:10px">ガイド・補助線</div>
+      <div class="lot-tool-row">
+        <button class="btn-lot-tool" id="btn-divguide" data-help="2点クリックでガイド線を引き、均等分割の補助線を表示します。分割数は2〜20で設定可能。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/></svg>ガイド引く
+        </button>
+        <button class="btn-lot-tool" id="btn-clear-divguides" style="color:#64748b">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>ガイドクリア
+        </button>
+      </div>
+      <!-- ガイドパネル -->
+      <div id="divguide-panel" class="lot-form hidden" style="margin-top:6px">
+        <div class="lot-tool-row">
+          <button class="btn-lot-tool divn-btn active" data-n="2">2等分</button>
+          <button class="btn-lot-tool divn-btn" data-n="3">3等分</button>
+          <button class="btn-lot-tool divn-btn" data-n="4">4等分</button>
+        </div>
+        <div class="lot-input-row" style="padding:0 2px;margin-top:6px">
+          <label>分割数</label>
+          <input type="number" id="div-guide-n" value="2" min="2" max="20" style="width:44px">
+          <span>等分</span>
+        </div>
+      </div>
+      <div class="lot-tool-row" style="margin-top:6px">
+        <button class="btn-lot-tool" id="sub-btn-parallel" data-help="2点クリックでベース線を定義し、「作成」ボタンで指定間隔の平行補助線を追加します。⇅ で方向を反転。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/></svg>平行線
+        </button>
+      </div>
+      <!-- 平行線パネル -->
+      <div id="parallel-panel" class="lot-form hidden" style="margin-top:6px">
+        <div class="lot-input-row">
+          <label>間隔</label>
+          <input type="number" id="parallel-dist" value="3" min="0.1" step="0.5" style="width:52px">
+          <span>m</span>
+          <button id="parallel-flip" title="方向反転" style="padding:2px 6px;font-size:12px;background:#334155;border:1px solid #475569;border-radius:3px;color:#94a3b8;cursor:pointer">⇅</button>
+        </div>
+        <button id="parallel-create" class="btn-primary full-width" disabled style="font-size:11px;margin-top:6px">作成</button>
+        <button id="btn-clear-parallel" style="width:100%;margin-top:4px;padding:4px;font-size:11px;background:transparent;border:1px solid #334155;border-radius:3px;color:#64748b;cursor:pointer">平行線クリア</button>
+      </div>
+
+      <!-- ── 測定・注記 ── -->
+      <div class="sb-section-title" style="margin-top:10px">測定・注記</div>
+      <div class="lot-tool-grid-3">
+        <button class="btn-lot-tool" id="sub-btn-distance" data-help="2点クリックで直線距離を計測します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="8" x2="4" y2="16"/><line x1="20" y1="8" x2="20" y2="16"/></svg>距離
+        </button>
+        <button class="btn-lot-tool" id="sub-btn-polyline" data-help="クリックで折れ線を描き、ダブルクリックで確定して総距離を表示します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><polyline points="3,18 8,8 14,14 21,6"/></svg>折れ線
+        </button>
+        <button class="btn-lot-tool" id="sub-btn-area" data-help="クリックで多角形を描き、ダブルクリックで確定して面積を計測します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><polygon points="4,4 20,4 20,20 4,20"/></svg>面積
+        </button>
+        <button class="btn-lot-tool" id="sub-btn-arrow" data-help="始点→終点の2点クリックで矢印を描きます。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="11,5 19,5 19,13"/></svg>矢印
+        </button>
+        <button class="btn-lot-tool" id="sub-btn-text" data-help="クリックした位置にメモテキストを追加します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><path d="M4 7V5h16v2M9 5v14M15 5v14M9 19h6"/></svg>文字
+        </button>
+        <button class="btn-lot-tool" id="sub-btn-callout" data-help="1点目：矢印の先端、2点目：テキスト位置の順にクリックして引出線を作成します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="6" y1="18" x2="13" y2="10"/><rect x="12" y="4" width="8" height="7" rx="1"/></svg>引出線
+        </button>
+      </div><!-- /lot-tool-grid-3 -->
+
+      <!-- ── 操作 ── -->
+      <div class="sb-section-title" style="margin-top:10px">操作</div>
+      <div class="lot-tool-row">
+        <button class="btn-lot-tool" id="btn-lot-select" data-help="区画をドラッグして移動します（隣接頂点に吸着）。ダブルクリックで番号・価格・メモ・色を編集できます。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><path d="M5 3l14 9-7 1-4 7-3-17z"/></svg>区画移動・編集
+        </button>
+        <button class="btn-lot-tool" id="btn-lot-label-move" data-help="区画ラベルや計測ラベルをドラッグして位置を調整します。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><rect x="3" y="8" width="18" height="8" rx="1"/><line x1="7" y1="12" x2="17" y2="12"/></svg>文字移動・編集
+        </button>
+      </div>
+      <div class="lot-tool-row" style="margin-top:4px">
+        <button class="btn-lot-tool" id="btn-edge-label-move" data-help="辺の寸法テキストをドラッグして位置を調整します。縮尺設定済み・辺の寸法ON時のみ有効です。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="9" x2="4" y2="15"/><line x1="20" y1="9" x2="20" y2="15"/><path d="M12 6l2 3-4 0z" fill="currentColor" stroke="none"/></svg>寸法移動
+        </button>
+        <button class="btn-lot-tool" id="btn-lot-delete-tool" data-help="区画・計測・テキストをクリックして削除します。Escキーで終了。" style="color:#f87171">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>削除
+        </button>
+      </div>
+      <div class="lot-tool-row" style="margin-top:6px">
+        <button class="btn-lot-tool toggle-on" id="btn-toggle-edge-lengths" style="color:#34d399">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="9" x2="4" y2="15"/><line x1="20" y1="9" x2="20" y2="15"/></svg>辺の寸法
+        </button>
+        <button class="btn-lot-tool toggle-on" id="btn-grid-snap" style="color:#34d399">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;display:block;margin:0 auto 2px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>スナップ
+        </button>
+      </div>
+
+      <!-- ── 表示サイズ ── -->
+      <div class="sb-section-title" style="margin-top:10px">表示サイズ</div>
+      <div style="padding:0 4px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span style="font-size:11px;color:#94a3b8">番号・面積</span>
+          <span id="lot-text-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">1.4×</span>
+        </div>
+        <input type="range" id="lot-text-scale-slider" min="0.6" max="2.5" step="0.05" value="1.4" style="width:100%;accent-color:#3b82f6">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;margin-bottom:2px">
+          <span style="font-size:11px;color:#94a3b8">寸法テキスト</span>
+          <span id="edge-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">1.0×</span>
+        </div>
+        <input type="range" id="edge-scale-slider" min="0.4" max="2.0" step="0.05" value="1.0" style="width:100%;accent-color:#3b82f6">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;margin-bottom:2px">
+          <span style="font-size:11px;color:#94a3b8">測定・注記</span>
+          <span id="sub-measure-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">0.5×</span>
+        </div>
+        <input type="range" id="sub-measure-scale-slider" min="0.1" max="1.5" step="0.05" value="0.5" style="width:100%;accent-color:#3b82f6">
+      </div>
+
+      <!-- ── 使用色 ── -->
+      <div class="sb-section-title" style="margin-top:10px">区画の色</div>
+      <div style="padding:0 4px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span style="font-size:11px;color:#94a3b8">塗りの濃さ</span>
+          <span id="lot-fill-opacity-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">73%</span>
+        </div>
+        <input type="range" id="lot-fill-opacity-slider" min="0" max="100" step="1" value="73" style="width:100%;accent-color:#3b82f6">
+      </div>
+      <div class="stroke-color-picker" id="lot-sc-picker">
+        <div class="sc-swatch active-sc" data-sc="#bfdbfe" style="background:#bfdbfe"></div>
+        <div class="sc-swatch" data-sc="#bbf7d0" style="background:#bbf7d0"></div>
+        <div class="sc-swatch" data-sc="#fef08a" style="background:#fef08a"></div>
+        <div class="sc-swatch" data-sc="#fed7aa" style="background:#fed7aa"></div>
+        <div class="sc-swatch" data-sc="#fce7f3" style="background:#fce7f3"></div>
+        <div class="sc-swatch" data-sc="#e9d5ff" style="background:#e9d5ff"></div>
+        <div class="sc-swatch" data-sc="#f1f5f9" style="background:#f1f5f9"></div>
+        <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
+        <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
+        <div class="sc-swatch" data-sc="#f87171" style="background:#f87171"></div>
+      </div>
+
+      <div class="tool-divider"></div>
+      <div class="zoom-info" id="zoom-info-sub">100%</div>
+    </aside>
+
+    <!-- キャンバスエリア -->
+    <div id="canvas-container">
+      <!-- ヘルプバー（上部横長・ON/OFFで非表示） -->
+      <div id="help-bar">
+        <span style="color:#60a5fa;font-size:13px;flex-shrink:0">ℹ</span>
+        <span id="help-bar-text" style="flex:1">ツールを選択すると説明が表示されます</span>
+        <button id="help-bar-close" title="閉じる（?ボタンで再表示）">✕</button>
+      </div>
+      <div id="drop-zone">
+        <div class="drop-zone-inner">
+          <svg viewBox="0 0 64 64" fill="none" stroke="#94a3b8" stroke-width="2">
+            <rect x="8" y="4" width="36" height="48" rx="2"/>
+            <polyline points="32,4 32,16 44,16"/>
+            <line x1="52" y1="40" x2="52" y2="60"/>
+            <line x1="42" y1="50" x2="62" y2="50"/>
+          </svg>
+          <p>PDF・画像をドロップ</p>
+          <p class="drop-sub">または上のボタンで開く</p>
+        </div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <!-- メモ入力パネル -->
+      <div id="memo-panel" class="memo-panel hidden">
+        <div class="memo-panel-label">メモを入力</div>
+        <div class="memo-opt-row">
+          <span class="memo-opt-label">サイズ</span>
+          <input type="range" id="text-size-slider" min="8" max="40" step="1" value="14" style="flex:1;accent-color:#3b82f6;margin:0 6px">
+          <span id="text-size-val" style="font-size:11px;color:#60a5fa;min-width:22px;text-align:right">14</span>
+        </div>
+        <div class="memo-opt-row">
+          <span class="memo-opt-label">文字色</span>
+          <div class="color-swatches" id="text-color-swatches">
+            <div class="color-swatch active-swatch" data-color="#1a1a1a" style="background:#1a1a1a" title="黒"></div>
+            <div class="color-swatch" data-color="#dc2626" style="background:#dc2626" title="赤"></div>
+            <div class="color-swatch" data-color="#2563eb" style="background:#2563eb" title="青"></div>
+            <div class="color-swatch" data-color="#16a34a" style="background:#16a34a" title="緑"></div>
+            <div class="color-swatch" data-color="#ea580c" style="background:#ea580c" title="橙"></div>
+            <div class="color-swatch" data-color="#7c3aed" style="background:#7c3aed" title="紫"></div>
+          </div>
+        </div>
+        <div class="memo-opt-row">
+          <span class="memo-opt-label">背景色</span>
+          <div class="color-swatches" id="text-bg-swatches">
+            <div class="color-swatch active-swatch" data-bg="rgba(255,255,220,0.92)" style="background:rgba(255,255,220,0.92)" title="黄"></div>
+            <div class="color-swatch" data-bg="rgba(255,255,255,0.95)" style="background:#fff" title="白"></div>
+            <div class="color-swatch" data-bg="rgba(186,230,253,0.92)" style="background:rgba(186,230,253,0.92)" title="水色"></div>
+            <div class="color-swatch" data-bg="rgba(253,204,213,0.92)" style="background:rgba(253,204,213,0.92)" title="ピンク"></div>
+            <div class="color-swatch swatch-transparent" data-bg="transparent" title="透明"></div>
+          </div>
+        </div>
+        <input type="text" id="memo-input" placeholder="例：北側境界　間口5m">
+        <div class="memo-panel-buttons">
+          <button id="memo-cancel" class="btn-secondary">キャンセル</button>
+          <button id="memo-ok" class="btn-primary">確定</button>
+        </div>
+      </div>
+
+      <!-- カラーピッカーポップアップ（結果パネル用） -->
+      <div id="color-picker-popup" class="color-picker-popup hidden">
+        <div class="cp-swatches">
+          <div class="cp-swatch" data-c="#f87171" style="background:#f87171"></div>
+          <div class="cp-swatch" data-c="#60a5fa" style="background:#60a5fa"></div>
+          <div class="cp-swatch" data-c="#34d399" style="background:#34d399"></div>
+          <div class="cp-swatch" data-c="#fbbf24" style="background:#fbbf24"></div>
+          <div class="cp-swatch" data-c="#a78bfa" style="background:#a78bfa"></div>
+          <div class="cp-swatch" data-c="#fb923c" style="background:#fb923c"></div>
+          <div class="cp-swatch" data-c="#38bdf8" style="background:#38bdf8"></div>
+          <div class="cp-swatch" data-c="#f472b6" style="background:#f472b6"></div>
+          <div class="cp-swatch" data-c="#ffffff" style="background:#fff;border-color:#888"></div>
+          <div class="cp-swatch" data-c="#1a1a1a" style="background:#1a1a1a"></div>
+        </div>
+      </div>
+      <div id="hint-bar">
+        <span id="hint-text"></span>
+        <span id="coord-display"></span>
+      </div>
+    </div>
+
+    <!-- 右サイドバー：結果 -->
+    <aside id="results">
+      <button id="btn-toggle-results" title="パネル開閉">◀</button>
+      <div id="results-measure">
+        <div class="results-header">計測結果</div>
+        <div id="results-list"></div>
+        <div id="results-empty">計測結果がここに表示されます</div>
+      </div>
+      <div id="results-subdivision" class="hidden" style="display:flex;flex-direction:column;height:100%">
+        <div class="results-header">区画リスト</div>
+        <div id="lots-panel" style="flex:1;overflow-y:auto;padding:6px"></div>
+        <div id="lots-empty" style="padding:20px 12px;text-align:center;color:#475569;font-size:11px">区画がここに表示されます</div>
+        <div id="lot-summary" class="lot-summary"></div>
+        <div style="padding:6px 8px;border-top:1px solid #1e3a5f;display:flex;flex-direction:column;gap:4px">
+          <button id="btn-stamp-list" class="btn-primary full-width" style="font-size:11px">📋 面積リストを図面に配置</button>
+          <button id="btn-renumber-lots" class="btn-secondary full-width" style="font-size:11px">🔢 番号を振り直す</button>
+          <button id="btn-kaitori" class="btn-secondary full-width" style="font-size:11px;background:#1a2e1a;border-color:#2d5a2d;color:#86efac">💴 買取価格積算</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- 縮尺設定モーダル -->
+<div id="calibration-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>縮尺設定</h3>
+    <div class="modal-section">
+      <label class="modal-label">よく使う縮尺</label>
+      <div class="preset-grid">
+        <button class="preset-btn" data-scale="100">1/100</button>
+        <button class="preset-btn" data-scale="150">1/150</button>
+        <button class="preset-btn" data-scale="200">1/200</button>
+        <button class="preset-btn" data-scale="250">1/250</button>
+        <button class="preset-btn" data-scale="300">1/300</button>
+        <button class="preset-btn" data-scale="400">1/400</button>
+        <button class="preset-btn" data-scale="500">1/500</button>
+        <button class="preset-btn" data-scale="600">1/600</button>
+      </div>
+    </div>
+    <div class="modal-divider">または手入力</div>
+    <div class="modal-section">
+      <label class="modal-label">縮尺を直接入力</label>
+      <div class="scale-input-row">
+        <span>1 /</span>
+        <input type="number" id="scale-input" placeholder="500" min="1" max="100000">
+      </div>
+    </div>
+    <div class="modal-divider">または</div>
+    <div class="modal-section">
+      <label class="modal-label">2点クリックでキャリブレーション</label>
+      <p class="modal-note">既知の距離の2点をクリックして実距離を入力</p>
+      <button id="btn-start-calibration" class="btn-secondary full-width">2点をクリックして設定</button>
+    </div>
+    <div class="modal-buttons">
+      <button id="btn-cancel-calibration" class="btn-secondary">キャンセル</button>
+      <button id="btn-apply-scale" class="btn-primary">適用</button>
+    </div>
+  </div>
+</div>
+
+<!-- キャリブレーション距離入力モーダル -->
+<div id="calibration-dist-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>実際の距離を入力</h3>
+    <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">クリックした2点間の実際の距離を選択または入力</p>
+    <div class="dist-presets">
+      <button class="dist-preset-btn" data-dist="5">5 m</button>
+      <button class="dist-preset-btn" data-dist="10">10 m</button>
+    </div>
+    <div class="scale-input-row" style="margin-top:10px">
+      <input type="number" id="calibration-dist-input" placeholder="その他の距離" step="0.01" min="0.01">
+      <span>m</span>
+    </div>
+    <div class="modal-buttons">
+      <button id="btn-cancel-calib-dist" class="btn-secondary">キャンセル</button>
+      <button id="btn-apply-calibration" class="btn-primary">適用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 印刷設定モーダル -->
+<div id="print-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>印刷設定</h3>
+    <div class="modal-section">
+      <label class="modal-label">用紙サイズ</label>
+      <div class="preset-grid" style="grid-template-columns:repeat(2,1fr)">
+        <button class="preset-btn paper-btn selected" data-size="A3">A3</button>
+        <button class="preset-btn paper-btn" data-size="A4">A4</button>
+      </div>
+    </div>
+    <div class="modal-buttons">
+      <button id="print-cancel" class="btn-secondary">キャンセル</button>
+      <button id="print-go" class="btn-primary">印刷する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 区画編集モーダル -->
+<div id="lot-edit-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>区画 <span id="lot-edit-num"></span> の編集</h3>
+    <!-- 道路専用セクション -->
+    <div id="lot-edit-road-section" class="hidden">
+      <div class="modal-section">
+        <label class="modal-label">テンプレート</label>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">
+          <button class="road-tmpl-btn" data-text="道路">道路</button>
+          <button class="road-tmpl-btn" data-text="位置指定道路">位置指定道路</button>
+          <button class="road-tmpl-btn" data-text="私道">私道</button>
+          <button class="road-tmpl-btn" data-text="公道">公道</button>
+          <button class="road-tmpl-btn" data-text="☒要セットバック">☒要セットバック</button>
+          <button class="road-tmpl-btn" data-text="認定外道路">認定外道路</button>
+        </div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">ラベルテキスト</label>
+        <input type="text" id="lot-edit-road-label" placeholder="道路" style="width:100%;box-sizing:border-box">
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#94a3b8">
+            <input type="checkbox" id="lot-edit-road-vertical" style="width:14px;height:14px;accent-color:#3b82f6">
+            縦書き
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#dc2626">
+            <input type="checkbox" id="lot-edit-road-setback" style="width:14px;height:14px;accent-color:#dc2626">
+            ☒ 要セットバック表示
+          </label>
+        </div>
+        <div style="font-size:10px;color:#64748b;margin-top:4px">セットバック表示は「文字移動」ツールで独立して移動できます</div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">道路幅員</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="number" id="lot-edit-road-width" placeholder="4.0" step="0.1" min="0" style="flex:1;box-sizing:border-box">
+          <span style="color:#cbd5e1;font-size:13px">m</span>
+        </div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">文字サイズ</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="lot-edit-road-label-size" min="0.5" max="3.0" step="0.1" value="1.0" style="flex:1;accent-color:#3b82f6">
+          <span id="lot-edit-road-label-size-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">1.0×</span>
+        </div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">文字色</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div class="road-text-swatch active-road-text" data-tc="#475569" style="background:#475569;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-text-swatch" data-tc="#1e293b" style="background:#1e293b;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-text-swatch" data-tc="#f1f5f9" style="background:#f1f5f9;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid #475569"></div>
+          <div class="road-text-swatch" data-tc="#dc2626" style="background:#dc2626;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-text-swatch" data-tc="#1d4ed8" style="background:#1d4ed8;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-text-swatch" data-tc="#d97706" style="background:#d97706;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">道路の色</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div class="road-fill-swatch active-road-fill" data-fc="#94a3b8" style="background:#94a3b8;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-fill-swatch" data-fc="#cbd5e1" style="background:#cbd5e1;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-fill-swatch" data-fc="#64748b" style="background:#64748b;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-fill-swatch" data-fc="#e2e8f0" style="background:#e2e8f0;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid #94a3b8"></div>
+          <div class="road-fill-swatch" data-fc="#f8fafc" style="background:#f8fafc;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid #94a3b8"></div>
+          <div class="road-fill-swatch" data-fc="#fbbf24" style="background:#fbbf24;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+          <div class="road-fill-swatch" data-fc="#fca5a5" style="background:#fca5a5;width:20px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent"></div>
+        </div>
+      </div>
+    </div>
+    <!-- 区画専用セクション -->
+    <div id="lot-edit-lot-sections">
+      <div class="modal-section">
+        <label class="modal-label">面積</label>
+        <div id="lot-edit-area" style="font-size:13px;color:#60a5fa;padding:2px 0"></div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">価格</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="text" id="lot-edit-price" placeholder="3,500" inputmode="numeric" style="flex:1;box-sizing:border-box">
+          <span style="color:#cbd5e1;font-size:13px;white-space:nowrap">万円</span>
+        </div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">メモ</label>
+        <input type="text" id="lot-edit-memo" placeholder="例: 角地、南向き" style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">塗り色</label>
+        <div class="color-swatches" id="lot-color-swatches" style="gap:8px">
+          <div class="color-swatch" data-lotcolor="#bfdbfe" style="background:#bfdbfe;width:22px;height:22px" title="水色"></div>
+          <div class="color-swatch" data-lotcolor="#bbf7d0" style="background:#bbf7d0;width:22px;height:22px" title="緑"></div>
+          <div class="color-swatch" data-lotcolor="#fef08a" style="background:#fef08a;width:22px;height:22px" title="黄"></div>
+          <div class="color-swatch" data-lotcolor="#fed7aa" style="background:#fed7aa;width:22px;height:22px" title="橙"></div>
+          <div class="color-swatch" data-lotcolor="#fce7f3" style="background:#fce7f3;width:22px;height:22px" title="ピンク"></div>
+          <div class="color-swatch" data-lotcolor="#e9d5ff" style="background:#e9d5ff;width:22px;height:22px" title="紫"></div>
+          <div class="color-swatch" data-lotcolor="#f1f5f9" style="background:#f1f5f9;width:22px;height:22px" title="白"></div>
+          <div class="color-swatch" data-lotcolor="#fbbf24" style="background:#fbbf24;width:22px;height:22px" title="金"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-buttons">
+      <button id="lot-edit-cancel" class="btn-secondary">キャンセル</button>
+      <button id="lot-edit-ok" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 買取価格積算モーダル -->
+<div id="kaitori-modal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:340px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">💴 買取価格積算</h3>
+      <button id="kaitori-close" style="background:transparent;border:none;color:#94a3b8;font-size:18px;cursor:pointer">✕</button>
+    </div>
+
+    <div class="modal-section">
+      <label class="modal-label">【基本情報】土地面積</label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="number" id="kai-sqm" placeholder="250.00" step="0.01" style="flex:1">
+        <span style="color:#94a3b8;font-size:12px">㎡</span>
+        <span id="kai-tsubo" style="color:#60a5fa;font-size:12px;min-width:60px">0坪</span>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <label class="modal-label">【販売想定価格】坪単価</label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="number" id="kai-tsubo-price" placeholder="45" style="flex:1">
+        <span style="color:#94a3b8;font-size:12px">万円/坪</span>
+      </div>
+      <div style="margin-top:4px;font-size:12px;color:#94a3b8">想定売価: <span id="kai-sale-price" style="color:#f59e0b;font-weight:700">0万円</span></div>
+    </div>
+
+    <div class="modal-section">
+      <label class="modal-label">【必要経費】</label>
+      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 6px;align-items:center;font-size:12px">
+        <span style="color:#94a3b8">造成費(坪単価)</span>
+        <input type="number" id="kai-kosei" placeholder="5" style="width:100%">
+        <span style="color:#94a3b8">万円/坪 → <span id="kai-kosei-total" style="color:#60a5fa">0万円</span></span>
+        <span style="color:#94a3b8">測量費</span>
+        <input type="number" id="kai-sokuryo" placeholder="35" style="width:100%">
+        <span style="color:#94a3b8">万円</span>
+        <span style="color:#94a3b8">解体費</span>
+        <input type="number" id="kai-kaitai" placeholder="120" style="width:100%">
+        <span style="color:#94a3b8">万円</span>
+        <span style="color:#94a3b8">仲介手数料</span>
+        <span id="kai-chukai" style="color:#60a5fa;text-align:right">0万円</span>
+        <span style="color:#64748b;font-size:10px">自動</span>
+        <span style="color:#94a3b8">その他①</span>
+        <input type="number" id="kai-other1" placeholder="0" style="width:100%">
+        <span style="color:#94a3b8">万円</span>
+        <span style="color:#94a3b8">その他②</span>
+        <input type="number" id="kai-other2" placeholder="0" style="width:100%">
+        <span style="color:#94a3b8">万円</span>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#94a3b8">経費合計: <span id="kai-exp-total" style="color:#f87171;font-weight:700">0万円</span></div>
+    </div>
+
+    <div class="modal-section">
+      <label class="modal-label">【利益設定】粗利率</label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="number" id="kai-margin" value="15" min="0" max="100" style="flex:1">
+        <span style="color:#94a3b8;font-size:12px">%</span>
+        <span id="kai-profit" style="color:#a78bfa;font-size:12px;min-width:60px">0万円</span>
+      </div>
+    </div>
+
+    <div style="background:#0f2a0f;border:2px solid #2d5a2d;border-radius:8px;padding:12px;text-align:center;margin:12px 0">
+      <div style="font-size:11px;color:#86efac;margin-bottom:4px">買取価格</div>
+      <div id="kai-result" style="font-size:28px;font-weight:900;color:#4ade80">0万円</div>
+      <div style="font-size:10px;color:#64748b;margin-top:4px">想定売価 − 経費 − 必要利益</div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="kai-stamp" class="btn-primary" style="flex:1;font-size:12px">📋 図面に出力</button>
+      <button id="kai-clear" class="btn-secondary" style="font-size:11px">クリア</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- 隅切りモーダル -->
+<div id="corner-cut-modal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:260px">
+    <div class="modal-title" style="font-size:14px;font-weight:700;margin-bottom:8px">隅切り設定</div>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:12px">切り取った三角形の底辺（斜辺）の長さを指定します</div>
+    <div class="modal-section">
+      <label class="modal-label">底辺の長さ</label>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="number" id="cut-hypotenuse" value="2" min="0.1" step="0.1" style="width:70px;padding:4px 8px;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#f1f5f9;font-size:13px">
+        <span style="color:#94a3b8;font-size:12px">m</span>
+      </div>
+    </div>
+    <div class="modal-buttons" style="margin-top:16px">
+      <button id="corner-cut-cancel" class="btn-secondary">キャンセル</button>
+      <button id="corner-cut-ok" class="btn-primary">隅切り実行</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
