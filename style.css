@@ -232,7 +232,9 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-family: inherit;
   font-size: 14px;
   outline: none;
+  margin-top: 8px;
   margin-bottom: 10px;
+  box-sizing: border-box;
 }
 .memo-panel input:focus { border-color: #3b82f6; }
 .memo-panel-buttons { display: flex; gap: 8px; justify-content: flex-end; }
@@ -552,6 +554,23 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .btn-lot-tool:hover { border-color: #475569; color: #e2e8f0; }
 .btn-lot-tool.active { background: #1e3a5f; border-color: #3b82f6; color: #60a5fa; }
+
+/* 区画移動ツール選択時: オレンジ */
+#btn-lot-select.active { background: #431407; border-color: #f97316; color: #fb923c; }
+/* 文字移動ツール選択時: 緑 */
+#btn-lot-label-move.active { background: #052e16; border-color: #22c55e; color: #4ade80; }
+
+/* 用紙モードボタン */
+.active-paper-size { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #60a5fa !important; }
+
+/* 文字枠スタイルボタン */
+.box-style-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 7px; border: 1px solid #334155; border-radius: 4px;
+  background: #1e293b; color: #94a3b8; cursor: pointer; font-size: 11px;
+}
+.box-style-btn:hover { border-color: #475569; color: #e2e8f0; }
+.box-style-btn.active-box-style { background: #1e3a5f; border-color: #3b82f6; color: #60a5fa; }
 
 /* セクションタイトル */
 .sb-section-title {

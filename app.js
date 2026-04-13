@@ -62,7 +62,7 @@ const App = {
   strokeColor: '#f87171',
 
   // テキストオプション（メモパネルで選択）
-  textOptions: { fontSize: 14, color: '#1a1a1a', bgColor: 'rgba(255,255,220,0.92)' },
+  textOptions: { fontSize: 14, color: '#1a1a1a', bgColor: 'rgba(255,255,220,0.92)', boxStyle: 'box' },
 
   // カラーピッカー
   cpTargetId: null,
@@ -70,6 +70,12 @@ const App = {
 
   // 印刷
   printSize: 'A3',
+
+  // 用紙モード
+  paperMode: false,
+  paperSize: 'A4',
+  paperW: 891,   // A4横: 297mm×3px
+  paperH: 630,
 
   // ===== 分譲地モード =====
   appMode: 'measure',      // 'measure' | 'subdivision'
@@ -80,6 +86,7 @@ const App = {
   lotTool: 'draw',         // 'draw' | 'road' | 'split' | 'split-all' | 'merge'
   mergeSelect: [],         // 合筆モードで選択中の区画ID
   lotStrokeColor: '#bfdbfe',
+  lotBorderColor: '#1d4ed8',   // 区画の線の色（グローバル）
   lotFillOpacity: 0.73,      // 区画塗り色の不透明度（0〜1）
   lotTextScale: 1.4,         // ラベル文字サイズ倍率（番号・面積）
   lotEdgeScale: 1.0,         // 寸法線テキストサイズ倍率
@@ -231,6 +238,7 @@ function setScaleDisplay(text) {
 
 // ===== ビューポート =====
 function fitToView() {
+  if (App.paperMode) { fitPaperToView(); return; }
   if (!App.pdfReady) return;
   const cw = canvas.width, ch = canvas.height;
   const pw = App.pdfOffscreen.width, ph = App.pdfOffscreen.height;
@@ -240,6 +248,93 @@ function fitToView() {
   App.vy = (ch - ph * z) / 2;
   updateZoomInfo();
   App.dirty = true;
+}
+
+function fitPaperToView() {
+  const cw = canvas.width, ch = canvas.height;
+  const pw = App.paperW, ph = App.paperH;
+  const z = Math.min(cw / pw, ch / ph) * 0.92;
+  App.vz = z;
+  App.vx = (cw - pw * z) / 2;
+  App.vy = (ch - ph * z) / 2;
+  updateZoomInfo();
+  App.dirty = true;
+}
+
+// 用紙フレーム描画（canvas座標系）
+function drawPaperFrame() {
+  const pw = App.paperW, ph = App.paperH;
+  const lw = 1 / App.vz;
+
+  // 白背景
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, pw, ph);
+
+  // 外枠
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = lw * 2;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.rect(5, 5, pw - 10, ph - 10); ctx.stroke();
+
+  // タイトルブロック高さ
+  const tbH = ph < 700 ? 42 : 50;
+  // 内枠（製図枠）
+  const mL = 22, mT = 12, mR = 10, mB = 10 + tbH;
+  ctx.strokeStyle = '#1e3a5f';
+  ctx.lineWidth = lw * 1.5;
+  ctx.beginPath(); ctx.rect(mL, mT, pw - mL - mR, ph - mT - mB); ctx.stroke();
+
+  // タイトルブロック（下部）
+  const tbY = ph - 10 - tbH;
+  const tbX = mL;
+  const tbW = pw - mL - mR;
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = lw;
+
+  // タイトルブロック外枠
+  ctx.beginPath(); ctx.rect(tbX, tbY, tbW, tbH); ctx.stroke();
+
+  // メタ情報エリア（右側）
+  const metaW = Math.min(210, tbW * 0.35);
+  const metaX = tbX + tbW - metaW;
+  ctx.beginPath(); ctx.moveTo(metaX, tbY); ctx.lineTo(metaX, tbY + tbH); ctx.stroke();
+  const rowH = tbH / 3;
+  [1, 2].forEach(i => {
+    ctx.beginPath();
+    ctx.moveTo(metaX, tbY + rowH * i);
+    ctx.lineTo(tbX + tbW, tbY + rowH * i);
+    ctx.stroke();
+  });
+  // ラベルフィールド区切り線
+  const lblW = 28;
+  [0,1,2].forEach(i => {
+    ctx.beginPath();
+    ctx.moveTo(metaX + lblW, tbY + rowH * i);
+    ctx.lineTo(metaX + lblW, tbY + rowH * (i + 1));
+    ctx.stroke();
+  });
+
+  // テキスト（ラベル）
+  ctx.fillStyle = '#94a3b8';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  const fsLbl = pfs(4.5);
+  const fsVal = pfs(4.5);
+  ctx.font = `${fsLbl}px 'Segoe UI', sans-serif`;
+  ['縮尺', '日付', '作成者'].forEach((lbl, i) => {
+    ctx.fillText(lbl, metaX + lblW / 2, tbY + rowH * i + rowH / 2);
+  });
+  // 図面名称エリア
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = `${pfs(6)}px 'Segoe UI', sans-serif`;
+  ctx.fillText('図 面 名 称', tbX + (tbW - metaW) / 2, tbY + tbH / 2);
+
+  // ページサイズ表示（右下隅）
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = `${pfs(4)}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(App.paperSize + '横', pw - 12, ph - 12);
 }
 
 function s2c(sx, sy) {
@@ -260,26 +355,35 @@ function renderLoop() {
 function render() {
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0f172a';
+  if (!App.pdfReady && !App.paperMode) {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
+  ctx.fillStyle = App.paperMode ? '#64748b' : '#0f172a';
   ctx.fillRect(0, 0, W, H);
-  if (!App.pdfReady) return;
 
   ctx.save();
   ctx.translate(App.vx, App.vy);
   ctx.scale(App.vz, App.vz);
 
-  if (App.imageRotation === 0) {
-    ctx.drawImage(App.pdfOffscreen, 0, 0);
-  } else {
-    const W = App.pdfOffscreen.width, H = App.pdfOffscreen.height;
-    const r = App.imageRotation * Math.PI / 180;
-    ctx.save();
-    if (App.imageRotation === 90)  { ctx.translate(H, 0); }
-    if (App.imageRotation === 180) { ctx.translate(W, H); }
-    if (App.imageRotation === 270) { ctx.translate(0, W); }
-    ctx.rotate(r);
-    ctx.drawImage(App.pdfOffscreen, 0, 0);
-    ctx.restore();
+  if (App.paperMode) {
+    drawPaperFrame();
+  }
+  if (App.pdfReady && !App.paperMode) {
+    if (App.imageRotation === 0) {
+      ctx.drawImage(App.pdfOffscreen, 0, 0);
+    } else {
+      const W = App.pdfOffscreen.width, H = App.pdfOffscreen.height;
+      const r = App.imageRotation * Math.PI / 180;
+      ctx.save();
+      if (App.imageRotation === 90)  { ctx.translate(H, 0); }
+      if (App.imageRotation === 180) { ctx.translate(W, H); }
+      if (App.imageRotation === 270) { ctx.translate(0, W); }
+      ctx.rotate(r);
+      ctx.drawImage(App.pdfOffscreen, 0, 0);
+      ctx.restore();
+    }
   }
 
   // ラベルヒットボックスをリセット
@@ -556,20 +660,37 @@ function drawTextAnnotation(t) {
   const pad = fs * 0.35;
   const x = t.x, y = t.y;
 
+  const boxStyle = t.boxStyle || 'box';
+
   // 背景
-  if (bgColor !== 'transparent') {
+  if (boxStyle !== 'none' && bgColor !== 'transparent') {
     ctx.fillStyle = bgColor;
     ctx.beginPath();
     ctx.rect(x - pad, y - pad, maxW + pad * 2, h + pad * 2);
     ctx.fill();
   }
-  // 枠線（角なし）
-  ctx.strokeStyle = textColor + '88';
-  ctx.lineWidth = 1 / App.vz;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.rect(x - pad, y - pad, maxW + pad * 2, h + pad * 2);
-  ctx.stroke();
+
+  // 枠線
+  if (boxStyle === 'box') {
+    ctx.strokeStyle = textColor + '88';
+    ctx.lineWidth = 1 / App.vz;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.rect(x - pad, y - pad, maxW + pad * 2, h + pad * 2);
+    ctx.stroke();
+  } else if (boxStyle === 'underline') {
+    ctx.strokeStyle = textColor + 'aa';
+    ctx.lineWidth = 1.2 / App.vz;
+    ctx.setLineDash([]);
+    lines.forEach((_, i) => {
+      const ly = y + i * lineH + lineH - pad * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(x - pad, ly);
+      ctx.lineTo(x + maxW + pad, ly);
+      ctx.stroke();
+    });
+  }
+  // boxStyle === 'none': 枠なし・背景なし
 
   // テキスト
   ctx.fillStyle = textColor;
@@ -1173,11 +1294,67 @@ function bindEvents() {
       sw.classList.add('active-swatch');
     });
   });
+
+  // 区画の線色スウォッチ（モーダル内）
+  document.querySelectorAll('#lot-border-swatches .border-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('#lot-border-swatches .border-swatch').forEach(s => {
+        s.style.outline = 'none'; s.classList.remove('active-border');
+      });
+      sw.style.outline = '2px solid #60a5fa';
+      sw.classList.add('active-border');
+    });
+  });
+
+  // 区画の線色スウォッチ（サイドバー - グローバル）
+  document.querySelectorAll('#lot-border-color-picker .border-gc-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      App.lotBorderColor = sw.dataset.bc;
+      document.querySelectorAll('#lot-border-color-picker .border-gc-swatch').forEach(s => {
+        s.style.outline = 'none'; s.classList.remove('active-border-gc');
+      });
+      sw.style.outline = '2px solid #60a5fa';
+      sw.classList.add('active-border-gc');
+      App.dirty = true;
+    });
+  });
+
+  // 文字枠スタイルボタン
+  document.querySelectorAll('.box-style-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      App.textOptions.boxStyle = btn.dataset.bs;
+      document.querySelectorAll('.box-style-btn').forEach(b => b.classList.remove('active-box-style'));
+      btn.classList.add('active-box-style');
+    });
+  });
+
+  // 用紙モード切り替えボタン
+  document.getElementById('btn-paper-mode')?.addEventListener('click', () => {
+    App.paperMode = !App.paperMode;
+    const btn = document.getElementById('btn-paper-mode');
+    btn.classList.toggle('active-mode', App.paperMode);
+    if (App.paperMode) fitPaperToView();
+    App.dirty = true;
+  });
+  document.getElementById('btn-paper-a4')?.addEventListener('click', () => {
+    App.paperSize = 'A4'; App.paperW = 891; App.paperH = 630;
+    App.paperMode = true;
+    document.getElementById('btn-paper-mode')?.classList.add('active-mode');
+    document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A4'));
+    fitPaperToView(); App.dirty = true;
+  });
+  document.getElementById('btn-paper-a3')?.addEventListener('click', () => {
+    App.paperSize = 'A3'; App.paperW = 1260; App.paperH = 891;
+    App.paperMode = true;
+    document.getElementById('btn-paper-mode')?.classList.add('active-mode');
+    document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A3'));
+    fitPaperToView(); App.dirty = true;
+  });
 }
 
 // ===== マウスイベント =====
 function onMouseDown(e) {
-  if (!App.pdfReady) return;
+  if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
 
@@ -1528,7 +1705,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if (!App.pdfReady) return;
+  if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
 
   if (App.panning) {
@@ -1683,7 +1860,7 @@ function onMouseUp(e) {
 }
 
 function onDblClick(e) {
-  if (!App.pdfReady) return;
+  if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
 
@@ -1705,6 +1882,23 @@ function onDblClick(e) {
     // 計測モードのダブルクリックは共通処理へ落とす
     if (App.lotTool === 'measure') { /* fall through */ }
     else {
+      // label-moveツール時: テキスト注記をダブルクリックで編集
+      if (App.lotTool === 'label-move') {
+        const hit = hitLabel(sx, sy);
+        if (hit && hit.isText) {
+          const t = App.texts.find(t => t.id === hit.itemId);
+          if (t) {
+            App.editingTextId = t.id;
+            App.textOptions.fontSize = t.fontSize || 14;
+            App.textOptions.color    = t.color    || '#1a1a1a';
+            App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
+            App.textOptions.boxStyle = t.boxStyle  || 'box';
+            App.pendingTextPos = { x: t.x, y: t.y };
+            showTextInput(sx, sy, { x: t.x, y: t.y }, t.text);
+            return;
+          }
+        }
+      }
       const lot = hitLot(cp);
       if (lot) openLotEditor(lot.id);
       return;
@@ -1721,6 +1915,7 @@ function onDblClick(e) {
         App.textOptions.fontSize = t.fontSize || 14;
         App.textOptions.color    = t.color    || '#1a1a1a';
         App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
+        App.textOptions.boxStyle = t.boxStyle  || 'box';
         App.pendingTextPos = { x: t.x, y: t.y };
         showTextInput(sx, sy, { x: t.x, y: t.y }, t.text);
       }
@@ -1736,7 +1931,7 @@ function onDblClick(e) {
 
 function onWheel(e) {
   e.preventDefault();
-  if (!App.pdfReady) return;
+  if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
   const f = e.deltaY < 0 ? 1.12 : 0.89;
   const newZ = Math.max(0.05, Math.min(30, App.vz * f));
@@ -1962,7 +2157,7 @@ function showTextInputAt(clientX, clientY, existingText = '') {
 
 // メモパネルのUI（ボタン・スウォッチ）をApp.textOptionsと同期
 function syncMemoPanelUI() {
-  const { fontSize, color, bgColor } = App.textOptions;
+  const { fontSize, color, bgColor, boxStyle } = App.textOptions;
   const slider = document.getElementById('text-size-slider');
   if (slider) { slider.value = fontSize; }
   const val = document.getElementById('text-size-val');
@@ -1972,6 +2167,9 @@ function syncMemoPanelUI() {
   });
   document.querySelectorAll('#text-bg-swatches .color-swatch').forEach(b => {
     b.classList.toggle('active-swatch', b.dataset.bg === bgColor);
+  });
+  document.querySelectorAll('.box-style-btn').forEach(b => {
+    b.classList.toggle('active-box-style', b.dataset.bs === (boxStyle || 'box'));
   });
 }
 
@@ -1989,6 +2187,7 @@ function commitTextInput() {
         t.fontSize = opts.fontSize;
         t.color = opts.color;
         t.bgColor = opts.bgColor;
+        t.boxStyle = opts.boxStyle || 'box';
       }
       App.editingTextId = null;
     } else if (App.pendingCalloutTip) {
@@ -1999,7 +2198,7 @@ function commitTextInput() {
         tipX: App.pendingCalloutTip.x, tipY: App.pendingCalloutTip.y,
         x: App.pendingTextPos.x, y: App.pendingTextPos.y,
         text, fontSize: opts.fontSize,
-        color: opts.color, bgColor: opts.bgColor,
+        color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
       });
       App.pendingCalloutTip = null;
     } else {
@@ -2008,7 +2207,7 @@ function commitTextInput() {
         id: App.nextId++,
         x: App.pendingTextPos.x, y: App.pendingTextPos.y,
         text, fontSize: opts.fontSize,
-        color: opts.color, bgColor: opts.bgColor,
+        color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
       });
     }
     updateResults();
@@ -2093,6 +2292,7 @@ function updateResults() {
       App.textOptions.fontSize = t.fontSize || 14;
       App.textOptions.color    = t.color    || '#1a1a1a';
       App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
+      App.textOptions.boxStyle = t.boxStyle  || 'box';
       syncMemoPanelUI();
       // キャンバス中央付近に表示
       const cx = canvas.getBoundingClientRect().left + canvas.width / 2;
@@ -2189,6 +2389,10 @@ async function saveProjectJSON() {
     isImageMode: App.isImageMode,
     lots: App.lots,
     lotNextNum: App.lotNextNum,
+    lotBorderColor: App.lotBorderColor,
+    paperMode: App.paperMode,
+    paperSize: App.paperSize,
+    paperW: App.paperW, paperH: App.paperH,
     items: App.items,
     texts: App.texts,
     nextId: App.nextId,
@@ -2254,6 +2458,13 @@ function loadProjectJSON(file) {
       if (data.vx != null) { App.vx = data.vx; App.vy = data.vy; App.vz = data.vz; }
       App.lots       = data.lots       || [];
       App.lotNextNum = data.lotNextNum || 1;
+      if (data.lotBorderColor) App.lotBorderColor = data.lotBorderColor;
+      if (data.paperMode != null) {
+        App.paperMode = data.paperMode;
+        App.paperSize = data.paperSize || 'A4';
+        App.paperW    = data.paperW    || 891;
+        App.paperH    = data.paperH    || 630;
+      }
       App.items      = data.items      || [];
       App.texts      = data.texts      || [];
       const allIds = [...App.lots, ...App.items, ...App.texts].map(x => x.id || 0);
@@ -2554,11 +2765,8 @@ function setLotTool(tool) {
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('btn-edge-label-move')?.classList.toggle('active', tool === 'edge-label-move');
   document.getElementById('btn-lot-delete-tool')?.classList.toggle('active', tool === 'delete');
-  document.querySelectorAll('#tools-subdivision .tool-btn').forEach(b => {
-    b.classList.toggle('active',
-      (b.id === 'btn-lot-select' && tool === 'select') ||
-      (b.id === 'btn-lot-label-move' && tool === 'label-move'));
-  });
+  document.getElementById('btn-lot-select')?.classList.toggle('active', tool === 'select');
+  document.getElementById('btn-lot-label-move')?.classList.toggle('active', tool === 'label-move');
   updateHint();
   App.dirty = true;
 }
@@ -2573,7 +2781,7 @@ function setSubMeasureMode(mode) {
   ['btn-lot-draw','btn-road-draw','btn-lot-split','sub-btn-parallel'].forEach(id =>
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('parallel-panel').classList.add('hidden');
-  document.querySelectorAll('#tools-subdivision .tool-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#tools-subdivision .btn-lot-tool').forEach(b => b.classList.remove('active'));
   ['distance','polyline','area','arrow','text','callout'].forEach(m =>
     document.getElementById(`sub-btn-${m}`)?.classList.toggle('active', m === mode));
   updateHint();
@@ -2699,7 +2907,9 @@ function drawLot(lot) {
   ctx.fillStyle = isRoad ? (lot.color || '#94a3b8') + opHex : (lot.color || '#bfdbfe') + opHex;
   ctx.fill();
   const isMergeSelected = App.lotTool === 'merge' && App.mergeSelect.includes(lot.id);
-  ctx.strokeStyle = isMergeSelected ? '#f59e0b' : (isRoad ? '#64748b' : '#1d4ed8');
+  ctx.strokeStyle = isMergeSelected ? '#f59e0b'
+    : (isRoad ? (lot.borderColor || '#64748b')
+               : (lot.borderColor || App.lotBorderColor || '#1d4ed8'));
   ctx.lineWidth = (isMergeSelected ? 3 : 1.5) / App.vz;
   ctx.stroke();
 
@@ -3896,6 +4106,13 @@ function openLotEditor(id) {
     document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(sw => {
       sw.classList.toggle('active-swatch', sw.dataset.lotcolor === lot.color);
     });
+    // 線の色
+    const bc = lot.borderColor || App.lotBorderColor || '#1d4ed8';
+    document.querySelectorAll('#lot-border-swatches .border-swatch').forEach(sw => {
+      const isSel = sw.dataset.bc === bc;
+      sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
+      sw.classList.toggle('active-border', isSel);
+    });
   }
   document.getElementById('lot-edit-modal').classList.remove('hidden');
 }
@@ -4030,6 +4247,8 @@ function commitLotEdit() {
     lot.memo  = document.getElementById('lot-edit-memo').value.trim();
     const sel = document.querySelector('#lot-color-swatches .color-swatch.active-swatch');
     if (sel) lot.color = sel.dataset.lotcolor;
+    const selB = document.querySelector('#lot-border-swatches .border-swatch.active-border');
+    if (selB) lot.borderColor = selB.dataset.bc;
   }
   document.getElementById('lot-edit-modal').classList.add('hidden');
   updateLotPanel(); App.dirty = true;
