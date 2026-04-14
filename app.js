@@ -1343,15 +1343,15 @@ function bindEvents() {
   // 用紙モード切り替えボタン（本図 ↔ 用紙）
   document.getElementById('btn-paper-mode')?.addEventListener('click', togglePaperMode);
   document.getElementById('btn-paper-a4')?.addEventListener('click', () => {
-    App.paperSize = 'A4';
+    App.paperSize = 'A4'; App.paperW = 891; App.paperH = 630;
     document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A4'));
-    if (!App.pdfReady) { App.paperW = 891; App.paperH = 630; if (App.paperMode) fitPaperToView(); }
+    if (App.paperMode) fitPaperToView();
     App.dirty = true;
   });
   document.getElementById('btn-paper-a3')?.addEventListener('click', () => {
-    App.paperSize = 'A3';
+    App.paperSize = 'A3'; App.paperW = 1260; App.paperH = 891;
     document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A3'));
-    if (!App.pdfReady) { App.paperW = 1260; App.paperH = 891; if (App.paperMode) fitPaperToView(); }
+    if (App.paperMode) fitPaperToView();
     App.dirty = true;
   });
 
@@ -1365,20 +1365,15 @@ function togglePaperMode() {
   if (App.paperMode) {
     btn.textContent = '本図に戻す';
     btn.classList.add('active-mode');
-    // PDF読み込み済みの場合: 同じ座標系をそのまま使う（区画がそのまま乗る）
-    if (App.pdfReady) {
-      App.paperW = App.pdfOffscreen.width;
-      App.paperH = App.pdfOffscreen.height;
-      // ビューポートはそのまま維持
-    } else {
-      // PDFなし: 選択サイズでフィット
-      if (App.paperSize === 'A3') { App.paperW = 1260; App.paperH = 891; }
-      else                         { App.paperW = 891;  App.paperH = 630; App.paperSize = 'A4'; }
-      fitPaperToView();
-    }
+    // 常に選択された用紙サイズ（横向き固定）を使用
+    if (App.paperSize === 'A3') { App.paperW = 1260; App.paperH = 891; }
+    else                         { App.paperW = 891;  App.paperH = 630; App.paperSize = 'A4'; }
+    fitPaperToView();
   } else {
     btn.textContent = '📄 用紙';
     btn.classList.remove('active-mode');
+    // 本図に戻すときPDFがあればPDFにフィット
+    if (App.pdfReady) fitToView();
   }
   App.dirty = true;
 }
