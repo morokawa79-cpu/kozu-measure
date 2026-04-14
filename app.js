@@ -438,7 +438,7 @@ function render() {
   // ラベルヒットボックスをリセット
   App.labelBoxes = [];
 
-  if (App.appMode === 'subdivision') drawLotsLayer();
+  drawLotsLayer();  // モードに関わらず常に描画
   App.items.forEach(item => drawItem(item, item.color));
   App.texts.forEach(t => drawTextAnnotation(t));
   if (App.pts.length > 0 || App.calibrating) drawInProgress();
@@ -563,7 +563,7 @@ function drawLotTable(t) {
   const fs = pfs(t.fontSize || 11);
   ctx.textBaseline = 'middle';
 
-  const cellPadX = 6 / App.vz;
+  const cellPadX = fs * 0.35;   // フォントに比例（ズームで伸びない）
   const lineH = fs * 1.7;
   const titleH = t.title ? lineH * 1.2 : 0;
 
@@ -2052,6 +2052,20 @@ function onWheel(e) {
   e.preventDefault();
   if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
+
+  // lot-table 上ならフォントサイズ変更（ズームせず）
+  const hit = hitLabel(sx, sy);
+  if (hit && hit.isText) {
+    const t = App.texts.find(t => t.id === hit.itemId && t.textType === 'lot-table');
+    if (t) {
+      const delta = e.deltaY < 0 ? 1 : -1;
+      t.fontSize = Math.max(6, Math.min(30, (t.fontSize || 11) + delta));
+      App.dirty = true;
+      return;
+    }
+  }
+
+  // 通常ズーム
   const f = e.deltaY < 0 ? 1.12 : 0.89;
   const newZ = Math.max(0.05, Math.min(30, App.vz * f));
   App.vx = sx - (sx - App.vx) * newZ / App.vz;
@@ -2204,6 +2218,7 @@ function undoLast() {
     texts: JSON.parse(JSON.stringify(App.texts)),
     lots: JSON.parse(JSON.stringify(App.lots)),
     lotNextNum: App.lotNextNum,
+    divGuides: JSON.parse(JSON.stringify(App.divGuides)),
   });
   const prev = App.undoStack.pop();
   App.items = prev.items;
@@ -2732,70 +2747,19 @@ function printMeasurements() {
   const size = App.paperMode ? `${App.paperSize} landscape` : (App.printSize || 'A3');
   const pageMargin = App.paperMode ? '0' : '10mm';
 
-  // 計測結果テーブル（面積は辺の長さも展開）
-  const rows = App.items.map((item, i) => {
-    const typeName = { distance: '直線距離', polyline: '折れ線距離', area: '面積' }[item.type];
-    const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${item.color};margin-right:6px;vertical-align:middle"></span>`;
-
-    let detail = `<b>${item.label}</b>`;
-
-    if (item.type === 'polyline' && item.segLabels && item.segLabels.length > 1) {
-      const segs = item.segLabels.map((l, j) => `区間${j+1}: ${l}`).join('　');
-      detail += `<br><span style="font-size:10pt;color:#555">${segs}</span>`;
-    }
-
-    if (item.type === 'area' && item.segLabels) {
-      const segs = item.segLabels.map((l, j) => `辺${j+1}: ${l}`).join('　');
-      detail += `<br><span style="font-size:10pt;color:#555">${segs}</span>`;
-    }
-
-    return `<tr>
-      <td style="text-align:center">${i+1}</td>
-      <td>${dot}${typeName}</td>
-      <td>${detail}</td>
-    </tr>`;
-  }).join('');
-
-  const memoRows = App.texts.map(t =>
-    `<tr><td colspan="3" style="color:#7a6000;background:#fffde7">📝 ${t.text}</td></tr>`
-  ).join('');
-
   const win = window.open('', '_blank');
   if (!win) { alert('ポップアップをブロックしています。許可してください。'); return; }
 
   win.document.write(`<!DOCTYPE html><html lang="ja"><head>
     <meta charset="UTF-8">
-    <title>公図_計測結果_${getDateTimeStr()}</title>
+    <title>公図_${getDateTimeStr()}</title>
     <style>
       @page { size: ${size}; margin: ${pageMargin}; }
-      body { margin: 0; font-family: 'Yu Gothic', 'Meiryo', sans-serif; }
-      img { width: 100%; height: auto; display: block; }
-      .result-table {
-        margin-top: 6mm;
-        border-collapse: collapse;
-        font-size: 11pt;
-        width: 100%;
-      }
-      .result-table th {
-        background: #1e293b; color: #fff;
-        padding: 5px 10px; text-align: left;
-      }
-      .result-table td {
-        border: 1px solid #ccc;
-        padding: 5px 10px;
-        vertical-align: top;
-        line-height: 1.6;
-      }
-      .result-table tr:nth-child(even) td { background: #f8fafc; }
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+      img { width: 100%; height: 100%; object-fit: contain; display: block; page-break-after: avoid; }
     </style>
   </head><body>
     <img src="${dataUrl}">
-    ${rows || memoRows ? `
-    <table class="result-table">
-      <tr><th style="width:30px">#</th><th style="width:100px">種類</th><th>計測値</th></tr>
-      ${rows}
-      ${memoRows}
-    </table>` : ''}
     <script>window.onload = function(){ window.print(); }<\/script>
   </body></html>`);
   win.document.close();
