@@ -71,11 +71,11 @@ const App = {
   // 印刷
   printSize: 'A3',
 
-  // 用紙モード
+  // 用紙モード（サイズはPDF座標系に合わせる: points × renderScale）
   paperMode: false,
   paperSize: 'A4',
-  paperW: 891,   // A4横: 297mm×3px
-  paperH: 630,
+  paperW: 3368,  // A4横: 842pt × renderScale(4)
+  paperH: 2380,  // A4横: 595pt × renderScale(4)
 
   // ===== 分譲地モード =====
   appMode: 'measure',      // 'measure' | 'subdivision'
@@ -256,6 +256,49 @@ function fitToView() {
   App.dirty = true;
 }
 
+// 全図形を用紙の中央に移動（用紙モード切り替え時に呼ぶ）
+function centerDrawingsOnPaper() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const addPt = (x, y) => {
+    if (x == null || y == null || !isFinite(x) || !isFinite(y)) return;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+  App.lots.forEach(l => { if (l.points) l.points.forEach(p => addPt(p.x, p.y)); });
+  App.items.forEach(i => {
+    if (i.points) i.points.forEach(p => addPt(p.x, p.y));
+    if (i.tipX != null) addPt(i.tipX, i.tipY);
+    if (i.labelPos) addPt(i.labelPos.x, i.labelPos.y);
+  });
+  App.texts.forEach(t => {
+    addPt(t.x, t.y);
+    if (t.tipX != null) addPt(t.tipX, t.tipY);
+  });
+  if (!isFinite(minX)) return; // 図形なし
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  // 用紙中央（タイトルブロック分を考慮して少し上寄り）
+  const px = App.paperW / 2;
+  const py = App.paperH * 0.44;
+  const dx = px - cx;
+  const dy = py - cy;
+
+  App.lots.forEach(l => {
+    if (l.points) l.points.forEach(p => { p.x += dx; p.y += dy; });
+  });
+  App.items.forEach(i => {
+    if (i.points) i.points.forEach(p => { p.x += dx; p.y += dy; });
+    if (i.tipX != null) { i.tipX += dx; i.tipY += dy; }
+    if (i.labelPos) { i.labelPos.x += dx; i.labelPos.y += dy; }
+    if (i.segLabelPos) i.segLabelPos.forEach(p => { if (p) { p.x += dx; p.y += dy; } });
+  });
+  App.texts.forEach(t => {
+    t.x += dx; t.y += dy;
+    if (t.tipX != null) { t.tipX += dx; t.tipY += dy; }
+  });
+}
+
 function fitPaperToView() {
   const cw = canvas.width, ch = canvas.height;
   const pw = App.paperW, ph = App.paperH;
@@ -270,6 +313,7 @@ function fitPaperToView() {
 // 用紙フレーム描画（canvas座標系）
 function drawPaperFrame() {
   const pw = App.paperW, ph = App.paperH;
+  const rs = App.renderScale || 4;  // 座標系スケール係数
   const lw = 1 / App.vz;
 
   // 白背景
@@ -280,18 +324,18 @@ function drawPaperFrame() {
   ctx.strokeStyle = '#334155';
   ctx.lineWidth = lw * 2;
   ctx.setLineDash([]);
-  ctx.beginPath(); ctx.rect(5, 5, pw - 10, ph - 10); ctx.stroke();
+  ctx.beginPath(); ctx.rect(5*rs, 5*rs, pw - 10*rs, ph - 10*rs); ctx.stroke();
 
-  // タイトルブロック高さ
-  const tbH = ph < 700 ? 42 : 50;
+  // タイトルブロック高さ（rs倍でスケール）
+  const tbH = 50 * rs;
   // 内枠（製図枠）
-  const mL = 22, mT = 12, mR = 10, mB = 10 + tbH;
+  const mL = 22*rs, mT = 12*rs, mR = 10*rs, mB = 10*rs + tbH;
   ctx.strokeStyle = '#1e3a5f';
   ctx.lineWidth = lw * 1.5;
   ctx.beginPath(); ctx.rect(mL, mT, pw - mL - mR, ph - mT - mB); ctx.stroke();
 
   // タイトルブロック（下部）
-  const tbY = ph - 10 - tbH;
+  const tbY = ph - 10*rs - tbH;
   const tbX = mL;
   const tbW = pw - mL - mR;
   ctx.strokeStyle = '#334155';
@@ -301,7 +345,7 @@ function drawPaperFrame() {
   ctx.beginPath(); ctx.rect(tbX, tbY, tbW, tbH); ctx.stroke();
 
   // メタ情報エリア（右側）
-  const metaW = Math.min(210, tbW * 0.35);
+  const metaW = Math.min(210*rs, tbW * 0.35);
   const metaX = tbX + tbW - metaW;
   ctx.beginPath(); ctx.moveTo(metaX, tbY); ctx.lineTo(metaX, tbY + tbH); ctx.stroke();
   const rowH = tbH / 3;
@@ -312,7 +356,7 @@ function drawPaperFrame() {
     ctx.stroke();
   });
   // ラベルフィールド区切り線
-  const lblW = 28;
+  const lblW = 28 * rs;
   [0,1,2].forEach(i => {
     ctx.beginPath();
     ctx.moveTo(metaX + lblW, tbY + rowH * i);
@@ -324,23 +368,22 @@ function drawPaperFrame() {
   ctx.fillStyle = '#94a3b8';
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-  const fsLbl = pfs(4.5);
-  const fsVal = pfs(4.5);
+  const fsLbl = pfs(4.5) * rs;
   ctx.font = `${fsLbl}px 'Segoe UI', sans-serif`;
   ['縮尺', '日付', '作成者'].forEach((lbl, i) => {
     ctx.fillText(lbl, metaX + lblW / 2, tbY + rowH * i + rowH / 2);
   });
   // 図面名称エリア
   ctx.fillStyle = '#cbd5e1';
-  ctx.font = `${pfs(6)}px 'Segoe UI', sans-serif`;
+  ctx.font = `${pfs(6) * rs}px 'Segoe UI', sans-serif`;
   ctx.fillText('図 面 名 称', tbX + (tbW - metaW) / 2, tbY + tbH / 2);
 
   // ページサイズ表示（右下隅）
   ctx.fillStyle = '#94a3b8';
-  ctx.font = `${pfs(4)}px 'Segoe UI', sans-serif`;
+  ctx.font = `${pfs(4) * rs}px 'Segoe UI', sans-serif`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(App.paperSize + '横', pw - 12, ph - 12);
+  ctx.fillText(App.paperSize + '横', pw - 12*rs, ph - 12*rs);
 }
 
 function s2c(sx, sy) {
@@ -1335,13 +1378,15 @@ function bindEvents() {
   // 用紙モード切り替えボタン（本図 ↔ 用紙）
   document.getElementById('btn-paper-mode')?.addEventListener('click', togglePaperMode);
   document.getElementById('btn-paper-a4')?.addEventListener('click', () => {
-    App.paperSize = 'A4'; App.paperW = 891; App.paperH = 630;
+    App.paperSize = 'A4';
+    const d = getPaperDims('A4'); App.paperW = d.w; App.paperH = d.h;
     document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A4'));
     if (App.paperMode) fitPaperToView();
     App.dirty = true;
   });
   document.getElementById('btn-paper-a3')?.addEventListener('click', () => {
-    App.paperSize = 'A3'; App.paperW = 1260; App.paperH = 891;
+    App.paperSize = 'A3';
+    const d = getPaperDims('A3'); App.paperW = d.w; App.paperH = d.h;
     document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A3'));
     if (App.paperMode) fitPaperToView();
     App.dirty = true;
@@ -1351,20 +1396,26 @@ function bindEvents() {
   document.getElementById('btn-move-all')?.addEventListener('click', () => setLotTool('move-all'));
 }
 
+function getPaperDims(size) {
+  // PDF座標系に合わせたサイズ（points × renderScale=4）
+  // A4横: 842×595pt, A3横: 1190×842pt
+  const rs = App.renderScale || 4;
+  if (size === 'A3') return { w: Math.round(1190 * rs), h: Math.round(842 * rs) };
+  return { w: Math.round(842 * rs), h: Math.round(595 * rs) };  // A4
+}
+
 function togglePaperMode() {
   App.paperMode = !App.paperMode;
   const btn = document.getElementById('btn-paper-mode');
   if (App.paperMode) {
     btn.textContent = '本図に戻す';
     btn.classList.add('active-mode');
-    // 常に選択された用紙サイズ（横向き固定）を使用
-    if (App.paperSize === 'A3') { App.paperW = 1260; App.paperH = 891; }
-    else                         { App.paperW = 891;  App.paperH = 630; App.paperSize = 'A4'; }
+    const d = getPaperDims(App.paperSize);
+    App.paperW = d.w; App.paperH = d.h;
     fitPaperToView();
   } else {
     btn.textContent = '📄 用紙';
     btn.classList.remove('active-mode');
-    // 本図に戻すときPDFがあればPDFにフィット
     if (App.pdfReady) fitToView();
   }
   App.dirty = true;
@@ -2530,8 +2581,10 @@ function loadProjectJSON(file) {
       if (data.paperMode != null) {
         App.paperMode = data.paperMode;
         App.paperSize = data.paperSize || 'A4';
-        App.paperW    = data.paperW    || 891;
-        App.paperH    = data.paperH    || 630;
+        // 保存データが古い場合はrenderScaleから再計算
+        const d = getPaperDims(App.paperSize);
+        App.paperW = (data.paperW && data.paperW > 1000) ? data.paperW : d.w;
+        App.paperH = (data.paperH && data.paperH > 700)  ? data.paperH : d.h;
       }
       App.items      = data.items      || [];
       App.texts      = data.texts      || [];
@@ -2644,24 +2697,40 @@ function openPrintModal() {
 function printMeasurements() {
   // 計測線・ラベルを合成した画像を作成
   const pc = document.createElement('canvas');
-  pc.width = App.pdfOffscreen.width;
-  pc.height = App.pdfOffscreen.height;
-  const pctx = pc.getContext('2d');
-  pctx.drawImage(App.pdfOffscreen, 0, 0);
-
   const origCtx = ctx;
-  ctx = pctx;
   const sv = [App.vz, App.vx, App.vy];
-  App.vz = 1; App.vx = 0; App.vy = 0;
-  App.labelBoxes = [];
-  App.lots.forEach(lot => drawLot(lot));
-  App.items.forEach(item => drawItem(item, item.color));
-  App.texts.forEach(t => drawTextAnnotation(t));
+
+  if (App.paperMode) {
+    // 用紙モード: 用紙フレーム + 図形を描画
+    pc.width = App.paperW;
+    pc.height = App.paperH;
+    ctx = pc.getContext('2d');
+    App.vz = 1; App.vx = 0; App.vy = 0;
+    drawPaperFrame();
+    App.labelBoxes = [];
+    App.lots.forEach(lot => drawLot(lot));
+    App.items.forEach(item => drawItem(item, item.color));
+    App.texts.forEach(t => drawTextAnnotation(t));
+  } else {
+    // 本図モード: PDF + 図形を描画
+    pc.width = App.pdfOffscreen.width;
+    pc.height = App.pdfOffscreen.height;
+    ctx = pc.getContext('2d');
+    ctx.drawImage(App.pdfOffscreen, 0, 0);
+    App.vz = 1; App.vx = 0; App.vy = 0;
+    App.labelBoxes = [];
+    App.lots.forEach(lot => drawLot(lot));
+    App.items.forEach(item => drawItem(item, item.color));
+    App.texts.forEach(t => drawTextAnnotation(t));
+  }
+
   ctx = origCtx;
   [App.vz, App.vx, App.vy] = sv;
 
   const dataUrl = pc.toDataURL('image/png');
-  const size = App.printSize || 'A3';
+  // 用紙モードは用紙サイズ横向き・余白なし、本図モードはA3
+  const size = App.paperMode ? `${App.paperSize} landscape` : (App.printSize || 'A3');
+  const pageMargin = App.paperMode ? '0' : '10mm';
 
   // 計測結果テーブル（面積は辺の長さも展開）
   const rows = App.items.map((item, i) => {
@@ -2698,7 +2767,7 @@ function printMeasurements() {
     <meta charset="UTF-8">
     <title>公図_計測結果_${getDateTimeStr()}</title>
     <style>
-      @page { size: ${size}; margin: 10mm; }
+      @page { size: ${size}; margin: ${pageMargin}; }
       body { margin: 0; font-family: 'Yu Gothic', 'Meiryo', sans-serif; }
       img { width: 100%; height: auto; display: block; }
       .result-table {

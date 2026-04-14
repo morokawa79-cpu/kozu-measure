@@ -91,13 +91,14 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: #0f2d4a;
   border: 1px solid #1d4ed8;
   color: #93c5fd;
-  padding: 4px 10px;
-  border-radius: 4px;
+  padding: 3px 12px;
+  border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   user-select: none;
+  letter-spacing: 0.02em;
 }
-.scale-badge:hover { background: #1e3a5f; border-color: #3b82f6; }
+.scale-badge:hover { background: #1e3a5f; border-color: #60a5fa; color: #bfdbfe; }
 .scale-badge.unset {
   background: #3b0a0a;
   border-color: #dc2626;
