@@ -78,15 +78,6 @@
         </svg>
         <span>面積</span>
       </button>
-      <button class="tool-btn toggle-on" id="btn-side-lengths" title="面積の辺の長さ表示ON/OFF">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="4" y1="12" x2="20" y2="12"/>
-          <line x1="4" y1="10" x2="4" y2="14"/>
-          <line x1="20" y1="10" x2="20" y2="14"/>
-          <text x="12" y="9" text-anchor="middle" font-size="5" fill="currentColor" stroke="none">m</text>
-        </svg>
-        <span>辺の長さ</span>
-      </button>
       <div class="tool-divider"></div>
       <div class="tool-section-label">操作</div>
       <button class="tool-btn" data-mode="pan">
@@ -123,6 +114,13 @@
         <span>引出線</span>
       </button>
       <div class="tool-divider"></div>
+      <button class="tool-btn" data-mode="delete" id="btn-measure-delete" style="color:#f87171">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+        </svg>
+        <span>削除</span>
+      </button>
+      <div class="tool-divider"></div>
       <button class="tool-btn" id="btn-undo-side">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9,14 4,9 9,4"/>
@@ -130,6 +128,12 @@
         </svg>
         <span>1点戻す</span>
       </button>
+      <div class="tool-divider"></div>
+      <div class="tool-section-label">注記サイズ</div>
+      <div style="padding:2px 6px 6px">
+        <input type="range" id="measure-text-scale-slider" min="0.1" max="2.0" step="0.05" value="0.9" style="width:100%;accent-color:#3b82f6">
+        <div style="text-align:right;font-size:11px;color:#60a5fa"><span id="measure-text-scale-val">0.9×</span></div>
+      </div>
       <div class="tool-divider"></div>
       <button class="tool-btn toggle-on" id="btn-measure-snap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -296,9 +300,9 @@
         <input type="range" id="edge-scale-slider" min="0.4" max="2.0" step="0.05" value="1.0" style="width:100%;accent-color:#3b82f6">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;margin-bottom:2px">
           <span style="font-size:11px;color:#94a3b8">測定・注記</span>
-          <span id="sub-measure-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">0.5×</span>
+          <span id="sub-measure-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">0.9×</span>
         </div>
-        <input type="range" id="sub-measure-scale-slider" min="0.1" max="1.5" step="0.05" value="0.5" style="width:100%;accent-color:#3b82f6">
+        <input type="range" id="sub-measure-scale-slider" min="0.1" max="1.5" step="0.05" value="0.9" style="width:100%;accent-color:#3b82f6">
       </div>
 
       <!-- ── 使用色 ── -->

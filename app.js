@@ -38,7 +38,6 @@ const App = {
   undoStack: [],  // [{items, texts}]
   redoStack: [],
 
-  // 面積の辺の長さ表示
   showSideLengths: true,
 
   // キャリブレーション
@@ -90,7 +89,7 @@ const App = {
   lotFillOpacity: 0.73,      // 区画塗り色の不透明度（0〜1）
   lotTextScale: 1.4,         // ラベル文字サイズ倍率（番号・面積）
   lotEdgeScale: 1.0,         // 寸法線テキストサイズ倍率
-  subMeasureScale: 0.5,      // 測定・注記テキストサイズ倍率
+  subMeasureScale: 0.9,      // 測定・注記テキストサイズ倍率
   lotShowEdgeLengths: true,  // 辺の長さ表示ON/OFF
   divGuideN: 2,              // 均等分割数
   divGuides: [],             // [{id,p1,p2,n}]
@@ -917,14 +916,6 @@ function bindEvents() {
   document.querySelectorAll('.tool-btn[data-mode]').forEach(btn =>
     btn.addEventListener('click', () => setMode(btn.dataset.mode)));
 
-  // 辺の長さトグル
-  document.getElementById('btn-side-lengths').addEventListener('click', () => {
-    App.showSideLengths = !App.showSideLengths;
-    const btn = document.getElementById('btn-side-lengths');
-    btn.classList.toggle('toggle-on', App.showSideLengths);
-    btn.classList.toggle('toggle-off', !App.showSideLengths);
-    App.dirty = true;
-  });
 
   // 1点戻す (サイドバー)
   document.getElementById('btn-undo-side').addEventListener('click', undoLast);
@@ -1208,12 +1199,20 @@ function bindEvents() {
     if (disp) disp.textContent = e.target.value + '%';
     App.dirty = true;
   });
-  document.getElementById('sub-measure-scale-slider')?.addEventListener('input', e => {
+  const onSubMeasureScale = e => {
     App.subMeasureScale = parseFloat(e.target.value);
-    const disp = document.getElementById('sub-measure-scale-val');
-    if (disp) disp.textContent = parseFloat(e.target.value).toFixed(1) + '×';
+    ['sub-measure-scale-val', 'measure-text-scale-val'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = parseFloat(e.target.value).toFixed(1) + '×';
+    });
+    ['sub-measure-scale-slider', 'measure-text-scale-slider'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el !== e.target) el.value = e.target.value;
+    });
     App.dirty = true;
-  });
+  };
+  document.getElementById('sub-measure-scale-slider')?.addEventListener('input', onSubMeasureScale);
+  document.getElementById('measure-text-scale-slider')?.addEventListener('input', onSubMeasureScale);
 
   // 分譲地内 矢印・文字・引出線
   document.getElementById('sub-btn-arrow').addEventListener('click', () => setSubMeasureMode('arrow'));
@@ -1475,6 +1474,7 @@ function onMouseDown(e) {
         } else {
           App.items = App.items.filter(i => i.id !== hit.itemId);
         }
+        updateResults();
         App.dirty = true;
         return;
       }
@@ -1725,6 +1725,22 @@ function onMouseDown(e) {
     return;
   }
   if (e.button !== 0) return;
+
+  // 削除モード（計測モード）
+  if (App.mode === 'delete') {
+    const hit = hitLabel(sx, sy);
+    if (hit) {
+      saveState();
+      if (hit.isText) {
+        App.texts = App.texts.filter(t => t.id !== hit.itemId);
+      } else {
+        App.items = App.items.filter(i => i.id !== hit.itemId);
+      }
+      updateResults();
+      App.dirty = true;
+    }
+    return;
+  }
 
   // 移動モード (select)
   if (App.mode === 'select') {
