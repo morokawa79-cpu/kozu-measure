@@ -115,6 +115,11 @@ const App = {
   cornerCutIdx: -1,      // 隅切り対象の頂点インデックス
   dragLotOrigPoints: null, // ドラッグ開始時の区画頂点コピー
   dragLotOrigCen: null,    // ドラッグ開始時の重心
+  moveAllDragging: false,  // 全体移動ドラッグ中
+  moveAllStartX: 0, moveAllStartY: 0,  // 開始キャンバス座標
+  moveAllOrigLots: null,   // 開始時の区画データコピー
+  moveAllOrigItems: null,  // 開始時の計測データコピー
+  moveAllOrigTexts: null,  // 開始時のテキストデータコピー
 
   dirty: true,
 };
@@ -129,6 +134,7 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', resizeCanvas);
   bindEvents();
   setMode('distance');
+  setScaleDisplay('縮尺: 未設定');  // ボタンラベルを初期化
   renderLoop();
 });
 
@@ -234,6 +240,12 @@ function setScaleDisplay(text) {
   el.textContent = text;
   const isUnset = !App.mpp;
   el.classList.toggle('unset', isUnset);
+  // 縮尺クイックボタンのラベルを動的更新
+  const btn500 = document.getElementById('btn-scale-500');
+  if (btn500) {
+    btn500.textContent = App.mapScale ? `1/${App.mapScale}` : '縮尺選択';
+    btn500.classList.toggle('active-scale', !!App.mpp);
+  }
 }
 
 // ===== ビューポート =====
@@ -1328,28 +1340,47 @@ function bindEvents() {
     });
   });
 
-  // 用紙モード切り替えボタン
-  document.getElementById('btn-paper-mode')?.addEventListener('click', () => {
-    App.paperMode = !App.paperMode;
-    const btn = document.getElementById('btn-paper-mode');
-    btn.classList.toggle('active-mode', App.paperMode);
-    if (App.paperMode) fitPaperToView();
+  // 用紙モード切り替えボタン（本図 ↔ 用紙）
+  document.getElementById('btn-paper-mode')?.addEventListener('click', togglePaperMode);
+  document.getElementById('btn-paper-a4')?.addEventListener('click', () => {
+    App.paperSize = 'A4';
+    document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A4'));
+    if (!App.pdfReady) { App.paperW = 891; App.paperH = 630; if (App.paperMode) fitPaperToView(); }
     App.dirty = true;
   });
-  document.getElementById('btn-paper-a4')?.addEventListener('click', () => {
-    App.paperSize = 'A4'; App.paperW = 891; App.paperH = 630;
-    App.paperMode = true;
-    document.getElementById('btn-paper-mode')?.classList.add('active-mode');
-    document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A4'));
-    fitPaperToView(); App.dirty = true;
-  });
   document.getElementById('btn-paper-a3')?.addEventListener('click', () => {
-    App.paperSize = 'A3'; App.paperW = 1260; App.paperH = 891;
-    App.paperMode = true;
-    document.getElementById('btn-paper-mode')?.classList.add('active-mode');
+    App.paperSize = 'A3';
     document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === 'A3'));
-    fitPaperToView(); App.dirty = true;
+    if (!App.pdfReady) { App.paperW = 1260; App.paperH = 891; if (App.paperMode) fitPaperToView(); }
+    App.dirty = true;
   });
+
+  // 全体移動ツール
+  document.getElementById('btn-move-all')?.addEventListener('click', () => setLotTool('move-all'));
+}
+
+function togglePaperMode() {
+  App.paperMode = !App.paperMode;
+  const btn = document.getElementById('btn-paper-mode');
+  if (App.paperMode) {
+    btn.textContent = '本図に戻す';
+    btn.classList.add('active-mode');
+    // PDF読み込み済みの場合: 同じ座標系をそのまま使う（区画がそのまま乗る）
+    if (App.pdfReady) {
+      App.paperW = App.pdfOffscreen.width;
+      App.paperH = App.pdfOffscreen.height;
+      // ビューポートはそのまま維持
+    } else {
+      // PDFなし: 選択サイズでフィット
+      if (App.paperSize === 'A3') { App.paperW = 1260; App.paperH = 891; }
+      else                         { App.paperW = 891;  App.paperH = 630; App.paperSize = 'A4'; }
+      fitPaperToView();
+    }
+  } else {
+    btn.textContent = '📄 用紙';
+    btn.classList.remove('active-mode');
+  }
+  App.dirty = true;
 }
 
 // ===== マウスイベント =====
@@ -1375,6 +1406,18 @@ function onMouseDown(e) {
         document.getElementById('calibration-modal').classList.remove('hidden');
         return;
       }
+    }
+    // 全体移動モード
+    if (App.lotTool === 'move-all') {
+      saveState();
+      App.moveAllDragging = true;
+      App.moveAllStartX = cp.x;
+      App.moveAllStartY = cp.y;
+      App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({ ...p })) : null, lox: l.labelOffX || 0, loy: l.labelOffY || 0, sbx: l.setbackOffX || 0, sby: l.setbackOffY || 0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
+      App.moveAllOrigItems = App.items.map(i => ({ id: i.id, pts: i.points ? i.points.map(p => ({ ...p })) : null, x1: i.x1, y1: i.y1, x2: i.x2, y2: i.y2, tipX: i.tipX, tipY: i.tipY, ox: i.offsetX, oy: i.offsetY }));
+      App.moveAllOrigTexts = App.texts.map(t => ({ id: t.id, x: t.x, y: t.y, tipX: t.tipX, tipY: t.tipY }));
+      canvas.style.cursor = 'grabbing';
+      return;
     }
     // 削除モード
     if (App.lotTool === 'delete') {
@@ -1746,6 +1789,38 @@ function onMouseMove(e) {
       }
       return;
     }
+    // 全体移動ドラッグ
+    if (App.moveAllDragging) {
+      const dx = cp.x - App.moveAllStartX;
+      const dy = cp.y - App.moveAllStartY;
+      // 区画
+      App.lots.forEach(lot => {
+        const orig = App.moveAllOrigLots.find(o => o.id === lot.id);
+        if (!orig) return;
+        if (lot.points && orig.pts) lot.points.forEach((p, i) => { p.x = orig.pts[i].x + dx; p.y = orig.pts[i].y + dy; });
+        lot.labelOffX = orig.lox; lot.labelOffY = orig.loy;
+        lot.setbackOffX = orig.sbx; lot.setbackOffY = orig.sby;
+        if (lot.edgeLabelOffsets && orig.elofs) lot.edgeLabelOffsets = JSON.parse(JSON.stringify(orig.elofs));
+      });
+      // 計測アイテム
+      App.items.forEach(item => {
+        const orig = App.moveAllOrigItems.find(o => o.id === item.id);
+        if (!orig) return;
+        if (item.points && orig.pts) item.points.forEach((p, i) => { p.x = orig.pts[i].x + dx; p.y = orig.pts[i].y + dy; });
+        if (orig.x1 != null) { item.x1 = orig.x1 + dx; item.y1 = orig.y1 + dy; item.x2 = orig.x2 + dx; item.y2 = orig.y2 + dy; }
+        if (orig.tipX != null) { item.tipX = orig.tipX + dx; item.tipY = orig.tipY + dy; }
+        if (orig.ox != null) { item.offsetX = orig.ox; item.offsetY = orig.oy; }
+      });
+      // テキスト
+      App.texts.forEach(t => {
+        const orig = App.moveAllOrigTexts.find(o => o.id === t.id);
+        if (!orig) return;
+        t.x = orig.x + dx; t.y = orig.y + dy;
+        if (orig.tipX != null) { t.tipX = orig.tipX + dx; t.tipY = orig.tipY + dy; }
+      });
+      App.dirty = true;
+      return;
+    }
     if (App.draggingLotLabelId !== null) {
       const lot = App.lots.find(l => l.id === App.draggingLotLabelId);
       if (lot) {
@@ -1835,6 +1910,12 @@ function onMouseUp(e) {
   if (App.panning) {
     App.panning = false;
     canvas.style.cursor = getCursor();
+  }
+  if (App.moveAllDragging) {
+    App.moveAllDragging = false;
+    App.moveAllOrigLots = null; App.moveAllOrigItems = null; App.moveAllOrigTexts = null;
+    canvas.style.cursor = 'grab';
+    updateLotPanel(); App.dirty = true;
   }
   if (App.draggingId !== null) {
     App.draggingId = null;
@@ -2748,8 +2829,8 @@ function setLotTool(tool) {
   App.mergeSelect = [];
   // 選択分割以外のツールに切り替えたらクリアUIをリセット
   if (tool !== 'split') { App.splitTargetId = null; updateSplitUI(); }
-  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'merge' || tool === 'corner-cut' || tool === 'edge-label-move' || tool === 'delete') ? 'select' : 'draw';
-  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : 'crosshair';
+  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'edge-label-move' || tool === 'delete') ? 'select' : 'draw';
+  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : (tool === 'move-all' ? 'grab' : 'crosshair');
   document.getElementById('btn-divguide')?.classList.toggle('active', tool === 'divguide');
   document.getElementById('divguide-panel')?.classList.toggle('hidden', tool !== 'divguide');
   document.getElementById('btn-lot-draw').classList.toggle('active', tool === 'draw');
@@ -2767,6 +2848,7 @@ function setLotTool(tool) {
   document.getElementById('btn-lot-delete-tool')?.classList.toggle('active', tool === 'delete');
   document.getElementById('btn-lot-select')?.classList.toggle('active', tool === 'select');
   document.getElementById('btn-lot-label-move')?.classList.toggle('active', tool === 'label-move');
+  document.getElementById('btn-move-all')?.classList.toggle('active', tool === 'move-all');
   updateHint();
   App.dirty = true;
 }
