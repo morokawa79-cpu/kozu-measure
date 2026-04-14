@@ -95,7 +95,9 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
+  user-select: none;
 }
+.scale-badge:hover { background: #1e3a5f; border-color: #3b82f6; }
 .scale-badge.unset {
   background: #3b0a0a;
   border-color: #dc2626;

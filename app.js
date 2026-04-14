@@ -240,12 +240,6 @@ function setScaleDisplay(text) {
   el.textContent = text;
   const isUnset = !App.mpp;
   el.classList.toggle('unset', isUnset);
-  // 縮尺クイックボタンのラベルを動的更新
-  const btn500 = document.getElementById('btn-scale-500');
-  if (btn500) {
-    btn500.textContent = App.mapScale ? `1/${App.mapScale}` : '縮尺選択';
-    btn500.classList.toggle('active-scale', !!App.mpp);
-  }
 }
 
 // ===== ビューポート =====
@@ -939,11 +933,9 @@ function bindEvents() {
     document.getElementById('calibration-dist-modal').classList.add('hidden'));
   document.getElementById('btn-apply-calibration').addEventListener('click', applyCalibrationDist);
 
-  // 縮尺500 クイックボタン（ツールバー）
-  document.getElementById('btn-scale-500').addEventListener('click', () => {
-    setMapScale(500);
-    setScaleDisplay('縮尺 1/500');
-    document.getElementById('btn-scale-500').classList.add('active-scale');
+  // scale-display バッジをクリックで縮尺設定を開く
+  document.getElementById('scale-display').addEventListener('click', () => {
+    document.getElementById('calibration-modal').classList.remove('hidden');
   });
 
   // 縮尺プリセット（モーダル内）
