@@ -132,11 +132,12 @@ const App = {
   draggingLotVertex: null,  // { lotId, ptIndex } 区画の頂点
 
   // ラベル編集
-  editingLabelItem: null,  // 編集中の計測アイテム（null = 区画辺編集）
-  editingLabelKey: null,   // 'main' | 'seg0' | 'seg1' ...
-  editingLotId: null,      // 区画辺編集中の区画ID
-  editingLotEdgeIdx: null, // 区画辺編集中の辺インデックス
-  _hoverLabelKey: null,    // ホバー中ラベルのkey（itemId_labelKey形式）
+  editingLabelItem: null,    // 編集中の計測アイテム（null = 区画辺編集）
+  editingLabelKey: null,     // 'main' | 'seg0' | 'seg1' ...
+  editingLotId: null,        // 区画辺/中央ラベル編集中の区画ID
+  editingLotEdgeIdx: null,   // 区画辺編集中の辺インデックス
+  editingLotCenterKey: null, // 区画中央ラベル編集キー ('area' | 'tsubo')
+  _hoverLabelKey: null,      // ホバー中ラベルのkey（itemId_labelKey形式）
 
   dirty: true,
 };
@@ -1920,6 +1921,10 @@ function onMouseDown(e) {
         // 区画辺ラベル編集
         const lot = App.lots.find(l => l.id === hit.lotId);
         if (lot) openLotEdgeLabelEditor(lot, hit.edgeIdx, sx, sy);
+      } else if (hit.isLotCenter) {
+        // 区画中央ラベル編集（㎡/坪）
+        const lot = App.lots.find(l => l.id === hit.lotId);
+        if (lot) openLotCenterLabelEditor(lot, hit.centerKey, sx, sy);
       } else if (!hit.isText) {
         // 計測アイテムラベル編集
         const item = App.items.find(i => i.id === hit.itemId);
@@ -2157,6 +2162,8 @@ function onMouseMove(e) {
     const hit = hitLabel(sx, sy);
     const newKey = hit ? (hit.isLotEdge
       ? (hit.lotId + '_lotedge' + hit.edgeIdx)
+      : hit.isLotCenter
+      ? (hit.lotId + '_' + hit.centerKey)
       : (hit.itemId + '_' + hit.labelKey)) : null;
     if (App._hoverLabelKey !== newKey) {
       App._hoverLabelKey = newKey;
@@ -2391,11 +2398,27 @@ function openLabelEditor(item, labelKey, sx, sy) {
   showLabelEditOverlay(currentText, sx, sy);
 }
 
+function openLotCenterLabelEditor(lot, centerKey, sx, sy) {
+  App.editingLabelItem = null; App.editingLabelKey = null;
+  App.editingLotId = lot.id;
+  App.editingLotEdgeIdx = null;
+  App.editingLotCenterKey = centerKey;
+  const sqm = App.mpp ? shoelace(lot.points) * App.mpp * App.mpp : null;
+  let currentText = '';
+  if (centerKey === 'area') {
+    currentText = lot.customAreaLabel != null ? lot.customAreaLabel : (sqm ? sqm.toFixed(1) + '㎡' : '');
+  } else {
+    currentText = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : '');
+  }
+  showLabelEditOverlay(currentText, sx, sy);
+}
+
 function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
   App.editingLabelItem = null;
   App.editingLabelKey = null;
   App.editingLotId = lot.id;
   App.editingLotEdgeIdx = edgeIdx;
+  App.editingLotCenterKey = null;
 
   let currentText = '';
   if (lot.customEdgeLabels && lot.customEdgeLabels[edgeIdx] != null) {
@@ -2403,7 +2426,7 @@ function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
   } else if (App.mpp) {
     const p1 = lot.points[edgeIdx];
     const p2 = lot.points[(edgeIdx + 1) % lot.points.length];
-    currentText = (dist(p1, p2) * App.mpp).toFixed(2) + 'm';
+    currentText = formatEdge(dist(p1, p2) * App.mpp);
   }
   showLabelEditOverlay(currentText, sx, sy);
 }
@@ -2419,6 +2442,13 @@ function confirmLabelEdit() {
     if (lot) {
       if (!lot.customEdgeLabels) lot.customEdgeLabels = {};
       lot.customEdgeLabels[App.editingLotEdgeIdx] = val === '' ? null : val;
+    }
+  } else if (App.editingLotId !== null && App.editingLotCenterKey !== null) {
+    // 区画中央ラベル（㎡/坪）
+    const lot = App.lots.find(l => l.id === App.editingLotId);
+    if (lot) {
+      if (App.editingLotCenterKey === 'area')  lot.customAreaLabel  = val === '' ? null : val;
+      if (App.editingLotCenterKey === 'tsubo') lot.customTsuboLabel = val === '' ? null : val;
     }
   } else if (App.editingLabelItem) {
     // 計測アイテムラベル
@@ -2436,6 +2466,7 @@ function confirmLabelEdit() {
   App.editingLabelItem = null;
   App.editingLabelKey = null;
   App.editingLotId = null;
+  App.editingLotCenterKey = null;
   App.editingLotEdgeIdx = null;
   document.getElementById('label-edit-overlay').style.display = 'none';
   App.dirty = true;
@@ -2446,6 +2477,7 @@ function cancelLabelEdit() {
   App.editingLabelKey = null;
   App.editingLotId = null;
   App.editingLotEdgeIdx = null;
+  App.editingLotCenterKey = null;
   const overlay = document.getElementById('label-edit-overlay');
   if (overlay) overlay.style.display = 'none';
 }
@@ -3474,14 +3506,16 @@ function drawLot(lot) {
   const fsSm  = pfs(9)  * ts;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
+  // カスタムラベル対応（空欄nullでリセット）
+  const areaText  = lot.customAreaLabel  != null ? lot.customAreaLabel  : (sqm ? sqm.toFixed(1) + '㎡' : null);
+  const tsuboText = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : null);
+
   const lines = [
-    ...(App.showLotNumbers ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8' }] : []),
-    ...(sqm ? [
-      { text: sqm.toFixed(1) + '㎡', fs: fsSm, color: '#1e293b' },
-      { text: (sqm * 0.3025).toFixed(1) + '坪', fs: fsSm, color: '#475569' },
-    ] : []),
-    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309' }] : []),
-    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85, color: '#64748b' }] : []),
+    ...(App.showLotNumbers ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
+    ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b', editKey: 'area'  }] : []),
+    ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: lot.customTsuboLabel != null ? '#f59e0b' : '#475569', editKey: 'tsubo' }] : []),
+    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309', editKey: null }] : []),
+    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85,color: '#64748b', editKey: null }] : []),
   ];
 
   const lx = cen.x + (lot.labelOffX || 0);
@@ -3489,12 +3523,35 @@ function drawLot(lot) {
   const lineH = fsNum * 1.1;
   const smH   = fsSm * 1.3;
   let totalH = lineH + (lines.length - 1) * smH;
-  let cy = ly - totalH / 2 + lineH / 2;
+  let lineY = ly - totalH / 2 + lineH / 2;
   lines.forEach((ln, i) => {
     ctx.font = `bold ${ln.fs}px 'Segoe UI', sans-serif`;
+    // ラベル編集モード中はクリック可能ラベルをハイライト
+    if (App.mode === 'label-edit' && ln.editKey) {
+      const tw = ctx.measureText(ln.text).width;
+      const hw = tw / 2 + 6 / App.vz, hh = ln.fs * 0.75;
+      const isHov = App._hoverLabelKey === (lot.id + '_' + ln.editKey);
+      ctx.fillStyle = isHov ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.1)';
+      ctx.fillRect(lx - hw, lineY - hh, hw * 2, hh * 2);
+      ctx.strokeStyle = isHov ? '#3b82f6' : '#93c5fd';
+      ctx.lineWidth = (isHov ? 1.5 : 1) / App.vz;
+      ctx.setLineDash([3 / App.vz, 3 / App.vz]);
+      ctx.strokeRect(lx - hw, lineY - hh, hw * 2, hh * 2);
+      ctx.setLineDash([]);
+      // ヒットボックス登録（label-editモードのみ）
+      const scx2 = lx * App.vz + App.vx, scy2 = lineY * App.vz + App.vy;
+      const shw = hw * App.vz + 8, shh = hh * App.vz + 8;
+      App.labelBoxes.push({
+        itemId: lot.id, labelKey: ln.editKey,
+        isText: false, isLotCenter: true,
+        lotId: lot.id, centerKey: ln.editKey,
+        cx: lx, cy: lineY,
+        sx: scx2 - shw, sy: scy2 - shh, sw: shw * 2, sh: shh * 2,
+      });
+    }
     ctx.fillStyle = ln.color;
-    ctx.fillText(ln.text, lx, cy);
-    cy += i === 0 ? lineH : smH;
+    ctx.fillText(ln.text, lx, lineY);
+    lineY += i === 0 ? lineH : smH;
   });
 
   // 辺の寸法テキスト（辺と平行・辺の外側にオフセット）
@@ -3516,9 +3573,9 @@ function drawLot(lot) {
       const userOff = (lot.edgeLabelOffsets && lot.edgeLabelOffsets[i]) || { dx: 0, dy: 0 };
       const lcx = mx + nx * offset + userOff.dx;
       const lcy = my + ny * offset + userOff.dy;
-      // カスタムラベル or 計算値
+      // カスタムラベル or 計算値（約表記対応）
       const edgeText = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null)
-        ? lot.customEdgeLabels[i] : (len * mpp).toFixed(2) + 'm';
+        ? lot.customEdgeLabels[i] : formatEdge(len * mpp);
       const scx = lcx * App.vz + App.vx;
       const scy = lcy * App.vz + App.vy;
       // テキスト幅に応じた十分な大きさのヒットボックス（回転テキストなので余裕を持たせる）
