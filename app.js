@@ -136,6 +136,7 @@ const App = {
   editingLabelKey: null,   // 'main' | 'seg0' | 'seg1' ...
   editingLotId: null,      // 区画辺編集中の区画ID
   editingLotEdgeIdx: null, // 区画辺編集中の辺インデックス
+  _hoverLabelKey: null,    // ホバー中ラベルのkey（itemId_labelKey形式）
 
   dirty: true,
 };
@@ -856,10 +857,24 @@ function drawLabel(x, y, text, color, fontSize, itemId, labelKey) {
   const pad = fontSize * 0.35;
   const w = tw + pad * 2, h = fontSize + pad * 2;
 
-  ctx.fillStyle = 'rgba(255,255,255,0.93)';
-  ctx.beginPath();
-  ctx.rect(x - w / 2, y - h / 2, w, h);
-  ctx.fill();
+  // ラベル編集モード中はクリック可能なことを視覚的に示す
+  if (App.mode === 'label-edit' && itemId !== undefined) {
+    const hovering = App._hoverLabelKey === (itemId + '_' + labelKey);
+    ctx.fillStyle = hovering ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.1)';
+    ctx.beginPath();
+    ctx.rect(x - w / 2, y - h / 2, w, h);
+    ctx.fill();
+    ctx.strokeStyle = hovering ? '#3b82f6' : '#93c5fd';
+    ctx.lineWidth = (hovering ? 1.5 : 1) / App.vz;
+    ctx.setLineDash([3 / App.vz, 3 / App.vz]);
+    ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+    ctx.setLineDash([]);
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.93)';
+    ctx.beginPath();
+    ctx.rect(x - w / 2, y - h / 2, w, h);
+    ctx.fill();
+  }
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
 
@@ -2137,6 +2152,19 @@ function onMouseMove(e) {
     canvas.style.cursor = App.draggingId !== null ? 'grabbing' : (hit ? 'grab' : 'default');
   }
 
+  // ラベル編集モード: ホバーでカーソル＆ハイライト変更
+  if (App.mode === 'label-edit') {
+    const hit = hitLabel(sx, sy);
+    const newKey = hit ? (hit.isLotEdge
+      ? (hit.lotId + '_lotedge' + hit.edgeIdx)
+      : (hit.itemId + '_' + hit.labelKey)) : null;
+    if (App._hoverLabelKey !== newKey) {
+      App._hoverLabelKey = newKey;
+      App.dirty = true;
+    }
+    canvas.style.cursor = hit ? 'pointer' : 'text';
+  }
+
   if (App.pts.length > 0 || App.calibrating) App.dirty = true;
 }
 
@@ -2297,6 +2325,7 @@ function hitLabel(sx, sy) {
 // ===== モード =====
 function setMode(mode) {
   cancelCurrent();
+  App._hoverLabelKey = null;
   App.mode = mode;
   document.querySelectorAll('.tool-btn[data-mode]').forEach(btn =>
     btn.classList.toggle('active', btn.dataset.mode === mode));
@@ -3239,6 +3268,7 @@ function setSubMeasureMode(mode) {
   App.lotPts = [];
   App.pts = [];
   App.parallelBase = null;
+  App._hoverLabelKey = null;
   App.lotTool = 'measure';
   App.mode = mode;
   canvas.style.cursor = 'crosshair';
@@ -3489,27 +3519,48 @@ function drawLot(lot) {
       // カスタムラベル or 計算値
       const edgeText = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null)
         ? lot.customEdgeLabels[i] : (len * mpp).toFixed(2) + 'm';
-      ctx.save();
-      ctx.translate(lcx, lcy);
+      const scx = lcx * App.vz + App.vx;
+      const scy = lcy * App.vz + App.vy;
+      // テキスト幅に応じた十分な大きさのヒットボックス（回転テキストなので余裕を持たせる）
+      const approxTw = edgeText.length * fsE * 0.62; // キャンバス座標での概算テキスト幅
+      const srW = Math.max(24, approxTw / 2 + fsE * 0.5); // 水平方向の半幅
+      const srH = Math.max(16, fsE * 1.2);                // 垂直方向の半高さ
+      // 回転角を考慮してAABBを計算
       let angle = Math.atan2(uy, ux);
       if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+      const cosA = Math.abs(Math.cos(angle)), sinA = Math.abs(Math.sin(angle));
+      const hitHalfW = Math.max(srH, srW * cosA + srH * sinA);
+      const hitHalfH = Math.max(srH, srW * sinA + srH * cosA);
+      const hitSW = hitHalfW * 2 * App.vz, hitSH = hitHalfH * 2 * App.vz;
+
+      const isHovering = App._hoverLabelKey === (lot.id + '_lotedge' + i);
+      ctx.save();
+      ctx.translate(lcx, lcy);
       ctx.rotate(angle);
+      // ラベル編集モード中はクリック可能ハイライトを表示
+      if (App.mode === 'label-edit') {
+        ctx.fillStyle = isHovering ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.1)';
+        ctx.fillRect(-srW, -srH, srW * 2, srH * 2);
+        ctx.strokeStyle = isHovering ? '#3b82f6' : '#93c5fd';
+        ctx.lineWidth = (isHovering ? 1.5 : 1) / App.vz;
+        ctx.setLineDash([3 / App.vz, 3 / App.vz]);
+        ctx.strokeRect(-srW, -srH, srW * 2, srH * 2);
+        ctx.setLineDash([]);
+      }
       ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
       ctx.fillStyle = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null) ? '#f59e0b' : '#334155';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(edgeText, 0, 0);
       ctx.restore();
-      // ラベル編集用ヒットボックスを登録
-      const scx = lcx * App.vz + App.vx;
-      const scy = lcy * App.vz + App.vy;
-      const sr = Math.max(16, fsE * App.vz * 0.8);
+      // ラベル編集用ヒットボックスを登録（AABBで回転後の範囲をカバー）
       App.labelBoxes.push({
         itemId: lot.id, labelKey: 'lotedge' + i,
         isText: false, isLotEdge: true,
         lotId: lot.id, edgeIdx: i,
         cx: lcx, cy: lcy,
-        sx: scx - sr, sy: scy - sr, sw: sr * 2, sh: sr * 2,
+        sx: scx - hitSW / 2, sy: scy - hitSH / 2,
+        sw: hitSW, sh: hitSH,
       });
     }
   }
