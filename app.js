@@ -1613,7 +1613,7 @@ function onMouseDown(e) {
       }
       return;
     }
-    // 区画移動モード
+    // 区画移動モード（区画クリック→個別移動、空白クリック→全体移動）
     if (App.mode === 'select' && App.lotTool !== 'label-move' && App.lotTool !== 'merge' && App.lotTool !== 'corner-cut' && App.lotTool !== 'edge-label-move') {
       const lot = hitLot(cp);
       if (lot && lot.points) {
@@ -1635,6 +1635,15 @@ function onMouseDown(e) {
           App.dragIsText = hit.isText;
           App.dragOffX = cp.x - hit.cx;
           App.dragOffY = cp.y - hit.cy;
+          canvas.style.cursor = 'grabbing';
+        } else {
+          // 空白クリック → 全体移動（旧:全体移動ボタン統合）
+          saveState();
+          App.moveAllDragging = true;
+          App.moveAllStartX = cp.x; App.moveAllStartY = cp.y;
+          App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({...p})) : null, lox: l.labelOffX||0, loy: l.labelOffY||0, sbx: l.setbackOffX||0, sby: l.setbackOffY||0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
+          App.moveAllOrigItems = App.items.map(i => ({ id: i.id, pts: i.points ? i.points.map(p => ({...p})) : null, x1: i.x1, y1: i.y1, x2: i.x2, y2: i.y2, tipX: i.tipX, tipY: i.tipY, ox: i.offsetX, oy: i.offsetY }));
+          App.moveAllOrigTexts = App.texts.map(t => ({ id: t.id, x: t.x, y: t.y, tipX: t.tipX, tipY: t.tipY }));
           canvas.style.cursor = 'grabbing';
         }
       }
@@ -3303,7 +3312,7 @@ function setLotTool(tool) {
   // 選択分割以外のツールに切り替えたらクリアUIをリセット
   if (tool !== 'split') { App.splitTargetId = null; updateSplitUI(); }
   App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'edge-label-move' || tool === 'delete') ? 'select' : 'draw';
-  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : (tool === 'move-all' ? 'grab' : 'crosshair');
+  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : 'crosshair';
   document.getElementById('btn-divguide')?.classList.toggle('active', tool === 'divguide');
   document.getElementById('divguide-panel')?.classList.toggle('hidden', tool !== 'divguide');
   document.getElementById('btn-lot-draw').classList.toggle('active', tool === 'draw');
