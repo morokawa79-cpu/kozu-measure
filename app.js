@@ -1267,7 +1267,6 @@ function bindEvents() {
 
   document.getElementById('btn-lot-select').addEventListener('click', () => setLotTool('select'));
   document.getElementById('btn-lot-label-move').addEventListener('click', () => setLotTool('label-move'));
-  document.getElementById('btn-edge-label-move').addEventListener('click', () => setLotTool('edge-label-move'));
   document.getElementById('btn-lot-delete-tool').addEventListener('click', () => setLotTool('delete'));
   document.getElementById('btn-divguide').addEventListener('click', () => setLotTool('divguide'));
   document.getElementById('btn-corner-cut').addEventListener('click', () => setLotTool('corner-cut'));
@@ -1614,7 +1613,7 @@ function onMouseDown(e) {
       return;
     }
     // 区画移動モード（区画クリック→個別移動、空白クリック→全体移動）
-    if (App.mode === 'select' && App.lotTool !== 'label-move' && App.lotTool !== 'merge' && App.lotTool !== 'corner-cut' && App.lotTool !== 'edge-label-move') {
+    if (App.mode === 'select' && App.lotTool !== 'label-move' && App.lotTool !== 'merge' && App.lotTool !== 'corner-cut') {
       const lot = hitLot(cp);
       if (lot && lot.points) {
         saveState();
@@ -1649,17 +1648,31 @@ function onMouseDown(e) {
       }
       return;
     }
-    // 文字移動モード（計測ラベルを優先してヒット判定、次にセットバック・区画ラベル）
+    // 文字・寸法移動モード（辺ラベル・計測ラベル・区画ラベルをドラッグ）
     if (App.lotTool === 'label-move') {
       const hit = hitLabel(sx, sy);
       if (hit) {
         saveState();
-        App.draggingId = hit.itemId;
-        App.dragLabelKey = hit.labelKey;
-        App.dragIsText = hit.isText;
-        App.dragOffX = cp.x - hit.cx;
-        App.dragOffY = cp.y - hit.cy;
-        canvas.style.cursor = 'grabbing';
+        if (hit.isLotEdge) {
+          // 辺の寸法テキスト移動（旧:edge-label-move統合）
+          const lot = App.lots.find(l => l.id === hit.lotId);
+          if (lot) {
+            if (!lot.edgeLabelOffsets) lot.edgeLabelOffsets = {};
+            const uo = lot.edgeLabelOffsets[hit.edgeIdx] || { dx: 0, dy: 0 };
+            App.draggingEdgeLabelLotId = lot.id;
+            App.draggingEdgeLabelEdge  = hit.edgeIdx;
+            App.dragEdgeLabelOffX = cp.x - uo.dx;
+            App.dragEdgeLabelOffY = cp.y - uo.dy;
+            canvas.style.cursor = 'grabbing';
+          }
+        } else {
+          App.draggingId = hit.itemId;
+          App.dragLabelKey = hit.labelKey;
+          App.dragIsText = hit.isText;
+          App.dragOffX = cp.x - hit.cx;
+          App.dragOffY = cp.y - hit.cy;
+          canvas.style.cursor = 'grabbing';
+        }
       } else {
         // セットバックテキストのヒットテスト
         const hitR = 20 / App.vz;
@@ -2532,7 +2545,7 @@ function updateHint() {
       merge: App.mergeSelect.length === 0 ? '合筆する1つ目の区画をクリック' : '合筆する2つ目の区画をクリック（再クリックで選択解除）',
       'corner-cut': App.cornerCutLotId === null ? '隅切りする区画をクリックして選択' : '切り取りたい頂点をクリック',
     };
-    const modeHints = { select: '区画をドラッグで移動　ダブルクリックで編集', pan: 'ドラッグで移動　ホイールでズーム', 'label-move': '区画ラベル・計測ラベルをドラッグで移動' };
+    const modeHints = { select: '区画をドラッグで移動　ダブルクリックで編集', pan: 'ドラッグで移動　ホイールでズーム', 'label-move': '区画ラベル・辺の寸法・計測ラベルをドラッグで移動　区画ダブルクリックで属性編集' };
     document.getElementById('hint-text').textContent = modeHints[App.lotTool] || subHints[App.lotTool] || modeHints[App.mode] || '';
     return;
   }
@@ -3311,7 +3324,7 @@ function setLotTool(tool) {
   App.mergeSelect = [];
   // 選択分割以外のツールに切り替えたらクリアUIをリセット
   if (tool !== 'split') { App.splitTargetId = null; updateSplitUI(); }
-  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'edge-label-move' || tool === 'delete') ? 'select' : 'draw';
+  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'delete') ? 'select' : 'draw';
   canvas.style.cursor = tool === 'delete' ? 'not-allowed' : 'crosshair';
   document.getElementById('btn-divguide')?.classList.toggle('active', tool === 'divguide');
   document.getElementById('divguide-panel')?.classList.toggle('hidden', tool !== 'divguide');
@@ -3326,7 +3339,6 @@ function setLotTool(tool) {
   document.getElementById('parallel-create').disabled = true;
   ['sub-btn-distance','sub-btn-polyline','sub-btn-area'].forEach(id =>
     document.getElementById(id)?.classList.remove('active'));
-  document.getElementById('btn-edge-label-move')?.classList.toggle('active', tool === 'edge-label-move');
   document.getElementById('btn-lot-delete-tool')?.classList.toggle('active', tool === 'delete');
   document.getElementById('btn-lot-select')?.classList.toggle('active', tool === 'select');
   document.getElementById('btn-lot-label-move')?.classList.toggle('active', tool === 'label-move');
