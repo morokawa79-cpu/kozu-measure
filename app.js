@@ -120,6 +120,18 @@ const App = {
   moveAllOrigItems: null,  // 開始時の計測データコピー
   moveAllOrigTexts: null,  // 開始時のテキストデータコピー
 
+  // 約表記
+  useYaku: false,
+  yakuDecimal: 1,
+
+  // 頂点移動
+  draggingVertex: null,     // { itemId, ptIndex } 計測アイテムの頂点
+  draggingLotVertex: null,  // { lotId, ptIndex } 区画の頂点
+
+  // ラベル編集
+  editingLabelItem: null,  // 編集中の計測アイテム
+  editingLabelKey: null,   // 'main' | 'seg0' | 'seg1' ...
+
   dirty: true,
 };
 
@@ -494,36 +506,48 @@ function drawItem(item, color) {
   }
   ctx.stroke();
 
-  item.points.forEach(p => drawDot(p.x, p.y, 4 / App.vz, color));
+  const dotR = (App.mode === 'vertex-edit') ? 8 / App.vz : 4 / App.vz;
+  item.points.forEach(p => drawDot(p.x, p.y, dotR, color));
 
   const fs = pfs(13) * (App.subMeasureScale || 1.0);
 
   if (item.type === 'distance') {
     const lp = item.labelPos || midPt(item.points[0], item.points[1]);
-    drawLabel(lp.x, lp.y, item.label, color, fs, item.id, 'main');
+    const lbl = item.customLabel != null ? item.customLabel : item.label;
+    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
 
   } else if (item.type === 'polyline') {
     for (let i = 0; i < item.points.length - 1; i++) {
-      if (item.segLabels && item.segLabels[i]) {
+      const rawLbl = (item.segValues && item.segValues[i] != null)
+        ? formatEdge(item.segValues[i]) : (item.segLabels && item.segLabels[i]);
+      const lbl = (item.customSegLabels && item.customSegLabels[i] != null)
+        ? item.customSegLabels[i] : rawLbl;
+      if (lbl) {
         const lp = (item.segLabelPos && item.segLabelPos[i]) || midPt(item.points[i], item.points[i + 1]);
-        drawLabel(lp.x, lp.y - 10 / App.vz, item.segLabels[i], color, fs, item.id, 'seg' + i);
+        drawLabel(lp.x, lp.y - 10 / App.vz, lbl, color, fs, item.id, 'seg' + i);
       }
     }
     if (item.label) {
       const last = item.points[item.points.length - 1];
       const lp = item.labelPos || { x: last.x, y: last.y - 16 / App.vz };
-      drawLabel(lp.x, lp.y, '合計: ' + item.label, color, fs, item.id, 'main');
+      const lbl = item.customLabel != null ? item.customLabel : ('合計: ' + item.label);
+      drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
     }
 
   } else if (item.type === 'area') {
     const lp = item.labelPos || centroid(item.points);
-    drawLabel(lp.x, lp.y, item.label, color, fs, item.id, 'main');
+    const lbl = item.customLabel != null ? item.customLabel : item.label;
+    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
     if (App.showSideLengths && item.segLabels) {
       for (let i = 0; i < item.points.length; i++) {
         const j = (i + 1) % item.points.length;
         const mid = midPt(item.points[i], item.points[j]);
         const lp2 = (item.segLabelPos && item.segLabelPos[i]) || { x: mid.x, y: mid.y - 10 / App.vz };
-        drawLabel(lp2.x, lp2.y, item.segLabels[i], color, fs * 0.88, item.id, 'seg' + i);
+        const rawLbl = (item.segValues && item.segValues[i] != null)
+          ? formatEdge(item.segValues[i]) : (item.segLabels && item.segLabels[i]);
+        const segLbl = (item.customSegLabels && item.customSegLabels[i] != null)
+          ? item.customSegLabels[i] : rawLbl;
+        if (segLbl) drawLabel(lp2.x, lp2.y, segLbl, color, fs * 0.88, item.id, 'seg' + i);
       }
     }
   }
@@ -1393,6 +1417,51 @@ function bindEvents() {
 
   // 全体移動ツール
   document.getElementById('btn-move-all')?.addEventListener('click', () => setLotTool('move-all'));
+
+  // 頂点編集ボタン（計測サイドバー）
+  document.getElementById('btn-vertex-edit')?.addEventListener('click', () => setMode('vertex-edit'));
+  // 頂点編集ボタン（分譲地サイドバー）
+  document.getElementById('btn-vertex-edit-sub')?.addEventListener('click', () => {
+    setSubMeasureMode('vertex-edit');
+  });
+
+  // 約表記トグル（計測サイドバー）
+  document.getElementById('btn-yaku-toggle')?.addEventListener('click', () => {
+    App.useYaku = !App.useYaku;
+    const btn = document.getElementById('btn-yaku-toggle');
+    btn.classList.toggle('toggle-on', App.useYaku);
+    btn.style.color = App.useYaku ? '#34d399' : '';
+    // segLabels を再生成
+    App.items.forEach(item => {
+      if (item.segValues) {
+        item.segLabels = item.segValues.map((d, i) =>
+          (item.customSegLabels && item.customSegLabels[i] != null) ? item.customSegLabels[i] : formatEdge(d));
+      }
+    });
+    App.dirty = true;
+  });
+
+  // 約小数点セレクタ
+  document.getElementById('yaku-decimal-sel')?.addEventListener('change', e => {
+    App.yakuDecimal = parseInt(e.target.value);
+    if (App.useYaku) {
+      App.items.forEach(item => {
+        if (item.segValues) {
+          item.segLabels = item.segValues.map((d, i) =>
+            (item.customSegLabels && item.customSegLabels[i] != null) ? item.customSegLabels[i] : formatEdge(d));
+        }
+      });
+    }
+    App.dirty = true;
+  });
+
+  // ラベル編集オーバーレイ
+  document.getElementById('label-edit-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmLabelEdit(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
+  });
+  document.getElementById('label-edit-ok')?.addEventListener('click', confirmLabelEdit);
+  document.getElementById('label-edit-cancel')?.addEventListener('click', cancelLabelEdit);
 }
 
 function getPaperDims(size) {
@@ -1756,6 +1825,38 @@ function onMouseDown(e) {
     return;
   }
 
+  // 頂点編集モード
+  if (App.mode === 'vertex-edit') {
+    const snapDist = 14 / App.vz;
+    // 計測アイテムの頂点チェック
+    let best = null, bestD = snapDist;
+    for (const item of App.items) {
+      if (!item.points) continue;
+      for (let i = 0; i < item.points.length; i++) {
+        const d = Math.hypot(item.points[i].x - cp.x, item.points[i].y - cp.y);
+        if (d < bestD) { bestD = d; best = { isLot: false, itemId: item.id, ptIndex: i }; }
+      }
+    }
+    // 区画の頂点チェック
+    for (const lot of App.lots) {
+      if (!lot.points) continue;
+      for (let i = 0; i < lot.points.length; i++) {
+        const d = Math.hypot(lot.points[i].x - cp.x, lot.points[i].y - cp.y);
+        if (d < bestD) { bestD = d; best = { isLot: true, lotId: lot.id, ptIndex: i }; }
+      }
+    }
+    if (best) {
+      saveState();
+      if (best.isLot) {
+        App.draggingLotVertex = { lotId: best.lotId, ptIndex: best.ptIndex };
+      } else {
+        App.draggingVertex = { itemId: best.itemId, ptIndex: best.ptIndex };
+      }
+      canvas.style.cursor = 'grabbing';
+    }
+    return;
+  }
+
   // キャリブレーション
   if (App.calibrating) {
     App.calibPts.push(cp);
@@ -1950,6 +2051,28 @@ function onMouseMove(e) {
     document.getElementById('coord-display').textContent = `X:${xM}m Y:${yM}m`;
   }
 
+  // 頂点ドラッグ
+  if (App.draggingVertex) {
+    const item = App.items.find(i => i.id === App.draggingVertex.itemId);
+    if (item) {
+      item.points[App.draggingVertex.ptIndex] = { x: cp.x, y: cp.y };
+      recalcItem(item);
+      App.dirty = true;
+    }
+    return;
+  }
+  if (App.draggingLotVertex) {
+    const lot = App.lots.find(l => l.id === App.draggingLotVertex.lotId);
+    if (lot) {
+      lot.points[App.draggingLotVertex.ptIndex] = { x: cp.x, y: cp.y };
+      // 区画面積を再計算
+      const sqm = shoelace(lot.points) * (App.mpp || 0) * (App.mpp || 0);
+      if (App.mpp) lot.area = sqm;
+      App.dirty = true;
+    }
+    return;
+  }
+
   // selectモード: 常に再描画してラベルBoxesを最新に保つ
   if (App.mode === 'select') {
     App.dirty = true;
@@ -1991,6 +2114,18 @@ function onMouseUp(e) {
   if (App.draggingSetbackId !== null) {
     App.draggingSetbackId = null;
     canvas.style.cursor = 'crosshair';
+  }
+  if (App.draggingVertex !== null) {
+    App.draggingVertex = null;
+    updateResults();
+    canvas.style.cursor = 'crosshair';
+    App.dirty = true;
+  }
+  if (App.draggingLotVertex !== null) {
+    App.draggingLotVertex = null;
+    updateLotPanel();
+    canvas.style.cursor = 'crosshair';
+    App.dirty = true;
   }
 }
 
@@ -2058,6 +2193,16 @@ function onDblClick(e) {
     return;
   }
 
+  // 頂点編集モード: ラベルをダブルクリックで編集
+  if (App.mode === 'vertex-edit') {
+    const hit = hitLabel(sx, sy);
+    if (hit && !hit.isText) {
+      const item = App.items.find(i => i.id === hit.itemId);
+      if (item) { openLabelEditor(item, hit.labelKey, sx, sy); return; }
+    }
+    return;
+  }
+
   if ((App.mode === 'polyline' || App.mode === 'area') && App.pts.length >= 2) {
     App.pts.pop();
     finishMeasurement();
@@ -2115,6 +2260,7 @@ function setMode(mode) {
 function getCursor() {
   if (App.mode === 'pan') return 'grab';
   if (App.mode === 'select') return 'default';
+  if (App.mode === 'vertex-edit') return 'crosshair';
   if (App.mode === 'text' || App.mode === 'callout') return 'crosshair';
   return 'crosshair';
 }
@@ -2125,7 +2271,68 @@ function cancelCurrent() {
   App.calibPts = [];
   App.calibrating = false;
   App.draggingId = null;
+  App.draggingVertex = null;
+  App.draggingLotVertex = null;
+  cancelLabelEdit();
   App.dirty = true;
+}
+
+// ===== ラベル編集 =====
+function openLabelEditor(item, labelKey, sx, sy) {
+  App.editingLabelItem = item;
+  App.editingLabelKey = labelKey;
+
+  // 現在の表示テキストを取得
+  let currentText = '';
+  if (labelKey === 'main') {
+    currentText = item.customLabel != null ? item.customLabel : item.label;
+    if (item.type === 'polyline' && item.label) currentText = item.customLabel != null ? item.customLabel : ('合計: ' + item.label);
+  } else {
+    const idx = parseInt(labelKey.replace('seg', ''));
+    const rawLbl = (item.segValues && item.segValues[idx] != null)
+      ? formatEdge(item.segValues[idx]) : (item.segLabels && item.segLabels[idx]);
+    currentText = (item.customSegLabels && item.customSegLabels[idx] != null)
+      ? item.customSegLabels[idx] : (rawLbl || '');
+  }
+
+  const overlay = document.getElementById('label-edit-overlay');
+  const input = document.getElementById('label-edit-input');
+  // ビューポートに収まるよう位置を調整
+  const ox = Math.min(sx, window.innerWidth - 240);
+  const oy = Math.min(sy - 40, window.innerHeight - 80);
+  overlay.style.left = ox + 'px';
+  overlay.style.top = oy + 'px';
+  overlay.style.display = 'block';
+  input.value = currentText;
+  input.select();
+  input.focus();
+}
+
+function confirmLabelEdit() {
+  const item = App.editingLabelItem;
+  const key = App.editingLabelKey;
+  if (!item) return;
+  const input = document.getElementById('label-edit-input');
+  const val = input.value.trim();
+  saveState();
+  if (key === 'main') {
+    item.customLabel = val === '' ? null : val;
+  } else {
+    const idx = parseInt(key.replace('seg', ''));
+    if (!item.customSegLabels) item.customSegLabels = {};
+    item.customSegLabels[idx] = val === '' ? null : val;
+  }
+  App.editingLabelItem = null;
+  App.editingLabelKey = null;
+  document.getElementById('label-edit-overlay').style.display = 'none';
+  App.dirty = true;
+}
+
+function cancelLabelEdit() {
+  App.editingLabelItem = null;
+  App.editingLabelKey = null;
+  const overlay = document.getElementById('label-edit-overlay');
+  if (overlay) overlay.style.display = 'none';
 }
 
 function updateHint() {
@@ -2152,6 +2359,8 @@ function updateHint() {
     text: 'クリックしてメモを追加',
     arrow: '始点→終点の2点クリックで矢印を描く',
     callout: '1点目: 矢印の先端　2点目: テキスト位置',
+    'vertex-edit': '頂点をドラッグして移動　ダブルクリックでラベル編集',
+    delete: 'クリックして計測・注記を削除',
   };
   document.getElementById('hint-text').textContent = hints[App.mode] || '';
 }
@@ -2187,26 +2396,31 @@ function finishMeasurement() {
 
   } else if (App.mode === 'polyline' && pts.length >= 2) {
     let total = 0;
+    const segValues = [];
     const segLabels = [];
     for (let i = 0; i < pts.length - 1; i++) {
       const d = dist(pts[i], pts[i + 1]) * App.mpp;
-      segLabels.push(formatDist(d));
+      segValues.push(d);
+      segLabels.push(formatEdge(d));
       total += d;
     }
     item = { id: App.nextId++, type: 'polyline', points: pts, color,
-      label: formatDist(total), value: total, segLabels, labelPos: null, segLabelPos: [] };
+      label: formatDist(total), value: total, segValues, segLabels, labelPos: null, segLabelPos: [] };
 
   } else if (App.mode === 'area' && pts.length >= 3) {
     const sqm = shoelace(pts) * App.mpp * App.mpp;
     const tsubo = sqm * 0.3025;
+    const segValues = [];
     const segLabels = [];
     for (let i = 0; i < pts.length; i++) {
       const j = (i + 1) % pts.length;
-      segLabels.push(formatDist(dist(pts[i], pts[j]) * App.mpp));
+      const d = dist(pts[i], pts[j]) * App.mpp;
+      segValues.push(d);
+      segLabels.push(formatEdge(d));
     }
     item = { id: App.nextId++, type: 'area', points: pts, color,
       label: `${sqm.toFixed(2)}㎡ / ${tsubo.toFixed(2)}坪`,
-      value: sqm, segLabels, labelPos: null, segLabelPos: [] };
+      value: sqm, segValues, segLabels, labelPos: null, segLabelPos: [] };
   }
 
   if (item) { saveState(); App.items.push(item); updateResults(); }
@@ -2808,6 +3022,51 @@ function formatDist(m) {
   return (m*100).toFixed(1)+'cm';
 }
 
+function formatEdge(m) {
+  if (!App.useYaku) return formatDist(m);
+  const p = App.yakuDecimal;
+  if (m >= 1000) return `約${(m/1000).toFixed(p)}km`;
+  if (m >= 1)    return `約${m.toFixed(p)}m`;
+  return `約${(m*100).toFixed(p)}cm`;
+}
+
+// ===== 計測アイテム再計算（頂点移動後）=====
+function recalcItem(item) {
+  if (!App.mpp) return;
+  if (item.type === 'distance') {
+    const d = dist(item.points[0], item.points[1]) * App.mpp;
+    item.value = d;
+    if (!item.customLabel) item.label = formatDist(d);
+  } else if (item.type === 'polyline') {
+    let total = 0;
+    const segValues = [];
+    for (let i = 0; i < item.points.length - 1; i++) {
+      const d = dist(item.points[i], item.points[i + 1]) * App.mpp;
+      segValues.push(d);
+      total += d;
+    }
+    item.segValues = segValues;
+    if (!item.customLabel) item.label = formatDist(total);
+    item.value = total;
+    // segLabels はカスタムでなければ再生成
+    item.segLabels = segValues.map((d, i) =>
+      (item.customSegLabels && item.customSegLabels[i] != null) ? item.customSegLabels[i] : formatEdge(d));
+  } else if (item.type === 'area') {
+    const sqm = shoelace(item.points) * App.mpp * App.mpp;
+    const tsubo = sqm * 0.3025;
+    const segValues = [];
+    for (let i = 0; i < item.points.length; i++) {
+      const j = (i + 1) % item.points.length;
+      segValues.push(dist(item.points[i], item.points[j]) * App.mpp);
+    }
+    item.segValues = segValues;
+    item.value = sqm;
+    if (!item.customLabel) item.label = `${sqm.toFixed(2)}㎡ / ${tsubo.toFixed(2)}坪`;
+    item.segLabels = segValues.map((d, i) =>
+      (item.customSegLabels && item.customSegLabels[i] != null) ? item.customSegLabels[i] : formatEdge(d));
+  }
+}
+
 // ===== 分譲地ツール =====
 
 function setAppMode(mode) {
@@ -2900,8 +3159,10 @@ function setSubMeasureMode(mode) {
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('parallel-panel').classList.add('hidden');
   document.querySelectorAll('#tools-subdivision .btn-lot-tool').forEach(b => b.classList.remove('active'));
-  ['distance','polyline','area','arrow','text','callout'].forEach(m =>
-    document.getElementById(`sub-btn-${m}`)?.classList.toggle('active', m === mode));
+  ['distance','polyline','area','arrow','text','callout','vertex-edit'].forEach(m => {
+    const id = m === 'vertex-edit' ? 'btn-vertex-edit-sub' : `sub-btn-${m}`;
+    document.getElementById(id)?.classList.toggle('active', m === mode);
+  });
   updateHint();
   App.dirty = true;
 }
