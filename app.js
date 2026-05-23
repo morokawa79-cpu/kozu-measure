@@ -49,6 +49,13 @@ const App = {
   dragIsText: false,
   dragOffX: 0, dragOffY: 0,
 
+  // 計測アイテム丸ごとドラッグ（図形移動モード）
+  draggingItemId: null,
+  dragItemStartX: 0, dragItemStartY: 0,
+  dragItemOrigPts: null,
+  dragItemOrigLabelPos: null,
+  dragItemOrigSegLabelPos: null,
+
   // ラベルヒットボックス (render中に更新)
   labelBoxes: [],
 
@@ -1612,15 +1619,16 @@ function onMouseDown(e) {
         App.dragLotOrigCen = { x: cen.x, y: cen.y };
         canvas.style.cursor = 'grabbing';
       } else {
-        // 計測ラベル・テキストの移動
-        const hit = hitLabel(sx, sy);
-        if (hit) {
+        // 計測アイテム（ライン本体）のヒット → アイテム丸ごと移動
+        const hitItem = hitMeasureItem(cp);
+        if (hitItem) {
           saveState();
-          App.draggingId = hit.itemId;
-          App.dragLabelKey = hit.labelKey;
-          App.dragIsText = hit.isText;
-          App.dragOffX = cp.x - hit.cx;
-          App.dragOffY = cp.y - hit.cy;
+          App.draggingItemId = hitItem.id;
+          App.dragItemStartX = cp.x;
+          App.dragItemStartY = cp.y;
+          App.dragItemOrigPts = hitItem.points.map(p => ({ x: p.x, y: p.y }));
+          App.dragItemOrigLabelPos = hitItem.labelPos ? { ...hitItem.labelPos } : null;
+          App.dragItemOrigSegLabelPos = hitItem.segLabelPos ? hitItem.segLabelPos.map(p => p ? { ...p } : null) : null;
           canvas.style.cursor = 'grabbing';
         } else {
           // 空白クリック → 全体移動（旧:全体移動ボタン統合）
@@ -2038,6 +2046,24 @@ function onMouseMove(e) {
       }
       return;
     }
+    // 計測アイテム丸ごとドラッグ（図形移動）
+    if (App.draggingItemId !== null) {
+      const item = App.items.find(i => i.id === App.draggingItemId);
+      if (item && App.dragItemOrigPts) {
+        const dx = cp.x - App.dragItemStartX;
+        const dy = cp.y - App.dragItemStartY;
+        item.points = App.dragItemOrigPts.map(p => ({ x: p.x + dx, y: p.y + dy }));
+        // ラベル位置もオフセット分だけ移動
+        if (App.dragItemOrigLabelPos) {
+          item.labelPos = { x: App.dragItemOrigLabelPos.x + dx, y: App.dragItemOrigLabelPos.y + dy };
+        }
+        if (App.dragItemOrigSegLabelPos) {
+          item.segLabelPos = App.dragItemOrigSegLabelPos.map(p => p ? { x: p.x + dx, y: p.y + dy } : null);
+        }
+      }
+      App.dirty = true;
+      return;
+    }
     // 全体移動ドラッグ
     if (App.moveAllDragging) {
       const dx = cp.x - App.moveAllStartX;
@@ -2202,6 +2228,13 @@ function onMouseUp(e) {
     App.moveAllOrigLots = null; App.moveAllOrigItems = null; App.moveAllOrigTexts = null;
     canvas.style.cursor = 'grab';
     updateLotPanel(); App.dirty = true;
+  }
+  if (App.draggingItemId !== null) {
+    App.draggingItemId = null;
+    App.dragItemOrigPts = null;
+    App.dragItemOrigLabelPos = null;
+    App.dragItemOrigSegLabelPos = null;
+    canvas.style.cursor = 'default';
   }
   if (App.draggingId !== null) {
     App.draggingId = null;
@@ -3370,6 +3403,35 @@ function pointInPolygon(px, py, pts) {
     if (((yi > py) !== (yj > py)) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
+}
+
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// 計測アイテムのライン部分にヒットしているか（図形移動用）
+function hitMeasureItem(cp) {
+  const hitR = 10 / App.vz;
+  for (let k = App.items.length - 1; k >= 0; k--) {
+    const item = App.items[k];
+    if (!item.points || item.points.length < 2 || item.isParallel) continue;
+    const pts = item.points;
+    // 端点の円ドットにヒット
+    for (const p of pts) {
+      if (Math.hypot(cp.x - p.x, cp.y - p.y) < hitR * 2) return item;
+    }
+    // 線分にヒット
+    const segCount = item.type === 'area' ? pts.length : pts.length - 1;
+    for (let i = 0; i < segCount; i++) {
+      const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+      if (distToSegment(cp.x, cp.y, p1.x, p1.y, p2.x, p2.y) < hitR) return item;
+    }
+  }
+  return null;
 }
 
 function hitLot(cp) {
