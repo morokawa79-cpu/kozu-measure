@@ -77,7 +77,7 @@ const App = {
   paperH: 2380,  // A4横: 595pt × renderScale(4)
 
   // ===== 分譲地モード =====
-  appMode: 'measure',      // 'measure' | 'subdivision'
+  appMode: 'subdivision',  // 常に分譲地モード
   lots: [],                // 区画データ
   lotNextNum: 1,           // 次の区画番号
   lotPts: [],              // 描画中の頂点リスト（面積ツールと同じ方式）
@@ -152,7 +152,7 @@ window.addEventListener('DOMContentLoaded', () => {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
   bindEvents();
-  setMode('distance');
+  setAppMode('subdivision');
   setScaleDisplay('縮尺: 未設定');  // ボタンラベルを初期化
   renderLoop();
 });
@@ -963,8 +963,8 @@ function bindEvents() {
     btn.addEventListener('click', () => setMode(btn.dataset.mode)));
 
 
-  // 1点戻す (サイドバー)
-  document.getElementById('btn-undo-side').addEventListener('click', undoLast);
+  // 1点戻す (サイドバー) - 計測サイドバー廃止後は存在しないためオプショナル
+  document.getElementById('btn-undo-side')?.addEventListener('click', undoLast);
 
   // ページ
   document.getElementById('btn-prev').addEventListener('click', () => changePage(-1));
@@ -1160,9 +1160,6 @@ function bindEvents() {
   });
 
   // ===== 分譲地モード イベント =====
-  document.getElementById('btn-mode-measure').addEventListener('click', () => setAppMode('measure'));
-  document.getElementById('btn-mode-subdivision').addEventListener('click', () => setAppMode('subdivision'));
-
   document.getElementById('btn-lot-draw').addEventListener('click', () => setLotTool('draw'));
   document.getElementById('btn-road-draw').addEventListener('click', () => setLotTool('road'));
   document.getElementById('btn-lot-split').addEventListener('click', () => setLotTool('split'));
@@ -1304,16 +1301,6 @@ function bindEvents() {
 
   document.getElementById('btn-grid-snap').addEventListener('click', () => {
     App.gridSnap = !App.gridSnap;
-    document.getElementById('btn-grid-snap').classList.toggle('toggle-on', App.gridSnap);
-    document.getElementById('btn-grid-snap').classList.toggle('toggle-off', !App.gridSnap);
-    document.getElementById('btn-measure-snap').classList.toggle('toggle-on', App.gridSnap);
-    document.getElementById('btn-measure-snap').classList.toggle('toggle-off', !App.gridSnap);
-  });
-
-  document.getElementById('btn-measure-snap').addEventListener('click', () => {
-    App.gridSnap = !App.gridSnap;
-    document.getElementById('btn-measure-snap').classList.toggle('toggle-on', App.gridSnap);
-    document.getElementById('btn-measure-snap').classList.toggle('toggle-off', !App.gridSnap);
     document.getElementById('btn-grid-snap').classList.toggle('toggle-on', App.gridSnap);
     document.getElementById('btn-grid-snap').classList.toggle('toggle-off', !App.gridSnap);
   });
@@ -2567,7 +2554,6 @@ function updateHint() {
 
 function updateZoomInfo() {
   const pct = Math.round(App.vz * 100) + '%';
-  document.getElementById('zoom-info').textContent = pct;
   const sub = document.getElementById('zoom-info-sub');
   if (sub) sub.textContent = pct;
 }
@@ -3270,28 +3256,18 @@ function recalcItem(item) {
 // ===== 分譲地ツール =====
 
 function setAppMode(mode) {
-  App.appMode = mode;
-  const isSub = mode === 'subdivision';
-  document.getElementById('tools').classList.toggle('hidden', isSub);
-  document.getElementById('tools-subdivision').classList.toggle('hidden', !isSub);
-  // 計測パネル: 両モードで表示（分譲地では高さを制限）
+  // 常に分譲地モード固定
+  App.appMode = 'subdivision';
   const rm = document.getElementById('results-measure');
   const rs = document.getElementById('results-subdivision');
   rm.classList.remove('hidden');
-  rm.style.flex = isSub ? '0 0 auto' : '1';
-  rm.style.maxHeight = isSub ? '45%' : '';
-  rm.style.overflow = isSub ? 'auto' : '';
-  rs.classList.toggle('hidden', !isSub);
-  document.getElementById('btn-mode-measure').classList.toggle('active-mode', !isSub);
-  document.getElementById('btn-mode-subdivision').classList.toggle('active-mode', isSub);
-  if (isSub && App.mode !== 'pan') {
+  rm.style.flex = '0 0 auto';
+  rm.style.maxHeight = '45%';
+  rm.style.overflow = 'auto';
+  rs.classList.remove('hidden');
+  if (App.mode !== 'pan') {
     App.mode = 'draw'; canvas.style.cursor = 'crosshair';
-  } else if (!isSub) {
-    // 分譲地モードで'draw'になっているので計測モードに戻す
-    const measureModes = ['distance','polyline','area','pan','select','text','callout','arrow'];
-    if (!measureModes.includes(App.mode)) setMode('distance');
   }
-  // サイドバーの幅変化でキャンバスサイズが変わるため再計算（座標ズレ防止）
   requestAnimationFrame(() => { resizeCanvas(); });
   updateHint();
   App.dirty = true;
