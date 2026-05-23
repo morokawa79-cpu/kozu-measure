@@ -137,6 +137,7 @@ const App = {
   editingLotId: null,        // 区画辺/中央ラベル編集中の区画ID
   editingLotEdgeIdx: null,   // 区画辺編集中の辺インデックス
   editingLotCenterKey: null, // 区画中央ラベル編集キー ('area' | 'tsubo')
+  _editingLabelColor: '',    // ラベル編集中の選択色（''=自動）
   _hoverLabelKey: null,      // ホバー中ラベルのkey（itemId_labelKey形式）
 
   dirty: true,
@@ -1518,6 +1519,13 @@ function bindEvents() {
   });
   document.getElementById('label-edit-ok')?.addEventListener('click', confirmLabelEdit);
   document.getElementById('label-edit-cancel')?.addEventListener('click', cancelLabelEdit);
+  // 色スウォッチ選択
+  document.getElementById('label-color-row')?.addEventListener('click', e => {
+    const btn = e.target.closest('.lec-sw');
+    if (!btn) return;
+    App._editingLabelColor = btn.dataset.color;
+    document.querySelectorAll('.lec-sw').forEach(b => b.classList.toggle('active', b === btn));
+  });
 }
 
 function getPaperDims(size) {
@@ -2362,17 +2370,26 @@ function cancelCurrent() {
 }
 
 // ===== ラベル編集 =====
-function showLabelEditOverlay(currentText, sx, sy) {
+function showLabelEditOverlay(currentText, sx, sy, showColor, currentColor) {
   const overlay = document.getElementById('label-edit-overlay');
   const input = document.getElementById('label-edit-input');
-  const ox = Math.min(sx, window.innerWidth - 240);
-  const oy = Math.min(sy - 40, window.innerHeight - 80);
+  const colorRow = document.getElementById('label-color-row');
+  const ox = Math.min(sx, window.innerWidth - 250);
+  const oy = Math.min(sy - 40, window.innerHeight - 120);
   overlay.style.left = ox + 'px';
   overlay.style.top = Math.max(8, oy) + 'px';
   overlay.style.display = 'block';
   input.value = currentText;
   input.select();
   input.focus();
+  // 色選択行の表示/非表示
+  colorRow.style.display = showColor ? 'flex' : 'none';
+  if (showColor) {
+    App._editingLabelColor = currentColor || '';
+    document.querySelectorAll('.lec-sw').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.color === App._editingLabelColor);
+    });
+  }
 }
 
 function openLabelEditor(item, labelKey, sx, sy) {
@@ -2404,13 +2421,15 @@ function openLotCenterLabelEditor(lot, centerKey, sx, sy) {
   App.editingLotEdgeIdx = null;
   App.editingLotCenterKey = centerKey;
   const sqm = App.mpp ? shoelace(lot.points) * App.mpp * App.mpp : null;
-  let currentText = '';
+  let currentText = '', currentColor = '';
   if (centerKey === 'area') {
-    currentText = lot.customAreaLabel != null ? lot.customAreaLabel : (sqm ? sqm.toFixed(1) + '㎡' : '');
+    currentText  = lot.customAreaLabel  != null ? lot.customAreaLabel  : (sqm ? sqm.toFixed(1) + '㎡' : '');
+    currentColor = lot.customAreaLabelColor  || '';
   } else {
-    currentText = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : '');
+    currentText  = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : '');
+    currentColor = lot.customTsuboLabelColor || '';
   }
-  showLabelEditOverlay(currentText, sx, sy);
+  showLabelEditOverlay(currentText, sx, sy, true, currentColor);
 }
 
 function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
@@ -2420,7 +2439,7 @@ function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
   App.editingLotEdgeIdx = edgeIdx;
   App.editingLotCenterKey = null;
 
-  let currentText = '';
+  let currentText = '', currentColor = '';
   if (lot.customEdgeLabels && lot.customEdgeLabels[edgeIdx] != null) {
     currentText = lot.customEdgeLabels[edgeIdx];
   } else if (App.mpp) {
@@ -2428,7 +2447,8 @@ function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
     const p2 = lot.points[(edgeIdx + 1) % lot.points.length];
     currentText = formatEdge(dist(p1, p2) * App.mpp);
   }
-  showLabelEditOverlay(currentText, sx, sy);
+  currentColor = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[edgeIdx]) || '';
+  showLabelEditOverlay(currentText, sx, sy, true, currentColor);
 }
 
 function confirmLabelEdit() {
@@ -2436,19 +2456,29 @@ function confirmLabelEdit() {
   const val = input.value.trim();
   saveState();
 
+  const colorVal = App._editingLabelColor || null; // ''→null（自動）
+
   if (App.editingLotId !== null && App.editingLotEdgeIdx !== null) {
     // 区画辺ラベル
     const lot = App.lots.find(l => l.id === App.editingLotId);
     if (lot) {
       if (!lot.customEdgeLabels) lot.customEdgeLabels = {};
       lot.customEdgeLabels[App.editingLotEdgeIdx] = val === '' ? null : val;
+      if (!lot.customEdgeLabelColors) lot.customEdgeLabelColors = {};
+      lot.customEdgeLabelColors[App.editingLotEdgeIdx] = colorVal;
     }
   } else if (App.editingLotId !== null && App.editingLotCenterKey !== null) {
     // 区画中央ラベル（㎡/坪）
     const lot = App.lots.find(l => l.id === App.editingLotId);
     if (lot) {
-      if (App.editingLotCenterKey === 'area')  lot.customAreaLabel  = val === '' ? null : val;
-      if (App.editingLotCenterKey === 'tsubo') lot.customTsuboLabel = val === '' ? null : val;
+      if (App.editingLotCenterKey === 'area') {
+        lot.customAreaLabel = val === '' ? null : val;
+        lot.customAreaLabelColor = colorVal;
+      }
+      if (App.editingLotCenterKey === 'tsubo') {
+        lot.customTsuboLabel = val === '' ? null : val;
+        lot.customTsuboLabelColor = colorVal;
+      }
     }
   } else if (App.editingLabelItem) {
     // 計測アイテムラベル
@@ -3509,13 +3539,16 @@ function drawLot(lot) {
   // カスタムラベル対応（空欄nullでリセット）
   const areaText  = lot.customAreaLabel  != null ? lot.customAreaLabel  : (sqm ? sqm.toFixed(1) + '㎡' : null);
   const tsuboText = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : null);
+  // 色: カスタム色 > 自動（カスタムテキストなら黄色、そうでなければ元色）
+  const areaColor  = lot.customAreaLabelColor  || (lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b');
+  const tsuboColor = lot.customTsuboLabelColor || (lot.customTsuboLabel != null ? '#f59e0b' : '#475569');
 
   const lines = [
     ...(App.showLotNumbers ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
-    ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b', editKey: 'area'  }] : []),
-    ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: lot.customTsuboLabel != null ? '#f59e0b' : '#475569', editKey: 'tsubo' }] : []),
-    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309', editKey: null }] : []),
-    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85,color: '#64748b', editKey: null }] : []),
+    ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: areaColor,  editKey: 'area'  }] : []),
+    ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: tsuboColor, editKey: 'tsubo' }] : []),
+    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309',  editKey: null }] : []),
+    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85,color: '#64748b',  editKey: null }] : []),
   ];
 
   const lx = cen.x + (lot.labelOffX || 0);
@@ -3605,7 +3638,9 @@ function drawLot(lot) {
         ctx.setLineDash([]);
       }
       ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
-      ctx.fillStyle = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null) ? '#f59e0b' : '#334155';
+      const edgeColor2 = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[i])
+        || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : '#334155');
+      ctx.fillStyle = edgeColor2;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(edgeText, 0, 0);
