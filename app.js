@@ -1391,6 +1391,17 @@ function bindEvents() {
     });
   });
 
+  // 寸法文字色スウォッチ（モーダル内）
+  document.querySelectorAll('#lot-edgelabel-color-swatches .edgelabel-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('#lot-edgelabel-color-swatches .edgelabel-color-swatch').forEach(s => {
+        s.style.outline = 'none'; s.classList.remove('active-edgelabel-color');
+      });
+      sw.style.outline = '2px solid #60a5fa';
+      sw.classList.add('active-edgelabel-color');
+    });
+  });
+
   // 区画の線色スウォッチ（サイドバー - グローバル）
   document.querySelectorAll('#lot-border-color-picker .border-gc-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -3246,9 +3257,10 @@ function formatDist(m) {
 function formatEdge(m) {
   if (!App.useYaku) return formatDist(m);
   const p = App.yakuDecimal;
-  if (m >= 1000) return `約${(m/1000).toFixed(p)}km`;
-  if (m >= 1)    return `約${m.toFixed(p)}m`;
-  return `約${(m*100).toFixed(p)}cm`;
+  const f = Math.pow(10, p);
+  if (m >= 1000) return `約${(Math.floor(m / 1000 * f) / f).toFixed(p)}km`;
+  if (m >= 1)    return `約${(Math.floor(m * f) / f).toFixed(p)}m`;
+  return `約${(Math.floor(m * 100 * f) / f).toFixed(p)}cm`;
 }
 
 // ===== 計測アイテム再計算（頂点移動後）=====
@@ -3700,7 +3712,7 @@ function drawLot(lot) {
       }
       ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
       const edgeColor2 = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[i])
-        || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : '#334155');
+        || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : (lot.edgeLabelColor || '#334155'));
       ctx.fillStyle = edgeColor2;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -4801,6 +4813,13 @@ function openLotEditor(id) {
       sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
       sw.classList.toggle('active-border', isSel);
     });
+    // 寸法文字色
+    const elc = lot.edgeLabelColor || '#334155';
+    document.querySelectorAll('#lot-edgelabel-color-swatches .edgelabel-color-swatch').forEach(sw => {
+      const isSel = sw.dataset.elc === elc;
+      sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
+      sw.classList.toggle('active-edgelabel-color', isSel);
+    });
   }
   document.getElementById('lot-edit-modal').classList.remove('hidden');
 }
@@ -4937,6 +4956,8 @@ function commitLotEdit() {
     if (sel) lot.color = sel.dataset.lotcolor;
     const selB = document.querySelector('#lot-border-swatches .border-swatch.active-border');
     if (selB) lot.borderColor = selB.dataset.bc;
+    const selElc = document.querySelector('#lot-edgelabel-color-swatches .edgelabel-color-swatch.active-edgelabel-color');
+    lot.edgeLabelColor = selElc ? selElc.dataset.elc : '#334155';
   }
   document.getElementById('lot-edit-modal').classList.add('hidden');
   updateLotPanel(); App.dirty = true;
