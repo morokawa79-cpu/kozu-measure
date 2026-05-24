@@ -1552,6 +1552,19 @@ function onMouseDown(e) {
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
 
+  // キャリブレーション（全モード共通で最優先）
+  if (App.calibrating) {
+    if (e.button !== 0) return;
+    App.calibPts.push(cp);
+    App.dirty = true;
+    if (App.calibPts.length === 2) {
+      App.calibrating = false;
+      document.getElementById('calibration-dist-modal').classList.remove('hidden');
+      document.getElementById('calibration-dist-input').focus();
+    }
+    return;
+  }
+
   // ===== 分譲地モード =====
   if (App.appMode === 'subdivision') {
     if (e.button === 1 || (e.button === 0 && e.altKey) || App.mode === 'pan') {
@@ -1959,17 +1972,6 @@ function onMouseDown(e) {
     return;
   }
 
-  // キャリブレーション
-  if (App.calibrating) {
-    App.calibPts.push(cp);
-    App.dirty = true;
-    if (App.calibPts.length === 2) {
-      App.calibrating = false;
-      document.getElementById('calibration-dist-modal').classList.remove('hidden');
-      document.getElementById('calibration-dist-input').focus();
-    }
-    return;
-  }
 
   // メモモード
   if (App.mode === 'text') {
