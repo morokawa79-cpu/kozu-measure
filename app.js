@@ -132,6 +132,9 @@ const App = {
   yakuDecimal: 1,
   yakuAdjust: 0,
 
+  // 用紙情報（タイトルブロック）
+  paperInfo: { title: '', date: '', author: '' },
+
   // 区画番号表示
   showLotNumbers: true,
 
@@ -256,10 +259,44 @@ async function detectScale(page) {
   return null;
 }
 
+// ===== 縮尺変更時に全座標をリスケール =====
+function rescaleAll(factor) {
+  if (!factor || Math.abs(factor - 1) < 1e-9) return;
+  const sc = p => ({ x: p.x * factor, y: p.y * factor });
+  App.lots.forEach(lot => {
+    if (lot.points) lot.points = lot.points.map(sc);
+    if (lot.labelOffX != null) { lot.labelOffX *= factor; lot.labelOffY *= factor; }
+    if (lot.setbackOffX != null) { lot.setbackOffX *= factor; lot.setbackOffY *= factor; }
+    if (lot.edgeLabelOffsets) {
+      Object.keys(lot.edgeLabelOffsets).forEach(k => {
+        const o = lot.edgeLabelOffsets[k]; o.dx *= factor; o.dy *= factor;
+      });
+    }
+  });
+  App.items.forEach(item => {
+    if (item.points) item.points = item.points.map(sc);
+    if (item.x1 != null) { item.x1 *= factor; item.y1 *= factor; item.x2 *= factor; item.y2 *= factor; }
+    if (item.tipX != null) { item.tipX *= factor; item.tipY *= factor; }
+    if (item.labelPos) { item.labelPos.x *= factor; item.labelPos.y *= factor; }
+    if (item.segLabelPos) item.segLabelPos = item.segLabelPos.map(p => p ? sc(p) : p);
+    if (item.offsetX != null) { item.offsetX *= factor; item.offsetY *= factor; }
+  });
+  App.texts.forEach(t => {
+    t.x *= factor; t.y *= factor;
+    if (t.tipX != null) { t.tipX *= factor; t.tipY *= factor; }
+  });
+  if (App.divGuides) App.divGuides.forEach(g => { g.p1 = sc(g.p1); g.p2 = sc(g.p2); });
+}
+
 // ===== 縮尺 =====
 function setMapScale(scale) {
+  const oldMpp = App.mpp;
+  const newMpp = (25.4 * scale) / (72 * App.renderScale * 1000);
+  if (oldMpp && Math.abs(oldMpp - newMpp) > 1e-12) {
+    rescaleAll(oldMpp / newMpp);
+  }
   App.mapScale = scale;
-  App.mpp = (25.4 * scale) / (72 * App.renderScale * 1000);
+  App.mpp = newMpp;
 }
 
 function setScaleDisplay(text) {
@@ -400,10 +437,29 @@ function drawPaperFrame() {
   ['縮尺', '日付', '作成者'].forEach((lbl, i) => {
     ctx.fillText(lbl, metaX + lblW / 2, tbY + rowH * i + rowH / 2);
   });
+  // メタ情報の値
+  const pi = App.paperInfo || {};
+  const scaleText = App.mapScale ? `1/${App.mapScale}` : '';
+  const dateText = pi.date ? pi.date.replace(/-/g, '/') : '';
+  const authorText = pi.author || '';
+  const valueX = metaX + lblW + (metaW - lblW) / 2;
+  const fsVal = pfs(5) * rs;
+  ctx.font = `${fsVal}px 'Segoe UI', sans-serif`;
+  ctx.fillStyle = '#1e293b';
+  [scaleText, dateText, authorText].forEach((val, i) => {
+    if (val) ctx.fillText(val, valueX, tbY + rowH * i + rowH / 2);
+  });
   // 図面名称エリア
-  ctx.fillStyle = '#cbd5e1';
-  ctx.font = `${pfs(6) * rs}px 'Segoe UI', sans-serif`;
-  ctx.fillText('図 面 名 称', tbX + (tbW - metaW) / 2, tbY + tbH / 2);
+  const titleText = pi.title || '';
+  if (titleText) {
+    ctx.fillStyle = '#1e3a5f';
+    ctx.font = `bold ${pfs(7) * rs}px 'Segoe UI', sans-serif`;
+    ctx.fillText(titleText, tbX + (tbW - metaW) / 2, tbY + tbH / 2);
+  } else {
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = `${pfs(6) * rs}px 'Segoe UI', sans-serif`;
+    ctx.fillText('図 面 名 称', tbX + (tbW - metaW) / 2, tbY + tbH / 2);
+  }
 
   // ページサイズ表示（右下隅）
   ctx.fillStyle = '#94a3b8';
@@ -1539,6 +1595,23 @@ function bindEvents() {
     applyYakuAdjust(0);
   });
 
+  // 用紙情報バー
+  const syncPaperInfo = () => { App.dirty = true; };
+  document.getElementById('paper-title')?.addEventListener('input', e => {
+    App.paperInfo.title = e.target.value; syncPaperInfo();
+  });
+  document.getElementById('paper-date')?.addEventListener('change', e => {
+    App.paperInfo.date = e.target.value; syncPaperInfo();
+  });
+  document.getElementById('paper-author')?.addEventListener('input', e => {
+    App.paperInfo.author = e.target.value; syncPaperInfo();
+  });
+  document.getElementById('btn-paper-date-today')?.addEventListener('click', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const el = document.getElementById('paper-date');
+    if (el) { el.value = today; App.paperInfo.date = today; syncPaperInfo(); }
+  });
+
   // ラベル編集オーバーレイ
   document.getElementById('label-edit-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); confirmLabelEdit(); }
@@ -1566,15 +1639,18 @@ function getPaperDims(size) {
 function togglePaperMode() {
   App.paperMode = !App.paperMode;
   const btn = document.getElementById('btn-paper-mode');
+  const bar = document.getElementById('paper-info-bar');
   if (App.paperMode) {
     btn.textContent = '本図に戻す';
     btn.classList.add('active-mode');
     const d = getPaperDims(App.paperSize);
     App.paperW = d.w; App.paperH = d.h;
+    if (bar) bar.classList.remove('hidden');
     fitPaperToView();
   } else {
     btn.textContent = '📄 用紙';
     btn.classList.remove('active-mode');
+    if (bar) bar.classList.add('hidden');
     if (App.pdfReady) fitToView();
   }
   App.dirty = true;
@@ -2978,7 +3054,10 @@ function commitCalibrationDist(d) {
   if (App.calibPts.length < 2) { alert('先に2点をクリックしてください'); return; }
   const px = dist(App.calibPts[0], App.calibPts[1]);
   if (px === 0) { alert('2点が同じ位置です'); return; }
-  App.mpp = d / px;
+  const oldMpp = App.mpp;
+  const newMpp = d / px;
+  if (oldMpp && Math.abs(oldMpp - newMpp) > 1e-12) rescaleAll(oldMpp / newMpp);
+  App.mpp = newMpp;
   App.mapScale = Math.round(App.mpp * 72 * App.renderScale * 1000 / 25.4);
   setScaleDisplay(`縮尺 1/${App.mapScale} (キャリブレーション)`);
   document.getElementById('calibration-dist-modal').classList.add('hidden');
@@ -3012,6 +3091,7 @@ async function saveProjectJSON() {
     paperMode: App.paperMode,
     paperSize: App.paperSize,
     paperW: App.paperW, paperH: App.paperH,
+    paperInfo: App.paperInfo,
     items: App.items,
     texts: App.texts,
     nextId: App.nextId,
@@ -3085,6 +3165,19 @@ function loadProjectJSON(file) {
         const d = getPaperDims(App.paperSize);
         App.paperW = (data.paperW && data.paperW > 1000) ? data.paperW : d.w;
         App.paperH = (data.paperH && data.paperH > 700)  ? data.paperH : d.h;
+        const bar = document.getElementById('paper-info-bar');
+        if (bar) bar.classList.toggle('hidden', !App.paperMode);
+        const pmBtn = document.getElementById('btn-paper-mode');
+        if (pmBtn) { pmBtn.textContent = App.paperMode ? '本図に戻す' : '📄 用紙'; pmBtn.classList.toggle('active-mode', App.paperMode); }
+      }
+      if (data.paperInfo) {
+        App.paperInfo = data.paperInfo;
+        const ti = document.getElementById('paper-title');
+        const da = document.getElementById('paper-date');
+        const au = document.getElementById('paper-author');
+        if (ti) ti.value = App.paperInfo.title || '';
+        if (da) da.value = App.paperInfo.date || '';
+        if (au) au.value = App.paperInfo.author || '';
       }
       App.items      = data.items      || [];
       App.texts      = data.texts      || [];
