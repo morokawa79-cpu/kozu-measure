@@ -130,6 +130,7 @@ const App = {
   // 約表記
   useYaku: false,
   yakuDecimal: 1,
+  yakuAdjust: 0,
 
   // 区画番号表示
   showLotNumbers: true,
@@ -1515,6 +1516,28 @@ function bindEvents() {
   };
   document.getElementById('yaku-decimal-sel')?.addEventListener('change', e => applyYakuDecimal(e.target.value));
   document.getElementById('yaku-decimal-sel-sub')?.addEventListener('change', e => applyYakuDecimal(e.target.value));
+
+  // 約微調整ボタン
+  function applyYakuAdjust(delta) {
+    App.yakuAdjust = Math.round((App.yakuAdjust + delta) * 1000) / 1000;
+    const disp = document.getElementById('yaku-adj-display');
+    if (disp) disp.textContent = App.yakuAdjust === 0 ? '0m' : `${App.yakuAdjust.toFixed(2)}m`;
+    if (App.useYaku) {
+      App.items.forEach(item => {
+        if (item.segValues) {
+          item.segLabels = item.segValues.map((d, i) =>
+            (item.customSegLabels && item.customSegLabels[i] != null) ? item.customSegLabels[i] : formatEdge(d));
+        }
+      });
+    }
+    App.dirty = true;
+  }
+  document.getElementById('btn-yaku-adj-m01')?.addEventListener('click', () => applyYakuAdjust(-0.1));
+  document.getElementById('btn-yaku-adj-m001')?.addEventListener('click', () => applyYakuAdjust(-0.01));
+  document.getElementById('btn-yaku-adj-reset')?.addEventListener('click', () => {
+    App.yakuAdjust = 0;
+    applyYakuAdjust(0);
+  });
 
   // ラベル編集オーバーレイ
   document.getElementById('label-edit-input')?.addEventListener('keydown', e => {
@@ -3186,6 +3209,7 @@ function printMeasurements() {
     drawPaperFrame();
     App.labelBoxes = [];
     App.lots.forEach(lot => drawLot(lot));
+    App.lots.forEach(lot => drawLotEdgeLabels(lot));
     App.items.forEach(item => drawItem(item, item.color));
     App.texts.forEach(t => drawTextAnnotation(t));
   } else {
@@ -3197,6 +3221,7 @@ function printMeasurements() {
     App.vz = 1; App.vx = 0; App.vy = 0;
     App.labelBoxes = [];
     App.lots.forEach(lot => drawLot(lot));
+    App.lots.forEach(lot => drawLotEdgeLabels(lot));
     App.items.forEach(item => drawItem(item, item.color));
     App.texts.forEach(t => drawTextAnnotation(t));
   }
@@ -3256,11 +3281,13 @@ function formatDist(m) {
 
 function formatEdge(m) {
   if (!App.useYaku) return formatDist(m);
+  const adj = App.yakuAdjust || 0;
+  const ma = Math.max(0, m + adj);
   const p = App.yakuDecimal;
   const f = Math.pow(10, p);
-  if (m >= 1000) return `約${(Math.floor(m / 1000 * f) / f).toFixed(p)}km`;
-  if (m >= 1)    return `約${(Math.floor(m * f) / f).toFixed(p)}m`;
-  return `約${(Math.floor(m * 100 * f) / f).toFixed(p)}cm`;
+  if (ma >= 1000) return `約${(Math.floor(ma / 1000 * f) / f).toFixed(p)}km`;
+  if (ma >= 1)    return `約${(Math.floor(ma * f) / f).toFixed(p)}m`;
+  return `約${(Math.floor(ma * 100 * f) / f).toFixed(p)}cm`;
 }
 
 // ===== 計測アイテム再計算（頂点移動後）=====
@@ -3477,6 +3504,7 @@ function confirmLotDraw() {
 function drawLotsLayer() {
   drawDivGuides();
   App.lots.forEach(lot => drawLot(lot));
+  App.lots.forEach(lot => drawLotEdgeLabels(lot));
 }
 
 function drawDivGuides() {
@@ -3660,76 +3688,72 @@ function drawLot(lot) {
     lineY += i === 0 ? lineH : smH;
   });
 
-  // 辺の寸法テキスト（辺と平行・辺の外側にオフセット）
-  if (mpp && App.lotShowEdgeLengths) {
-    const scale = App.lotEdgeScale || 1.0;
-    const fsE = pfs(7.5) * scale;
-    for (let i = 0; i < pts.length; i++) {
-      const j = (i + 1) % pts.length;
-      const p1 = pts[i], p2 = pts[j];
-      const dx = p2.x - p1.x, dy = p2.y - p1.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len, uy = dy / len;
-      // 辺の外向き法線（重心から離れる方向）
-      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
-      let nx = -uy, ny = ux;
-      if ((cen.x - mx) * nx + (cen.y - my) * ny > 0) { nx = -nx; ny = -ny; }
-      // テキストの高さ分だけ外側にずらして辺と被らないようにする
-      const offset = fsE * 0.75;
-      const userOff = (lot.edgeLabelOffsets && lot.edgeLabelOffsets[i]) || { dx: 0, dy: 0 };
-      const lcx = mx + nx * offset + userOff.dx;
-      const lcy = my + ny * offset + userOff.dy;
-      // カスタムラベル or 計算値（約表記対応）
-      const edgeText = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null)
-        ? lot.customEdgeLabels[i] : formatEdge(len * mpp);
-      const scx = lcx * App.vz + App.vx;
-      const scy = lcy * App.vz + App.vy;
-      // テキスト幅に応じた十分な大きさのヒットボックス（回転テキストなので余裕を持たせる）
-      const approxTw = edgeText.length * fsE * 0.62; // キャンバス座標での概算テキスト幅
-      const srW = Math.max(24, approxTw / 2 + fsE * 0.5); // 水平方向の半幅
-      const srH = Math.max(16, fsE * 1.2);                // 垂直方向の半高さ
-      // 回転角を考慮してAABBを計算
-      let angle = Math.atan2(uy, ux);
-      if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
-      const cosA = Math.abs(Math.cos(angle)), sinA = Math.abs(Math.sin(angle));
-      const hitHalfW = Math.max(srH, srW * cosA + srH * sinA);
-      const hitHalfH = Math.max(srH, srW * sinA + srH * cosA);
-      const hitSW = hitHalfW * 2 * App.vz, hitSH = hitHalfH * 2 * App.vz;
+}
 
-      const isHovering = App._hoverLabelKey === (lot.id + '_lotedge' + i);
-      ctx.save();
-      ctx.translate(lcx, lcy);
-      ctx.rotate(angle);
-      // ラベル編集モード中はクリック可能ハイライトを表示
-      if (App.mode === 'label-edit') {
-        ctx.fillStyle = isHovering ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.1)';
-        ctx.fillRect(-srW, -srH, srW * 2, srH * 2);
-        ctx.strokeStyle = isHovering ? '#3b82f6' : '#93c5fd';
-        ctx.lineWidth = (isHovering ? 1.5 : 1) / App.vz;
-        ctx.setLineDash([3 / App.vz, 3 / App.vz]);
-        ctx.strokeRect(-srW, -srH, srW * 2, srH * 2);
-        ctx.setLineDash([]);
-      }
-      ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
-      const edgeColor2 = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[i])
-        || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : (lot.edgeLabelColor || '#334155'));
-      ctx.fillStyle = edgeColor2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(edgeText, 0, 0);
-      ctx.restore();
-      // ラベル編集用ヒットボックスを登録（AABBで回転後の範囲をカバー）
-      App.labelBoxes.push({
-        itemId: lot.id, labelKey: 'lotedge' + i,
-        isText: false, isLotEdge: true,
-        lotId: lot.id, edgeIdx: i,
-        cx: lcx, cy: lcy,
-        sx: scx - hitSW / 2, sy: scy - hitSH / 2,
-        sw: hitSW, sh: hitSH,
-      });
+function drawLotEdgeLabels(lot) {
+  const pts = lot.points;
+  if (!pts || pts.length < 2 || lot.type === 'road') return;
+  const mpp = App.mpp;
+  if (!mpp || !App.lotShowEdgeLengths) return;
+  const cen = centroid(pts);
+  const scale = App.lotEdgeScale || 1.0;
+  const fsE = pfs(7.5) * scale;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    const p1 = pts[i], p2 = pts[j];
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    let nx = -uy, ny = ux;
+    if ((cen.x - mx) * nx + (cen.y - my) * ny > 0) { nx = -nx; ny = -ny; }
+    const offset = fsE * 0.75;
+    const userOff = (lot.edgeLabelOffsets && lot.edgeLabelOffsets[i]) || { dx: 0, dy: 0 };
+    const lcx = mx + nx * offset + userOff.dx;
+    const lcy = my + ny * offset + userOff.dy;
+    const edgeText = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null)
+      ? lot.customEdgeLabels[i] : formatEdge(len * mpp);
+    const scx = lcx * App.vz + App.vx;
+    const scy = lcy * App.vz + App.vy;
+    const approxTw = edgeText.length * fsE * 0.62;
+    const srW = Math.max(24, approxTw / 2 + fsE * 0.5);
+    const srH = Math.max(16, fsE * 1.2);
+    let angle = Math.atan2(uy, ux);
+    if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+    const cosA = Math.abs(Math.cos(angle)), sinA = Math.abs(Math.sin(angle));
+    const hitHalfW = Math.max(srH, srW * cosA + srH * sinA);
+    const hitHalfH = Math.max(srH, srW * sinA + srH * cosA);
+    const hitSW = hitHalfW * 2 * App.vz, hitSH = hitHalfH * 2 * App.vz;
+    const isHovering = App._hoverLabelKey === (lot.id + '_lotedge' + i);
+    ctx.save();
+    ctx.translate(lcx, lcy);
+    ctx.rotate(angle);
+    if (App.mode === 'label-edit') {
+      ctx.fillStyle = isHovering ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.1)';
+      ctx.fillRect(-srW, -srH, srW * 2, srH * 2);
+      ctx.strokeStyle = isHovering ? '#3b82f6' : '#93c5fd';
+      ctx.lineWidth = (isHovering ? 1.5 : 1) / App.vz;
+      ctx.setLineDash([3 / App.vz, 3 / App.vz]);
+      ctx.strokeRect(-srW, -srH, srW * 2, srH * 2);
+      ctx.setLineDash([]);
     }
+    ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
+    const edgeColor2 = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[i])
+      || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : (lot.edgeLabelColor || '#334155'));
+    ctx.fillStyle = edgeColor2;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(edgeText, 0, 0);
+    ctx.restore();
+    App.labelBoxes.push({
+      itemId: lot.id, labelKey: 'lotedge' + i,
+      isText: false, isLotEdge: true,
+      lotId: lot.id, edgeIdx: i,
+      cx: lcx, cy: lcy,
+      sx: scx - hitSW / 2, sy: scy - hitSH / 2,
+      sw: hitSW, sh: hitSH,
+    });
   }
-
 }
 
 function drawLotInProgress() {
