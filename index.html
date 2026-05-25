@@ -149,7 +149,27 @@
         <button class="btn-lot-tool" id="sub-btn-callout" data-help="1点目：矢印の先端、2点目：テキスト位置の順にクリックして引出線を作成します。">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:block;margin:0 auto 2px"><line x1="6" y1="18" x2="13" y2="10"/><rect x="12" y="4" width="8" height="7" rx="1"/></svg>引出線
         </button>
+        <button class="btn-lot-tool" id="sub-btn-north-arrow" data-help="北マーク（方位記号）を配置します。クリックで設置。ダブルクリックで角度・サイズを変更。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;display:block;margin:0 auto 2px"><circle cx="12" cy="12" r="8"/><polygon points="12,4 9.2,14 12,12 14.8,14" fill="currentColor" stroke="none"/><polygon points="12,20 9.2,14 12,12 14.8,14" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>北マーク
+        </button>
       </div><!-- /lot-tool-grid-3 -->
+      <!-- 北マーク設定 -->
+      <div id="north-arrow-settings" class="hidden" style="padding:4px 2px;margin-top:4px;background:#0a1628;border-radius:5px;border:1px solid #1e3a5f">
+        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;padding:3px 4px">
+          <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">角度</span>
+          <button class="btn-na-step" data-delta="-90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">−90</button>
+          <button class="btn-na-step" data-delta="-45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">−45</button>
+          <input type="number" id="north-arrow-angle-input" value="0" min="-360" max="360" style="width:44px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
+          <span style="font-size:11px;color:#94a3b8">°</span>
+          <button class="btn-na-step" data-delta="45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">+45</button>
+          <button class="btn-na-step" data-delta="90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">+90</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;padding:2px 4px 4px">
+          <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">サイズ</span>
+          <input type="range" id="north-arrow-size-input" min="0.5" max="3" step="0.25" value="1" style="flex:1;accent-color:#3b82f6">
+          <span id="north-arrow-size-val" style="font-size:11px;color:#60a5fa;min-width:26px;text-align:right">1.0×</span>
+        </div>
+      </div>
       <!-- 注記の色 -->
       <div style="margin-top:6px">
         <div class="sb-section-title" style="margin-top:0;margin-bottom:4px">注記の色</div>
@@ -297,6 +317,28 @@
         </div>
       </div>
       <canvas id="canvas"></canvas>
+      <!-- 北マーク編集パネル -->
+      <div id="north-arrow-edit-panel" class="hidden" style="position:absolute;z-index:200;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;box-shadow:0 4px 20px rgba(0,0,0,0.6);min-width:240px">
+        <div style="font-weight:bold;color:#e2e8f0;margin-bottom:10px;font-size:13px">↑ 北マーク</div>
+        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:12px;color:#94a3b8;margin-right:2px">角度</span>
+          <button class="btn-na-edit-step" data-delta="-90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">−90</button>
+          <button class="btn-na-edit-step" data-delta="-45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">−45</button>
+          <input type="number" id="na-edit-angle" value="0" style="width:52px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center">
+          <span style="font-size:12px;color:#94a3b8">°</span>
+          <button class="btn-na-edit-step" data-delta="45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">+45</button>
+          <button class="btn-na-edit-step" data-delta="90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">+90</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:12px">
+          <span style="font-size:12px;color:#94a3b8;flex:0 0 auto">サイズ</span>
+          <input type="range" id="na-edit-size" min="0.5" max="3" step="0.25" value="1" style="flex:1;accent-color:#3b82f6">
+          <span id="na-edit-size-val" style="font-size:11px;color:#60a5fa;min-width:26px;text-align:right">1.0×</span>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="btn-na-edit-delete" style="background:#450a0a;color:#f87171;border:1px solid #7f1d1d;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer">削除</button>
+          <button id="btn-na-edit-ok" style="background:#1d4ed8;color:#fff;border:none;border-radius:5px;padding:4px 14px;font-size:12px;cursor:pointer">閉じる</button>
+        </div>
+      </div>
       <!-- メモ入力パネル -->
       <div id="memo-panel" class="memo-panel hidden">
         <div class="memo-panel-label">メモを入力</div>

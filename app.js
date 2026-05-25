@@ -135,6 +135,11 @@ const App = {
   // 用紙情報（タイトルブロック）
   paperInfo: { title: '', date: '', author: '' },
 
+  // 北マーク
+  northArrowAngle: 0,
+  northArrowSize: 1.0,
+  editingNorthArrowId: null,
+
   // 区画番号表示
   showLotNumbers: true,
 
@@ -775,8 +780,50 @@ function drawLotTable(t) {
   });
 }
 
+function drawNorthArrow(t) {
+  const sz = pfs(18) * (t.size || 1.0);
+  const angle = ((t.angle || 0) * Math.PI) / 180;
+  const color = t.color || '#1e293b';
+  const cx = t.x, cy = t.y;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  // 背景円
+  const cr = sz * 1.25;
+  ctx.beginPath(); ctx.arc(0, 0, cr, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fill();
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5 / App.vz; ctx.stroke();
+  // 北三角（塗り）
+  ctx.beginPath();
+  ctx.moveTo(0, -sz); ctx.lineTo(-sz * 0.36, 0); ctx.lineTo(sz * 0.36, 0);
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  // 南三角（枠のみ）
+  ctx.beginPath();
+  ctx.moveTo(0, sz); ctx.lineTo(-sz * 0.36, 0); ctx.lineTo(sz * 0.36, 0);
+  ctx.closePath(); ctx.strokeStyle = color; ctx.lineWidth = 1.5 / App.vz; ctx.stroke();
+  // 中心点
+  ctx.beginPath(); ctx.arc(0, 0, sz * 0.07, 0, Math.PI * 2);
+  ctx.fillStyle = color; ctx.fill();
+  // 「N」ラベル
+  const fsN = sz * 0.85;
+  ctx.font = `bold ${fsN}px 'Segoe UI', sans-serif`;
+  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('N', 0, -sz * 1.8);
+  ctx.restore();
+  // ヒットボックス
+  const totalH = (cr + fsN * 1.2) * App.vz;
+  const totalW = cr * App.vz;
+  const scx = cx * App.vz + App.vx, scy = cy * App.vz + App.vy;
+  App.labelBoxes.push({
+    itemId: t.id, labelKey: 'northarrow', isText: true,
+    cx, cy,
+    sx: scx - totalW, sy: scy - totalH, sw: totalW * 2, sh: totalH + cr * App.vz,
+  });
+}
+
 function drawTextAnnotation(t) {
   if (t.textType === 'lot-table') { drawLotTable(t); return; }
+  if (t.textType === 'north-arrow') { drawNorthArrow(t); return; }
   const textColor = t.color || '#1a1a1a';
   const bgColor   = t.bgColor || 'rgba(255,255,220,0.92)';
 
@@ -1612,6 +1659,63 @@ function bindEvents() {
     if (el) { el.value = today; App.paperInfo.date = today; syncPaperInfo(); }
   });
 
+  // 北マークツールボタン
+  document.getElementById('sub-btn-north-arrow')?.addEventListener('click', () => setSubMeasureMode('north-arrow'));
+
+  // 北マーク設定パネル（サイドバー）
+  document.getElementById('north-arrow-angle-input')?.addEventListener('input', e => {
+    App.northArrowAngle = parseFloat(e.target.value) || 0;
+  });
+  document.getElementById('north-arrow-size-input')?.addEventListener('input', e => {
+    App.northArrowSize = parseFloat(e.target.value) || 1.0;
+    document.getElementById('north-arrow-size-val').textContent = App.northArrowSize.toFixed(2).replace(/\.?0+$/, '') + '×';
+  });
+  document.querySelectorAll('.btn-na-step').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseFloat(btn.dataset.delta) || 0;
+      const inp = document.getElementById('north-arrow-angle-input');
+      App.northArrowAngle = ((App.northArrowAngle + d) % 360 + 360) % 360;
+      if (inp) inp.value = App.northArrowAngle;
+    });
+  });
+
+  // 北マーク編集オーバーレイ
+  const naEditAngle = document.getElementById('na-edit-angle');
+  const naEditSize = document.getElementById('na-edit-size');
+  const updateEditingNorthArrow = () => {
+    const t = App.texts.find(x => x.id === App.editingNorthArrowId);
+    if (!t) return;
+    const a = parseFloat(naEditAngle?.value) || 0;
+    const s = parseFloat(naEditSize?.value) || 1.0;
+    t.angle = a; t.size = s;
+    document.getElementById('na-edit-size-val').textContent = s.toFixed(2).replace(/\.?0+$/, '') + '×';
+    App.dirty = true;
+  };
+  naEditAngle?.addEventListener('input', updateEditingNorthArrow);
+  naEditSize?.addEventListener('input', updateEditingNorthArrow);
+  document.querySelectorAll('.btn-na-edit-step').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseFloat(btn.dataset.delta) || 0;
+      const cur = parseFloat(naEditAngle?.value) || 0;
+      const next = ((cur + d) % 360 + 360) % 360;
+      if (naEditAngle) naEditAngle.value = next;
+      updateEditingNorthArrow();
+    });
+  });
+  document.getElementById('btn-na-edit-ok')?.addEventListener('click', () => {
+    document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+    App.editingNorthArrowId = null;
+  });
+  document.getElementById('btn-na-edit-delete')?.addEventListener('click', () => {
+    if (App.editingNorthArrowId != null) {
+      saveState();
+      App.texts = App.texts.filter(x => x.id !== App.editingNorthArrowId);
+      App.editingNorthArrowId = null;
+      document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+      App.dirty = true;
+    }
+  });
+
   // ラベル編集オーバーレイ
   document.getElementById('label-edit-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); confirmLabelEdit(); }
@@ -2089,6 +2193,21 @@ function onMouseDown(e) {
     return;
   }
 
+  // 北マークモード
+  if (App.mode === 'north-arrow') {
+    saveState();
+    App.texts.push({
+      id: App.nextId++,
+      textType: 'north-arrow',
+      x: cp.x, y: cp.y,
+      angle: App.northArrowAngle,
+      size: App.northArrowSize,
+      color: '#1e293b',
+    });
+    App.dirty = true;
+    return;
+  }
+
   // 引出線モード
   if (App.mode === 'callout') {
     if (App.pts.length === 0) {
@@ -2383,10 +2502,35 @@ function onMouseUp(e) {
   }
 }
 
+function openNorthArrowEditor(id, clientX, clientY) {
+  const t = App.texts.find(x => x.id === id);
+  if (!t) return;
+  App.editingNorthArrowId = id;
+  const panel = document.getElementById('north-arrow-edit-panel');
+  if (!panel) return;
+  document.getElementById('na-edit-angle').value = t.angle || 0;
+  const sz = t.size || 1.0;
+  document.getElementById('na-edit-size').value = sz;
+  document.getElementById('na-edit-size-val').textContent = sz.toFixed(2).replace(/\.?0+$/, '') + '×';
+  const rect = canvas.getBoundingClientRect();
+  const px = Math.min(clientX - rect.left, canvas.clientWidth - 260);
+  const py = Math.max(clientY - rect.top - 20, 4);
+  panel.style.left = px + 'px';
+  panel.style.top = py + 'px';
+  panel.classList.remove('hidden');
+}
+
 function onDblClick(e) {
   if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
+
+  // 北マーク編集（全モード共通で最優先）
+  const hitN = hitLabel(sx, sy);
+  if (hitN && hitN.isText) {
+    const nt = App.texts.find(x => x.id === hitN.itemId && x.textType === 'north-arrow');
+    if (nt) { openNorthArrowEditor(nt.id, e.clientX, e.clientY); return; }
+  }
 
   // 分譲地モード
   if (App.appMode === 'subdivision') {
@@ -3502,12 +3646,14 @@ function setSubMeasureMode(mode) {
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('parallel-panel').classList.add('hidden');
   document.querySelectorAll('#tools-subdivision .btn-lot-tool').forEach(b => b.classList.remove('active'));
-  ['distance','polyline','area','arrow','text','callout','vertex-edit','label-edit'].forEach(m => {
+  ['distance','polyline','area','arrow','text','callout','north-arrow','vertex-edit','label-edit'].forEach(m => {
     const id = (m === 'vertex-edit') ? 'btn-vertex-edit-sub'
              : (m === 'label-edit')  ? 'btn-label-edit-sub'
              : `sub-btn-${m}`;
     document.getElementById(id)?.classList.toggle('active', m === mode);
   });
+  // 北マーク設定パネルの表示切替
+  document.getElementById('north-arrow-settings')?.classList.toggle('hidden', mode !== 'north-arrow');
   updateHint();
   App.dirty = true;
 }
