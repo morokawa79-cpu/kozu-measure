@@ -1622,6 +1622,16 @@ function bindEvents() {
     });
   });
 
+  // 表示設定トグルボタン（モーダル内）
+  document.querySelectorAll('.lot-disp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const groupId = btn.closest('.lot-disp-group')?.id;
+      if (!groupId) return;
+      document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(b => b.classList.remove('active-disp'));
+      btn.classList.add('active-disp');
+    });
+  });
+
   // 区画の線色スウォッチ（サイドバー - グローバル）
   document.querySelectorAll('#lot-border-color-picker .border-gc-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -3637,7 +3647,15 @@ function formatDist(m) {
 }
 
 function formatEdge(m) {
-  if (!App.useYaku) return formatDist(m);
+  return formatEdgeLot(m, null);
+}
+
+// 区画ごとのyakuMode対応版（lot=nullのとき全体設定を使用）
+function formatEdgeLot(m, lot) {
+  const yakuOn = lot && lot.yakuMode === 'on'  ? true
+               : lot && lot.yakuMode === 'off' ? false
+               : App.useYaku;
+  if (!yakuOn) return formatDist(m);
   const adj = App.yakuAdjust || 0;
   const ma = Math.max(0, m + adj);
   const p = App.yakuDecimal;
@@ -3996,9 +4014,12 @@ function drawLot(lot) {
   const fsSm  = pfs(9)  * ts;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
-  // カスタムラベル対応（空欄nullでリセット）
-  const areaText  = lot.customAreaLabel  != null ? lot.customAreaLabel  : (sqm ? sqm.toFixed(1) + '㎡' : null);
-  const tsuboText = lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : null);
+  // 面積表示：区画個別設定 > デフォルト表示
+  const showArea = lot.areaDisplay === 'hide' ? false : true;
+  const areaText  = !showArea ? null
+    : lot.customAreaLabel  != null ? lot.customAreaLabel  : (sqm ? sqm.toFixed(1) + '㎡' : null);
+  const tsuboText = !showArea ? null
+    : lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : null);
   // 色: カスタム色 > 自動（カスタムテキストなら黄色、そうでなければ元色）
   const areaColor  = lot.customAreaLabelColor  || (lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b');
   const tsuboColor = lot.customTsuboLabelColor || (lot.customTsuboLabel != null ? '#f59e0b' : '#475569');
@@ -4053,7 +4074,11 @@ function drawLotEdgeLabels(lot) {
   const pts = lot.points;
   if (!pts || pts.length < 2 || lot.type === 'road') return;
   const mpp = App.mpp;
-  if (!mpp || !App.lotShowEdgeLengths) return;
+  // 区画個別設定 > グローバル設定
+  const showEdges = lot.edgeDisplay === 'show' ? true
+                  : lot.edgeDisplay === 'hide' ? false
+                  : App.lotShowEdgeLengths;
+  if (!mpp || !showEdges) return;
   const cen = centroid(pts);
   const scale = App.lotEdgeScale || 1.0;
   const fsE = pfs(7.5) * scale;
@@ -4071,7 +4096,7 @@ function drawLotEdgeLabels(lot) {
     const lcx = mx + nx * offset + userOff.dx;
     const lcy = my + ny * offset + userOff.dy;
     const edgeText = (lot.customEdgeLabels && lot.customEdgeLabels[i] != null)
-      ? lot.customEdgeLabels[i] : formatEdge(len * mpp);
+      ? lot.customEdgeLabels[i] : formatEdgeLot(len * mpp, lot);
     const scx = lcx * App.vz + App.vx;
     const scy = lcy * App.vz + App.vy;
     const approxTw = edgeText.length * fsE * 0.62;
@@ -5203,6 +5228,14 @@ function openLotEditor(id) {
       sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
       sw.classList.toggle('active-edgelabel-color', isSel);
     });
+    // 表示設定トグル
+    [['lot-edge-disp-group', lot.edgeDisplay || ''],
+     ['lot-area-disp-group', lot.areaDisplay || ''],
+     ['lot-yaku-disp-group', lot.yakuMode    || '']].forEach(([groupId, val]) => {
+      document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(btn => {
+        btn.classList.toggle('active-disp', btn.dataset.val === val);
+      });
+    });
   }
   document.getElementById('lot-edit-modal').classList.remove('hidden');
 }
@@ -5341,6 +5374,14 @@ function commitLotEdit() {
     if (selB) lot.borderColor = selB.dataset.bc;
     const selElc = document.querySelector('#lot-edgelabel-color-swatches .edgelabel-color-swatch.active-edgelabel-color');
     lot.edgeLabelColor = selElc ? selElc.dataset.elc : '#334155';
+    // 表示設定
+    [['lot-edge-disp-group', 'edgeDisplay'],
+     ['lot-area-disp-group', 'areaDisplay'],
+     ['lot-yaku-disp-group', 'yakuMode']].forEach(([groupId, prop]) => {
+      const active = document.querySelector(`#${groupId} .lot-disp-btn.active-disp`);
+      const val = active ? active.dataset.val : '';
+      lot[prop] = val || null;
+    });
   }
   document.getElementById('lot-edit-modal').classList.add('hidden');
   updateLotPanel(); App.dirty = true;

@@ -693,6 +693,17 @@ button:disabled { opacity: 0.4; cursor: default; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
+/* ===== 区画表示設定ボタン ===== */
+.lot-disp-group { display: flex; gap: 2px; }
+.lot-disp-btn {
+  font-size: 10px; padding: 2px 7px;
+  background: #1e293b; color: #64748b;
+  border: 1px solid #334155; border-radius: 3px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lot-disp-btn:hover { background: #334155; color: #e2e8f0; }
+.lot-disp-btn.active-disp { background: #1d4ed8; color: #fff; border-color: #3b82f6; }
+
 /* ===== 印刷 ===== */
 @media print {
   #toolbar, #tools, #results, #hint-bar { display: none !important; }
