@@ -16,6 +16,12 @@
       <button id="btn-open-image" class="btn-secondary">Googleマップ画像</button>
       <input type="file" id="image-input" accept="image/*" style="display:none">
       <button id="btn-rotate-image" class="btn-secondary">🔄 90°回転</button>
+      <button id="btn-bg-clear" class="btn-secondary" title="背景PDF/画像を削除（図形は保持）">下絵削除</button>
+      <button id="btn-bg-replace-pdf" class="btn-secondary" title="図形を保持したまま背景PDFだけ差し替え">PDF入替</button>
+      <input type="file" id="bg-replace-pdf-input" accept=".pdf" style="display:none">
+      <button id="btn-bg-replace-img" class="btn-secondary" title="図形を保持したまま背景画像だけ差し替え">画像入替</button>
+      <input type="file" id="bg-replace-img-input" accept="image/*" style="display:none">
+      <button id="btn-bg-adjust" class="btn-secondary" title="下絵のスケール・位置を調整">下絵調整</button>
       <div id="page-nav" class="tb-group hidden">
         <button id="btn-prev" disabled>◀</button>
         <span id="page-info">1 / 1</span>
@@ -43,6 +49,30 @@
       <button id="btn-help-toggle" class="btn-secondary" title="ヘルプ表示切替" style="min-width:28px;padding:5px 8px;font-size:13px">?</button>
     </div>
   </header>
+
+  <!-- 下絵調整バー -->
+  <div id="bg-adjust-bar" class="hidden" style="background:#0a1628;border-bottom:1px solid #1e3a5f;padding:5px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#94a3b8">
+    <span style="font-weight:bold;color:#60a5fa;white-space:nowrap">📐 下絵調整</span>
+    <span style="white-space:nowrap">スケール</span>
+    <button class="btn-bg-adj" data-field="bgScale" data-delta="-0.05" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:11px">−</button>
+    <input type="range" id="bg-scale-slider" min="0.2" max="3" step="0.01" value="1" style="width:90px;accent-color:#3b82f6">
+    <button class="btn-bg-adj" data-field="bgScale" data-delta="0.05" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:11px">＋</button>
+    <span id="bg-scale-val" style="color:#60a5fa;min-width:36px">100%</span>
+    <span style="white-space:nowrap;margin-left:4px">横</span>
+    <button class="btn-bg-adj" data-field="bgOffsetX" data-delta="-10" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">−10</button>
+    <button class="btn-bg-adj" data-field="bgOffsetX" data-delta="-1" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">−1</button>
+    <input type="number" id="bg-offset-x" value="0" step="1" style="width:54px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
+    <button class="btn-bg-adj" data-field="bgOffsetX" data-delta="1" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">+1</button>
+    <button class="btn-bg-adj" data-field="bgOffsetX" data-delta="10" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">+10</button>
+    <span style="white-space:nowrap;margin-left:4px">縦</span>
+    <button class="btn-bg-adj" data-field="bgOffsetY" data-delta="-10" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">−10</button>
+    <button class="btn-bg-adj" data-field="bgOffsetY" data-delta="-1" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">−1</button>
+    <input type="number" id="bg-offset-y" value="0" step="1" style="width:54px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
+    <button class="btn-bg-adj" data-field="bgOffsetY" data-delta="1" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">+1</button>
+    <button class="btn-bg-adj" data-field="bgOffsetY" data-delta="10" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px">+10</button>
+    <button id="btn-bg-adj-reset" style="background:#1e3a5f;color:#f87171;border:1px solid #7f1d1d;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:4px">リセット</button>
+    <button id="btn-bg-adj-close" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">閉じる</button>
+  </div>
 
   <!-- 用紙情報バー（用紙モード時のみ表示） -->
   <div id="paper-info-bar" class="hidden" style="background:#0f1a2e;border-bottom:1px solid #1e3a5f;padding:5px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#94a3b8">

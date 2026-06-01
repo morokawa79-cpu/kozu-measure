@@ -117,6 +117,9 @@ const App = {
   snapType: null,        // 'vertex'|'intersection'|'grid'|null
   splitTargetId: null,   // 分割対象の区画ID
   imageRotation: 0,      // 背景画像の回転角度（0/90/180/270）
+  bgScale: 1.0,          // 下絵のみのスケール
+  bgOffsetX: 0,          // 下絵のみのX位置オフセット（canvas座標）
+  bgOffsetY: 0,          // 下絵のみのY位置オフセット（canvas座標）
   cornerCutLotId: null,  // 隅切り対象の区画ID
   cornerCutIdx: -1,      // 隅切り対象の頂点インデックス
   dragLotOrigPoints: null, // ドラッグ開始時の区画頂点コピー
@@ -180,6 +183,37 @@ function resizeCanvas() {
   App.dirty = true;
 }
 
+// ===== 下絵管理 =====
+function clearBackground() {
+  App.pdfReady = false;
+  App.pdfBytes = null;
+  App.pdf = null;
+  App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
+  document.getElementById('drop-zone').style.display = '';
+  App.dirty = true;
+}
+
+async function replaceBgPDF(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    App.pdfBytes = new Uint8Array(buf);
+    App.isImageMode = false;
+    App.pdf = await pdfjsLib.getDocument({ data: App.pdfBytes }).promise;
+    App.pageCount = App.pdf.numPages;
+    App.pageNum = 1;
+    App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
+    document.getElementById('page-nav').classList.remove('hidden');
+    // 縮尺・図形は保持したまま背景のみ更新
+    const page = await App.pdf.getPage(1);
+    const vp = page.getViewport({ scale: App.renderScale });
+    App.pdfOffscreen.width = vp.width; App.pdfOffscreen.height = vp.height;
+    await page.render({ canvasContext: App.pdfOffscreen.getContext('2d'), viewport: vp }).promise;
+    App.pdfReady = true;
+    document.getElementById('drop-zone').style.display = 'none';
+    App.dirty = true;
+  } catch (e) { alert('PDF読み込みエラー: ' + e.message); }
+}
+
 // ===== PDF / 画像ロード =====
 async function loadPDF(file) {
   try {
@@ -194,7 +228,7 @@ async function loadPDF(file) {
   } catch (e) { alert('PDF読み込みエラー: ' + e.message); }
 }
 
-async function loadImage(file) {
+async function loadImage(file, keepDrawings = false) {
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
@@ -206,10 +240,13 @@ async function loadImage(file) {
     App.pdfReady = true;
     App.isImageMode = true;
     App.pdfBytes = null;
-    App.mapScale = null; App.mpp = null;
-    setScaleDisplay('縮尺未設定 — スケールバーで「縮尺設定」してください');
+    App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
+    if (!keepDrawings) {
+      App.mapScale = null; App.mpp = null;
+      setScaleDisplay('縮尺未設定 — スケールバーで「縮尺設定」してください');
+      clearMeasurements(false);
+    }
     document.getElementById('drop-zone').style.display = 'none';
-    clearMeasurements(false);
     fitToView();
     App.dirty = true;
     URL.revokeObjectURL(url);
@@ -380,6 +417,29 @@ function fitPaperToView() {
 }
 
 // 用紙フレーム描画（canvas座標系）
+function drawBgImage() {
+  const ox = App.bgOffsetX || 0, oy = App.bgOffsetY || 0;
+  const sc = App.bgScale || 1.0;
+  const rot = App.imageRotation || 0;
+  const W = App.pdfOffscreen.width, H = App.pdfOffscreen.height;
+  ctx.save();
+  ctx.translate(ox, oy);
+  if (sc !== 1.0) ctx.scale(sc, sc);
+  if (rot === 0) {
+    ctx.drawImage(App.pdfOffscreen, 0, 0);
+  } else {
+    const r = rot * Math.PI / 180;
+    ctx.save();
+    if (rot === 90)  { ctx.translate(H, 0); }
+    if (rot === 180) { ctx.translate(W, H); }
+    if (rot === 270) { ctx.translate(0, W); }
+    ctx.rotate(r);
+    ctx.drawImage(App.pdfOffscreen, 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 function drawPaperFrame() {
   const pw = App.paperW, ph = App.paperH;
   const rs = App.renderScale || 4;  // 座標系スケール係数
@@ -508,19 +568,7 @@ function render() {
     drawPaperFrame();
   }
   if (App.pdfReady && !App.paperMode) {
-    if (App.imageRotation === 0) {
-      ctx.drawImage(App.pdfOffscreen, 0, 0);
-    } else {
-      const W = App.pdfOffscreen.width, H = App.pdfOffscreen.height;
-      const r = App.imageRotation * Math.PI / 180;
-      ctx.save();
-      if (App.imageRotation === 90)  { ctx.translate(H, 0); }
-      if (App.imageRotation === 180) { ctx.translate(W, H); }
-      if (App.imageRotation === 270) { ctx.translate(0, W); }
-      ctx.rotate(r);
-      ctx.drawImage(App.pdfOffscreen, 0, 0);
-      ctx.restore();
-    }
+    drawBgImage();
   }
 
   // ラベルヒットボックスをリセット
@@ -1049,6 +1097,74 @@ function bindEvents() {
     fitToView();
     App.dirty = true;
   });
+
+  // 下絵管理ボタン
+  document.getElementById('btn-bg-clear')?.addEventListener('click', () => {
+    if (!App.pdfReady) return;
+    if (!confirm('下絵（PDF/画像）だけを削除します。作成した図形は保持されます。よろしいですか？')) return;
+    clearBackground();
+  });
+  document.getElementById('btn-bg-replace-pdf')?.addEventListener('click', () =>
+    document.getElementById('bg-replace-pdf-input')?.click());
+  document.getElementById('bg-replace-pdf-input')?.addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    await replaceBgPDF(f);
+    e.target.value = '';
+  });
+  document.getElementById('btn-bg-replace-img')?.addEventListener('click', () =>
+    document.getElementById('bg-replace-img-input')?.click());
+  document.getElementById('bg-replace-img-input')?.addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    loadImage(f, true);  // keepDrawings = true
+    e.target.value = '';
+  });
+  document.getElementById('btn-bg-adjust')?.addEventListener('click', () => {
+    const bar = document.getElementById('bg-adjust-bar');
+    if (bar) {
+      const hidden = bar.classList.toggle('hidden');
+      if (!hidden) {
+        document.getElementById('bg-scale-slider').value = App.bgScale || 1.0;
+        document.getElementById('bg-scale-val').textContent = Math.round((App.bgScale || 1.0) * 100) + '%';
+        document.getElementById('bg-offset-x').value = Math.round(App.bgOffsetX || 0);
+        document.getElementById('bg-offset-y').value = Math.round(App.bgOffsetY || 0);
+      }
+    }
+  });
+
+  // 下絵調整バー
+  function syncBgAdjUI() {
+    document.getElementById('bg-scale-slider').value = App.bgScale;
+    document.getElementById('bg-scale-val').textContent = Math.round(App.bgScale * 100) + '%';
+    document.getElementById('bg-offset-x').value = Math.round(App.bgOffsetX);
+    document.getElementById('bg-offset-y').value = Math.round(App.bgOffsetY);
+    App.dirty = true;
+  }
+  document.getElementById('bg-scale-slider')?.addEventListener('input', e => {
+    App.bgScale = parseFloat(e.target.value);
+    document.getElementById('bg-scale-val').textContent = Math.round(App.bgScale * 100) + '%';
+    App.dirty = true;
+  });
+  document.getElementById('bg-offset-x')?.addEventListener('input', e => {
+    App.bgOffsetX = parseFloat(e.target.value) || 0; App.dirty = true;
+  });
+  document.getElementById('bg-offset-y')?.addEventListener('input', e => {
+    App.bgOffsetY = parseFloat(e.target.value) || 0; App.dirty = true;
+  });
+  document.querySelectorAll('.btn-bg-adj').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const field = btn.dataset.field;
+      const delta = parseFloat(btn.dataset.delta) || 0;
+      App[field] = Math.round(((App[field] || (field === 'bgScale' ? 1 : 0)) + delta) * 1000) / 1000;
+      if (field === 'bgScale') App[field] = Math.max(0.1, App[field]);
+      syncBgAdjUI();
+    });
+  });
+  document.getElementById('btn-bg-adj-reset')?.addEventListener('click', () => {
+    App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
+    syncBgAdjUI();
+  });
+  document.getElementById('btn-bg-adj-close')?.addEventListener('click', () =>
+    document.getElementById('bg-adjust-bar')?.classList.add('hidden'));
 
   // ドラッグ＆ドロップ
   ['drop-zone', 'canvas'].forEach(id => {
@@ -3229,6 +3345,7 @@ async function saveProjectJSON() {
     vx: App.vx, vy: App.vy, vz: App.vz,
     pageNum: App.pageNum,
     isImageMode: App.isImageMode,
+    bgScale: App.bgScale, bgOffsetX: App.bgOffsetX, bgOffsetY: App.bgOffsetY,
     lots: App.lots,
     lotNextNum: App.lotNextNum,
     lotBorderColor: App.lotBorderColor,
@@ -3298,6 +3415,9 @@ function loadProjectJSON(file) {
       // メタデータ復元
       if (data.mpp != null)      App.mpp = data.mpp;
       if (data.mapScale != null) App.mapScale = data.mapScale;
+      App.bgScale   = data.bgScale   ?? 1.0;
+      App.bgOffsetX = data.bgOffsetX ?? 0;
+      App.bgOffsetY = data.bgOffsetY ?? 0;
       if (data.vx != null) { App.vx = data.vx; App.vy = data.vy; App.vz = data.vz; }
       App.lots       = data.lots       || [];
       App.lotNextNum = data.lotNextNum || 1;
@@ -3454,7 +3574,7 @@ function printMeasurements() {
     pc.width = App.pdfOffscreen.width;
     pc.height = App.pdfOffscreen.height;
     ctx = pc.getContext('2d');
-    ctx.drawImage(App.pdfOffscreen, 0, 0);
+    if (App.pdfReady) drawBgImage();
     App.vz = 1; App.vx = 0; App.vy = 0;
     App.labelBoxes = [];
     App.lots.forEach(lot => drawLot(lot));
