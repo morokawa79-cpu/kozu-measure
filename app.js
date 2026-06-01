@@ -1987,12 +1987,15 @@ function bindEvents() {
     App.stampHM = parseFloat(e.target.value) || 1; e.target._userEdited = true;
   });
   document.getElementById('stamp-label-input')?.addEventListener('input', e => { App.stampLabel = e.target.value; });
-  document.getElementById('stamp-dims-toggle')?.addEventListener('click', function() {
+  document.getElementById('stamp-settings')?.addEventListener('click', e => {
+    const btn = e.target.closest('#stamp-dims-toggle');
+    if (!btn) return;
+    e.stopPropagation();
     App.stampShowDims = !App.stampShowDims;
-    this.textContent = App.stampShowDims ? '寸法 ON' : '寸法 OFF';
-    this.style.background = App.stampShowDims ? '#1d4ed8' : '#1e293b';
-    this.style.color = App.stampShowDims ? '#fff' : '#94a3b8';
-    this.style.borderColor = App.stampShowDims ? '#3b82f6' : '#334155';
+    btn.textContent = App.stampShowDims ? '寸法 ON' : '寸法 OFF';
+    btn.style.background = App.stampShowDims ? '#1d4ed8' : '#1e293b';
+    btn.style.color = App.stampShowDims ? '#fff' : '#94a3b8';
+    btn.style.borderColor = App.stampShowDims ? '#3b82f6' : '#334155';
   });
   document.getElementById('stamp-angle-input')?.addEventListener('input', e => {
     App.stampAngle = parseFloat(e.target.value) || 0;
@@ -2051,16 +2054,20 @@ function bindEvents() {
     if (sl) sl.value = t.angle;
     App.dirty = true;
   };
-  document.getElementById('stamp-edit-dims-toggle')?.addEventListener('click', function() {
+  // stamp-edit-panel 内のボタンはイベント委譲で処理（直接リスナーが効かないケース対策）
+  document.getElementById('stamp-edit-panel')?.addEventListener('click', e => {
+    const btn = e.target.closest('#stamp-edit-dims-toggle');
+    if (!btn) return;
+    e.stopPropagation();
     const t = App.texts.find(x => x.id === App.editingStampId);
     if (!t) return;
     t.showDims = !(t.showDims !== false);
     const on = t.showDims;
-    this.textContent = on ? '寸法 ON' : '寸法 OFF';
-    this.dataset.on = String(on);
-    this.style.background = on ? '#1d4ed8' : '#1e293b';
-    this.style.color = on ? '#fff' : '#94a3b8';
-    this.style.borderColor = on ? '#3b82f6' : '#334155';
+    btn.textContent = on ? '寸法 ON' : '寸法 OFF';
+    btn.dataset.on = String(on);
+    btn.style.background = on ? '#1d4ed8' : '#1e293b';
+    btn.style.color = on ? '#fff' : '#94a3b8';
+    btn.style.borderColor = on ? '#3b82f6' : '#334155';
     App.dirty = true;
   });
   document.getElementById('stamp-edit-w')?.addEventListener('input', updateEditingStamp);
@@ -4396,8 +4403,11 @@ function drawLot(lot) {
   ctx.lineWidth = (isMergeSelected ? 3 : 1.5) / App.vz;
   ctx.stroke();
 
-  // 頂点ドット（スナップON時のみ表示）
-  if (App.gridSnap) pts.forEach(p => drawDot(p.x, p.y, 2.5 / App.vz, isRoad ? '#94a3b8' : '#60a5fa'));
+  // 頂点ドット（スナップON時のみ表示）- 線の色に連動
+  if (App.gridSnap) {
+    const dotColor = isRoad ? (lot.borderColor || '#94a3b8') : (lot.borderColor || App.lotBorderColor || '#1d4ed8');
+    pts.forEach(p => drawDot(p.x, p.y, 2.5 / App.vz, dotColor));
+  }
 
   const mpp = App.mpp;
   const cen = centroid(pts);
@@ -4652,10 +4662,11 @@ function drawLotInProgress() {
     ctx.fill();
   }
 
-  // 頂点ドット
-  pts.forEach(p => drawDot(p.x, p.y, 4 / App.vz, isRoad ? '#94a3b8' : '#3b82f6'));
+  // 頂点ドット（線の色に連動）
+  const dotC = isRoad ? '#94a3b8' : (App.lotBorderColor || '#1d4ed8');
+  pts.forEach(p => drawDot(p.x, p.y, 4 / App.vz, dotC));
   // マウス位置の点
-  drawDot(mx, my, 3 / App.vz, isRoad ? '#94a3b8' : '#60a5fa');
+  drawDot(mx, my, 3 / App.vz, dotC);
   // スナップインジケーター（□）
   if (lotSnap.type === 'vertex') {
     drawSnapBox(mx, my, '#facc15');       // 頂点スナップ：黄色
