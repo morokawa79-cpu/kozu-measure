@@ -1622,11 +1622,12 @@ function bindEvents() {
     });
   });
 
-  // 表示設定トグルボタン（モーダル内）
-  document.querySelectorAll('.lot-disp-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const groupId = btn.closest('.lot-disp-group')?.id;
-      if (!groupId) return;
+  // 表示設定トグルボタン（モーダル内 — イベント委譲）
+  ['lot-edge-disp-group', 'lot-area-disp-group', 'lot-yaku-disp-group'].forEach(groupId => {
+    document.getElementById(groupId)?.addEventListener('click', e => {
+      const btn = e.target.closest('.lot-disp-btn');
+      if (!btn) return;
+      e.stopPropagation();
       document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(b => b.classList.remove('active-disp'));
       btn.classList.add('active-disp');
     });
