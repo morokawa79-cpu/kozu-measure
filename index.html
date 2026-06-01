@@ -262,6 +262,7 @@
         <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
           <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">文字</span>
           <input type="text" id="stamp-label-input" placeholder="家屋 / P" style="flex:1;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 5px;font-size:12px">
+          <button type="button" id="stamp-dims-toggle" title="寸法（幅×奥行）の表示ON/OFF" style="font-size:10px;padding:1px 6px;background:#1d4ed8;color:#fff;border:1px solid #3b82f6;border-radius:3px;cursor:pointer;white-space:nowrap">寸法 ON</button>
         </div>
         <!-- 線の種類 + 色 -->
         <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;flex-wrap:wrap">
@@ -438,10 +439,11 @@
           <input type="number" id="stamp-edit-h" value="8" min="0.5" step="0.5" style="width:52px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center">
           <span style="font-size:12px;color:#94a3b8">m</span>
         </div>
-        <!-- テキスト -->
+        <!-- テキスト + 寸法 -->
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px">
           <span style="font-size:12px;color:#94a3b8;flex:0 0 auto">文字</span>
           <input type="text" id="stamp-edit-label-text" placeholder="家屋 / P（空欄で非表示）" style="flex:1;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 6px;font-size:12px">
+          <button type="button" id="stamp-edit-dims-toggle" style="font-size:11px;padding:2px 7px;background:#1d4ed8;color:#fff;border:1px solid #3b82f6;border-radius:3px;cursor:pointer;white-space:nowrap">寸法 ON</button>
         </div>
         <!-- 線の種類 + 色 -->
         <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;flex-wrap:wrap">

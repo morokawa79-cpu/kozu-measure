@@ -148,7 +148,12 @@ const App = {
   stampWM: 10,
   stampHM: 8,
   stampAngle: 0,
+  stampShowDims: true,
   editingStampId: null,
+
+  // コピー＆ペースト
+  lastClicked: null,   // { type: 'lot'|'text'|'item', id }
+  clipboardData: null, // { type, data }
 
   // 区画番号表示
   showLotNumbers: true,
@@ -953,10 +958,12 @@ function drawStamp(t) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (labelText) ctx.fillText(labelText, 0, isParking ? -hh * 0.25 : -hh * 0.18);
 
-  // 寸法テキスト
-  const fsDim = Math.min(pfs(6.5), hPx * 0.22, wPx * 0.18);
-  ctx.font = `${fsDim}px 'Segoe UI', sans-serif`;
-  ctx.fillText(`${t.wM}m×${t.hM}m`, 0, hh * 0.6);
+  // 寸法テキスト（showDims が false の場合は非表示）
+  if (t.showDims !== false) {
+    const fsDim = Math.min(pfs(6.5), hPx * 0.22, wPx * 0.18);
+    ctx.font = `${fsDim}px 'Segoe UI', sans-serif`;
+    ctx.fillText(`${t.wM}m×${t.hM}m`, 0, hh * 0.6);
+  }
 
   ctx.restore();
 
@@ -1494,6 +1501,61 @@ function bindEvents() {
     if (!onInput && e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
     if (!onInput && e.key === 'y' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redoLast(); }
     if (!onInput && e.key === 'Escape') { App.lotPts = []; App.mergeSelect = []; App.splitTargetId = null; App.cornerCutLotId = null; App.cornerCutIdx = -1; updateSplitUI(); render(); App.dirty = false; }
+
+    // コピー
+    if (!onInput && !modalOpen && e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const lc = App.lastClicked;
+      if (!lc) return;
+      if (lc.type === 'lot') {
+        const lot = App.lots.find(l => l.id === lc.id);
+        if (lot) { App.clipboardData = { type: 'lot', data: JSON.parse(JSON.stringify(lot)) }; }
+      } else if (lc.type === 'text') {
+        const t = App.texts.find(x => x.id === lc.id);
+        if (t) { App.clipboardData = { type: 'text', data: JSON.parse(JSON.stringify(t)) }; }
+      } else if (lc.type === 'item') {
+        const item = App.items.find(x => x.id === lc.id);
+        if (item) { App.clipboardData = { type: 'item', data: JSON.parse(JSON.stringify(item)) }; }
+      }
+    }
+
+    // ペースト
+    if (!onInput && !modalOpen && e.key === 'v' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const cb = App.clipboardData;
+      if (!cb) return;
+      saveState();
+      const off = 40 / App.vz;  // canvas座標でのオフセット量
+      if (cb.type === 'lot') {
+        const newLot = JSON.parse(JSON.stringify(cb.data));
+        newLot.id = App.nextId++;
+        if (newLot.type === 'lot') newLot.lotNum = App.lotNextNum++;
+        if (newLot.points) newLot.points = newLot.points.map(p => ({ x: p.x + off, y: p.y + off }));
+        if (newLot.labelOffX != null) { newLot.labelOffX += off; newLot.labelOffY += off; }
+        if (newLot.setbackOffX != null) { newLot.setbackOffX += off; newLot.setbackOffY += off; }
+        App.lots.push(newLot);
+        App.lastClicked = { type: 'lot', id: newLot.id };
+        updateLotPanel();
+      } else if (cb.type === 'text') {
+        const newT = JSON.parse(JSON.stringify(cb.data));
+        newT.id = App.nextId++;
+        newT.x += off; newT.y += off;
+        if (newT.tipX != null) { newT.tipX += off; newT.tipY += off; }
+        App.texts.push(newT);
+        App.lastClicked = { type: 'text', id: newT.id };
+        updateResults();
+      } else if (cb.type === 'item') {
+        const newItem = JSON.parse(JSON.stringify(cb.data));
+        newItem.id = App.nextId++;
+        if (newItem.points) newItem.points = newItem.points.map(p => ({ x: p.x + off, y: p.y + off }));
+        if (newItem.x1 != null) { newItem.x1 += off; newItem.y1 += off; newItem.x2 += off; newItem.y2 += off; }
+        if (newItem.tipX != null) { newItem.tipX += off; newItem.tipY += off; }
+        App.items.push(newItem);
+        App.lastClicked = { type: 'item', id: newItem.id };
+        updateResults();
+      }
+      App.dirty = true;
+    }
   });
 
   // ===== 分譲地モード イベント =====
@@ -1908,6 +1970,13 @@ function bindEvents() {
     App.stampHM = parseFloat(e.target.value) || 1; e.target._userEdited = true;
   });
   document.getElementById('stamp-label-input')?.addEventListener('input', e => { App.stampLabel = e.target.value; });
+  document.getElementById('stamp-dims-toggle')?.addEventListener('click', function() {
+    App.stampShowDims = !App.stampShowDims;
+    this.textContent = App.stampShowDims ? '寸法 ON' : '寸法 OFF';
+    this.style.background = App.stampShowDims ? '#1d4ed8' : '#1e293b';
+    this.style.color = App.stampShowDims ? '#fff' : '#94a3b8';
+    this.style.borderColor = App.stampShowDims ? '#3b82f6' : '#334155';
+  });
   document.getElementById('stamp-angle-input')?.addEventListener('input', e => {
     App.stampAngle = parseFloat(e.target.value) || 0;
     const sl = document.getElementById('stamp-angle-slider');
@@ -1954,7 +2023,8 @@ function bindEvents() {
     t.wM   = parseFloat(document.getElementById('stamp-edit-w')?.value) || t.wM;
     t.hM   = parseFloat(document.getElementById('stamp-edit-h')?.value) || t.hM;
     t.angle = parseFloat(document.getElementById('stamp-edit-angle')?.value) || 0;
-    t.label = document.getElementById('stamp-edit-label-text')?.value ?? t.label;
+    t.label    = document.getElementById('stamp-edit-label-text')?.value ?? t.label;
+    t.showDims = document.getElementById('stamp-edit-dims-toggle')?.dataset.on !== 'false';
     const activeLine = document.querySelector('.btn-stamp-edit-line.active-stamp-edit-line');
     if (activeLine) t.lineStyle = activeLine.dataset.ls;
     const activeColor = document.querySelector('.stamp-edit-color-swatch.active-stamp-edit-color');
@@ -1964,6 +2034,18 @@ function bindEvents() {
     if (sl) sl.value = t.angle;
     App.dirty = true;
   };
+  document.getElementById('stamp-edit-dims-toggle')?.addEventListener('click', function() {
+    const t = App.texts.find(x => x.id === App.editingStampId);
+    if (!t) return;
+    t.showDims = !(t.showDims !== false);
+    const on = t.showDims;
+    this.textContent = on ? '寸法 ON' : '寸法 OFF';
+    this.dataset.on = String(on);
+    this.style.background = on ? '#1d4ed8' : '#1e293b';
+    this.style.color = on ? '#fff' : '#94a3b8';
+    this.style.borderColor = on ? '#3b82f6' : '#334155';
+    App.dirty = true;
+  });
   document.getElementById('stamp-edit-w')?.addEventListener('input', updateEditingStamp);
   document.getElementById('stamp-edit-h')?.addEventListener('input', updateEditingStamp);
   document.getElementById('stamp-edit-label-text')?.addEventListener('input', updateEditingStamp);
@@ -2204,6 +2286,7 @@ function onMouseDown(e) {
       if (lot && lot.points) {
         saveState();
         App.draggingLotId = lot.id;
+        App.lastClicked = { type: 'lot', id: lot.id }; // コピー用
         const cen = centroid(lot.points);
         App.dragLotOffX = cp.x - cen.x;
         App.dragLotOffY = cp.y - cen.y;
@@ -2494,6 +2577,8 @@ function onMouseDown(e) {
       App.dragOffX = cp.x - hit.cx;
       App.dragOffY = cp.y - hit.cy;
       canvas.style.cursor = 'grabbing';
+      // コピー用に最後クリックを記録
+      App.lastClicked = { type: hit.isText ? 'text' : 'item', id: hit.itemId };
     }
     return;
   }
@@ -2588,6 +2673,7 @@ function onMouseDown(e) {
       label: App.stampLabel != null ? App.stampLabel : (isP ? 'P' : '家屋'),
       lineStyle: App.stampLineStyle || (isP ? 'dashed' : 'solid'),
       lineColor: App.stampLineColor || (isP ? '#1d4ed8' : '#78350f'),
+      showDims: App.stampShowDims !== false,
     });
     App.dirty = true;
     return;
@@ -2938,6 +3024,15 @@ function openStampEditor(id, clientX, clientY) {
     sw.classList.toggle('active-stamp-edit-color', active);
     sw.style.outline = active ? '2px solid #60a5fa' : 'none';
   });
+  // 寸法トグル
+  const dimsBtn = document.getElementById('stamp-edit-dims-toggle');
+  if (dimsBtn) {
+    const on = t.showDims !== false;
+    dimsBtn.textContent = on ? '寸法 ON' : '寸法 OFF';
+    dimsBtn.style.background = on ? '#1d4ed8' : '#1e293b';
+    dimsBtn.style.color = on ? '#fff' : '#94a3b8';
+    dimsBtn.style.borderColor = on ? '#3b82f6' : '#334155';
+  }
   const rect = canvas.getBoundingClientRect();
   panel.style.left = Math.min(clientX - rect.left, canvas.clientWidth - 280) + 'px';
   panel.style.top  = Math.max(clientY - rect.top - 20, 4) + 'px';
