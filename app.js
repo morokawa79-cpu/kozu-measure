@@ -366,6 +366,20 @@ function setMapScale(scale, skipRescale = false) {
   App.mpp = newMpp;
 }
 
+function showToast(msg, duration = 2000) {
+  let el = document.getElementById('_toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_toast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:8px 18px;border-radius:6px;font-size:13px;z-index:9999;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,0.4);transition:opacity 0.3s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._tid);
+  el._tid = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
+
 function setScaleDisplay(text) {
   const el = document.getElementById('scale-display');
   el.textContent = text;
@@ -1506,17 +1520,19 @@ function bindEvents() {
     if (!onInput && !modalOpen && e.key === 'c' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       const lc = App.lastClicked;
-      if (!lc) return;
+      if (!lc) { showToast('コピー対象を先にクリックしてください'); return; }
+      let copied = false;
       if (lc.type === 'lot') {
         const lot = App.lots.find(l => l.id === lc.id);
-        if (lot) { App.clipboardData = { type: 'lot', data: JSON.parse(JSON.stringify(lot)) }; }
+        if (lot) { App.clipboardData = { type: 'lot', data: JSON.parse(JSON.stringify(lot)) }; copied = true; }
       } else if (lc.type === 'text') {
         const t = App.texts.find(x => x.id === lc.id);
-        if (t) { App.clipboardData = { type: 'text', data: JSON.parse(JSON.stringify(t)) }; }
+        if (t) { App.clipboardData = { type: 'text', data: JSON.parse(JSON.stringify(t)) }; copied = true; }
       } else if (lc.type === 'item') {
         const item = App.items.find(x => x.id === lc.id);
-        if (item) { App.clipboardData = { type: 'item', data: JSON.parse(JSON.stringify(item)) }; }
+        if (item) { App.clipboardData = { type: 'item', data: JSON.parse(JSON.stringify(item)) }; copied = true; }
       }
+      if (copied) showToast('コピーしました（Ctrl+V で貼り付け）');
     }
 
     // ペースト
@@ -1555,6 +1571,7 @@ function bindEvents() {
         updateResults();
       }
       App.dirty = true;
+      showToast('貼り付けました');
     }
   });
 
@@ -2213,6 +2230,17 @@ function onMouseDown(e) {
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
 
+  // コピペ用：左クリックで何かにヒットしたら記録（全モード共通）
+  if (e.button === 0) {
+    const h = hitLabel(sx, sy);
+    if (h) {
+      App.lastClicked = { type: h.isText ? 'text' : 'item', id: h.itemId };
+    } else {
+      const l = hitLot(cp);
+      if (l) App.lastClicked = { type: 'lot', id: l.id };
+    }
+  }
+
   // キャリブレーション（全モード共通で最優先）
   if (App.calibrating) {
     if (e.button !== 0) return;
@@ -2286,7 +2314,6 @@ function onMouseDown(e) {
       if (lot && lot.points) {
         saveState();
         App.draggingLotId = lot.id;
-        App.lastClicked = { type: 'lot', id: lot.id }; // コピー用
         const cen = centroid(lot.points);
         App.dragLotOffX = cp.x - cen.x;
         App.dragLotOffY = cp.y - cen.y;
@@ -2577,8 +2604,6 @@ function onMouseDown(e) {
       App.dragOffX = cp.x - hit.cx;
       App.dragOffY = cp.y - hit.cy;
       canvas.style.cursor = 'grabbing';
-      // コピー用に最後クリックを記録
-      App.lastClicked = { type: hit.isText ? 'text' : 'item', id: hit.itemId };
     }
     return;
   }
