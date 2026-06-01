@@ -3511,13 +3511,19 @@ function updateResults() {
   const typeLabel = { distance: '直線距離', polyline: '折れ線距離', area: '面積', text: 'メモ', arrow: '矢印', callout: '引出線' };
 
   const measureItems = App.items.map((item, i) => ({ ...item, _isText: false }));
-  const textItems    = App.texts.map(t => ({
-    ...t,
-    type: t.type || 'text',
-    label: t.text.slice(0, 20) + (t.text.length > 20 ? '…' : ''),
-    color: t.color || '#fbbf24',
-    _isText: true,
-  }));
+  // textType 付きはスタンプ・北マーク等 → 結果パネルには表示しない
+  const textItems = App.texts
+    .filter(t => !t.textType || t.textType === 'callout')
+    .map(t => {
+      const txt = t.text || '';
+      return {
+        ...t,
+        type: t.type || 'text',
+        label: txt.slice(0, 20) + (txt.length > 20 ? '…' : ''),
+        color: t.color || '#fbbf24',
+        _isText: true,
+      };
+    });
 
   [...measureItems, ...textItems].forEach((item) => {
     const div = document.createElement('div');
