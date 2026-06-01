@@ -248,23 +248,44 @@
         </div>
       </div>
       <!-- 家屋・駐車場スタンプ設定 -->
-      <div id="stamp-settings" class="hidden" style="padding:4px 2px;margin-top:4px;background:#0a1628;border-radius:5px;border:1px solid #1e3a5f">
-        <div id="stamp-settings-label" style="font-size:11px;color:#60a5fa;font-weight:bold;padding:3px 5px 0">家屋スタンプ</div>
-        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;padding:3px 4px">
+      <div id="stamp-settings" class="hidden" style="padding:4px 4px 6px;margin-top:4px;background:#0a1628;border-radius:5px;border:1px solid #1e3a5f">
+        <div id="stamp-settings-label" style="font-size:11px;color:#60a5fa;font-weight:bold;padding:3px 2px 4px">家屋スタンプ</div>
+        <!-- サイズ -->
+        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin-bottom:4px">
           <span style="font-size:11px;color:#94a3b8">幅</span>
           <input type="number" id="stamp-w-input" value="10" min="0.5" step="0.5" style="width:46px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
           <span style="font-size:11px;color:#94a3b8">m　奥行</span>
           <input type="number" id="stamp-h-input" value="8" min="0.5" step="0.5" style="width:46px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
           <span style="font-size:11px;color:#94a3b8">m</span>
         </div>
-        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;padding:2px 4px 4px">
+        <!-- テキスト -->
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+          <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">文字</span>
+          <input type="text" id="stamp-label-input" placeholder="家屋 / P" style="flex:1;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 5px;font-size:12px">
+        </div>
+        <!-- 線の種類 + 色 -->
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">線</span>
+          <button type="button" class="btn-stamp-line active-stamp-line" data-ls="solid" style="font-size:10px;padding:1px 6px;background:#1d4ed8;color:#fff;border:1px solid #3b82f6;border-radius:3px;cursor:pointer">実線</button>
+          <button type="button" class="btn-stamp-line" data-ls="dashed" style="font-size:10px;padding:1px 6px;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;cursor:pointer">破線</button>
+          <button type="button" class="btn-stamp-line" data-ls="dotted" style="font-size:10px;padding:1px 6px;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:3px;cursor:pointer">点線</button>
+          <div id="stamp-color-swatches" style="display:flex;gap:3px;margin-left:2px">
+            <div class="stamp-color-swatch active-stamp-color" data-sc="#78350f" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#78350f;outline:2px solid #60a5fa" title="茶"></div>
+            <div class="stamp-color-swatch" data-sc="#1d4ed8" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#1d4ed8" title="青"></div>
+            <div class="stamp-color-swatch" data-sc="#1a1a1a" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#1a1a1a;border:1px solid #475569" title="黒"></div>
+            <div class="stamp-color-swatch" data-sc="#dc2626" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#dc2626" title="赤"></div>
+            <div class="stamp-color-swatch" data-sc="#16a34a" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#16a34a" title="緑"></div>
+            <div class="stamp-color-swatch" data-sc="#64748b" style="width:14px;height:14px;border-radius:2px;cursor:pointer;background:#64748b" title="グレー"></div>
+          </div>
+        </div>
+        <!-- 角度スライダー + ボタン -->
+        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap">
           <span style="font-size:11px;color:#94a3b8;flex:0 0 auto">角度</span>
-          <button class="btn-stamp-step" data-delta="-90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">−90</button>
           <button class="btn-stamp-step" data-delta="-45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">−45</button>
-          <input type="number" id="stamp-angle-input" value="0" min="-360" max="360" style="width:44px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center">
+          <input type="range" id="stamp-angle-slider" min="-180" max="180" step="1" value="0" style="flex:1;min-width:50px;accent-color:#3b82f6">
+          <input type="number" id="stamp-angle-input" value="0" min="-360" max="360" style="width:42px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 3px;font-size:11px;text-align:center">
           <span style="font-size:11px;color:#94a3b8">°</span>
           <button class="btn-stamp-step" data-delta="45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">+45</button>
-          <button class="btn-stamp-step" data-delta="90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">+90</button>
         </div>
       </div>
       <!-- 注記の色 -->
@@ -407,8 +428,9 @@
         </div>
       </div>
       <!-- スタンプ編集パネル -->
-      <div id="stamp-edit-panel" class="hidden" style="position:absolute;z-index:200;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;box-shadow:0 4px 20px rgba(0,0,0,0.6);min-width:260px">
+      <div id="stamp-edit-panel" class="hidden" style="position:absolute;z-index:200;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;box-shadow:0 4px 20px rgba(0,0,0,0.6);min-width:280px">
         <div id="stamp-edit-label" style="font-weight:bold;color:#e2e8f0;margin-bottom:10px;font-size:13px">🏠 家屋スタンプ</div>
+        <!-- サイズ -->
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap">
           <span style="font-size:12px;color:#94a3b8">幅</span>
           <input type="number" id="stamp-edit-w" value="10" min="0.5" step="0.5" style="width:52px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center">
@@ -416,14 +438,34 @@
           <input type="number" id="stamp-edit-h" value="8" min="0.5" step="0.5" style="width:52px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center">
           <span style="font-size:12px;color:#94a3b8">m</span>
         </div>
-        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin-bottom:12px">
-          <span style="font-size:12px;color:#94a3b8;margin-right:2px">角度</span>
-          <button class="btn-stamp-edit-step" data-delta="-90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">−90</button>
+        <!-- テキスト -->
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px">
+          <span style="font-size:12px;color:#94a3b8;flex:0 0 auto">文字</span>
+          <input type="text" id="stamp-edit-label-text" placeholder="家屋 / P（空欄で非表示）" style="flex:1;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 6px;font-size:12px">
+        </div>
+        <!-- 線の種類 + 色 -->
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;flex:0 0 auto">線</span>
+          <button type="button" class="btn-stamp-edit-line active-stamp-edit-line" data-ls="solid" style="font-size:11px;padding:2px 7px;background:#1d4ed8;color:#fff;border:1px solid #3b82f6;border-radius:3px;cursor:pointer">実線</button>
+          <button type="button" class="btn-stamp-edit-line" data-ls="dashed" style="font-size:11px;padding:2px 7px;background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;cursor:pointer">破線</button>
+          <button type="button" class="btn-stamp-edit-line" data-ls="dotted" style="font-size:11px;padding:2px 7px;background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;cursor:pointer">点線</button>
+          <div id="stamp-edit-color-swatches" style="display:flex;gap:3px;margin-left:3px">
+            <div class="stamp-edit-color-swatch active-stamp-edit-color" data-sc="#78350f" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#78350f;outline:2px solid #60a5fa" title="茶"></div>
+            <div class="stamp-edit-color-swatch" data-sc="#1d4ed8" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#1d4ed8" title="青"></div>
+            <div class="stamp-edit-color-swatch" data-sc="#1a1a1a" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#1a1a1a;border:1px solid #475569" title="黒"></div>
+            <div class="stamp-edit-color-swatch" data-sc="#dc2626" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#dc2626" title="赤"></div>
+            <div class="stamp-edit-color-swatch" data-sc="#16a34a" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#16a34a" title="緑"></div>
+            <div class="stamp-edit-color-swatch" data-sc="#64748b" style="width:16px;height:16px;border-radius:3px;cursor:pointer;background:#64748b" title="グレー"></div>
+          </div>
+        </div>
+        <!-- 角度スライダー + ボタン -->
+        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+          <span style="font-size:12px;color:#94a3b8;flex:0 0 auto">角度</span>
           <button class="btn-stamp-edit-step" data-delta="-45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">−45</button>
-          <input type="number" id="stamp-edit-angle" value="0" style="width:52px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 5px;font-size:12px;text-align:center">
+          <input type="range" id="stamp-edit-angle-slider" min="-180" max="180" step="1" value="0" style="flex:1;min-width:60px;accent-color:#3b82f6">
+          <input type="number" id="stamp-edit-angle" value="0" style="width:48px;background:#0f1a2e;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px 4px;font-size:12px;text-align:center">
           <span style="font-size:12px;color:#94a3b8">°</span>
           <button class="btn-stamp-edit-step" data-delta="45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">+45</button>
-          <button class="btn-stamp-edit-step" data-delta="90" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:2px 6px;font-size:11px;cursor:pointer">+90</button>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button id="btn-stamp-edit-delete" style="background:#450a0a;color:#f87171;border:1px solid #7f1d1d;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer">削除</button>

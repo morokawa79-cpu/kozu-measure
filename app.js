@@ -274,7 +274,7 @@ async function loadImage(file, keepDrawings = false) {
   img.src = url;
 }
 
-async function renderPDFPage(num) {
+async function renderPDFPage(num, skipRescale = false) {
   const page = await App.pdf.getPage(num);
   const vp = page.getViewport({ scale: App.renderScale });
   App.pdfOffscreen.width = vp.width;
@@ -287,7 +287,7 @@ async function renderPDFPage(num) {
 
   const detected = await detectScale(page);
   if (detected) {
-    setMapScale(detected);
+    setMapScale(detected, skipRescale);
     setScaleDisplay(`縮尺 1/${detected} (自動検出)`);
   } else {
     App.mpp = null;
@@ -351,10 +351,10 @@ function rescaleAll(factor) {
 }
 
 // ===== 縮尺 =====
-function setMapScale(scale) {
+function setMapScale(scale, skipRescale = false) {
   const oldMpp = App.mpp;
   const newMpp = (25.4 * scale) / (72 * App.renderScale * 1000);
-  if (oldMpp && Math.abs(oldMpp - newMpp) > 1e-12) {
+  if (!skipRescale && oldMpp && Math.abs(oldMpp - newMpp) > 1e-12) {
     rescaleAll(oldMpp / newMpp);
   }
   App.mapScale = scale;
@@ -904,8 +904,10 @@ function drawStamp(t) {
   const hPx = mpp ? t.hM / mpp : pfs(12) * (t.hM / 3);
   const angle = ((t.angle || 0) * Math.PI) / 180;
   const isParking = t.textType === 'parking-stamp';
-  const borderColor = t.color || (isParking ? '#1d4ed8' : '#78350f');
+  const borderColor = t.lineColor || (isParking ? '#1d4ed8' : '#78350f');
   const fillColor   = isParking ? 'rgba(219,234,254,0.80)' : 'rgba(254,243,199,0.88)';
+  const lineStyle   = t.lineStyle || (isParking ? 'dashed' : 'solid');
+  const labelText   = t.label != null ? t.label : (isParking ? 'P' : '家屋');
   const hw = wPx / 2, hh = hPx / 2;
 
   ctx.save();
@@ -932,7 +934,8 @@ function drawStamp(t) {
   // 枠線
   ctx.strokeStyle = borderColor;
   ctx.lineWidth = 2 / App.vz;
-  if (isParking) ctx.setLineDash([6 / App.vz, 3 / App.vz]);
+  if (lineStyle === 'dashed') ctx.setLineDash([6 / App.vz, 3 / App.vz]);
+  else if (lineStyle === 'dotted') ctx.setLineDash([2 / App.vz, 3 / App.vz]);
   ctx.strokeRect(-hw, -hh, wPx, hPx);
   ctx.setLineDash([]);
 
@@ -948,7 +951,7 @@ function drawStamp(t) {
   ctx.font = `bold ${fsMain}px 'Segoe UI', sans-serif`;
   ctx.fillStyle = borderColor;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(isParking ? 'P' : '家屋', 0, isParking ? -hh * 0.25 : -hh * 0.18);
+  if (labelText) ctx.fillText(labelText, 0, isParking ? -hh * 0.25 : -hh * 0.18);
 
   // 寸法テキスト
   const fsDim = Math.min(pfs(6.5), hPx * 0.22, wPx * 0.18);
@@ -1904,15 +1907,43 @@ function bindEvents() {
   document.getElementById('stamp-h-input')?.addEventListener('input', e => {
     App.stampHM = parseFloat(e.target.value) || 1; e.target._userEdited = true;
   });
+  document.getElementById('stamp-label-input')?.addEventListener('input', e => { App.stampLabel = e.target.value; });
   document.getElementById('stamp-angle-input')?.addEventListener('input', e => {
     App.stampAngle = parseFloat(e.target.value) || 0;
+    const sl = document.getElementById('stamp-angle-slider');
+    if (sl) sl.value = App.stampAngle;
+  });
+  document.getElementById('stamp-angle-slider')?.addEventListener('input', e => {
+    App.stampAngle = parseFloat(e.target.value) || 0;
+    const inp = document.getElementById('stamp-angle-input');
+    if (inp) inp.value = App.stampAngle;
   });
   document.querySelectorAll('.btn-stamp-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
       App.stampAngle = ((App.stampAngle + d) % 360 + 360) % 360;
       const inp = document.getElementById('stamp-angle-input');
+      const sl = document.getElementById('stamp-angle-slider');
       if (inp) inp.value = App.stampAngle;
+      if (sl) sl.value = App.stampAngle;
+    });
+  });
+  document.querySelectorAll('.btn-stamp-line').forEach(btn => {
+    btn.addEventListener('click', () => {
+      App.stampLineStyle = btn.dataset.ls;
+      document.querySelectorAll('.btn-stamp-line').forEach(b => {
+        b.classList.remove('active-stamp-line');
+        b.style.background = '#1e293b'; b.style.color = '#94a3b8'; b.style.borderColor = '#334155';
+      });
+      btn.classList.add('active-stamp-line');
+      btn.style.background = '#1d4ed8'; btn.style.color = '#fff'; btn.style.borderColor = '#3b82f6';
+    });
+  });
+  document.querySelectorAll('.stamp-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      App.stampLineColor = sw.dataset.sc;
+      document.querySelectorAll('.stamp-color-swatch').forEach(s => s.style.outline = 'none');
+      sw.style.outline = '2px solid #60a5fa';
     });
   });
 
@@ -1920,21 +1951,62 @@ function bindEvents() {
   const updateEditingStamp = () => {
     const t = App.texts.find(x => x.id === App.editingStampId);
     if (!t) return;
-    t.wM = parseFloat(document.getElementById('stamp-edit-w')?.value) || t.wM;
-    t.hM = parseFloat(document.getElementById('stamp-edit-h')?.value) || t.hM;
+    t.wM   = parseFloat(document.getElementById('stamp-edit-w')?.value) || t.wM;
+    t.hM   = parseFloat(document.getElementById('stamp-edit-h')?.value) || t.hM;
     t.angle = parseFloat(document.getElementById('stamp-edit-angle')?.value) || 0;
+    t.label = document.getElementById('stamp-edit-label-text')?.value ?? t.label;
+    const activeLine = document.querySelector('.btn-stamp-edit-line.active-stamp-edit-line');
+    if (activeLine) t.lineStyle = activeLine.dataset.ls;
+    const activeColor = document.querySelector('.stamp-edit-color-swatch.active-stamp-edit-color');
+    if (activeColor) t.lineColor = activeColor.dataset.sc;
+    // スライダーと数値を同期
+    const sl = document.getElementById('stamp-edit-angle-slider');
+    if (sl) sl.value = t.angle;
     App.dirty = true;
   };
   document.getElementById('stamp-edit-w')?.addEventListener('input', updateEditingStamp);
   document.getElementById('stamp-edit-h')?.addEventListener('input', updateEditingStamp);
-  document.getElementById('stamp-edit-angle')?.addEventListener('input', updateEditingStamp);
+  document.getElementById('stamp-edit-label-text')?.addEventListener('input', updateEditingStamp);
+  document.getElementById('stamp-edit-angle')?.addEventListener('input', e => {
+    const sl = document.getElementById('stamp-edit-angle-slider');
+    if (sl) sl.value = parseFloat(e.target.value) || 0;
+    updateEditingStamp();
+  });
+  document.getElementById('stamp-edit-angle-slider')?.addEventListener('input', e => {
+    const inp = document.getElementById('stamp-edit-angle');
+    if (inp) inp.value = parseFloat(e.target.value) || 0;
+    updateEditingStamp();
+  });
   document.querySelectorAll('.btn-stamp-edit-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
       const inp = document.getElementById('stamp-edit-angle');
+      const sl = document.getElementById('stamp-edit-angle-slider');
       const cur = parseFloat(inp?.value) || 0;
       const next = ((cur + d) % 360 + 360) % 360;
       if (inp) inp.value = next;
+      if (sl) sl.value = next;
+      updateEditingStamp();
+    });
+  });
+  document.querySelectorAll('.btn-stamp-edit-line').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.btn-stamp-edit-line').forEach(b => {
+        b.classList.remove('active-stamp-edit-line');
+        b.style.background = '#0f1a2e'; b.style.color = '#94a3b8'; b.style.borderColor = '#334155';
+      });
+      btn.classList.add('active-stamp-edit-line');
+      btn.style.background = '#1d4ed8'; btn.style.color = '#fff'; btn.style.borderColor = '#3b82f6';
+      updateEditingStamp();
+    });
+  });
+  document.querySelectorAll('.stamp-edit-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.stamp-edit-color-swatch').forEach(s => s.style.outline = 'none');
+      sw.style.outline = '2px solid #60a5fa';
+      sw.classList.add('active-stamp-edit-color');
+      document.querySelectorAll('.stamp-edit-color-swatch').forEach(s => s.classList.remove('active-stamp-edit-color'));
+      sw.classList.add('active-stamp-edit-color');
       updateEditingStamp();
     });
   });
@@ -2505,6 +2577,7 @@ function onMouseDown(e) {
   if (App.mode === 'house-stamp' || App.mode === 'parking-stamp') {
     if (!App.mpp) { document.getElementById('calibration-modal').classList.remove('hidden'); return; }
     saveState();
+    const isP = App.mode === 'parking-stamp';
     App.texts.push({
       id: App.nextId++,
       textType: App.mode,
@@ -2512,7 +2585,9 @@ function onMouseDown(e) {
       angle: App.stampAngle,
       wM: App.stampWM,
       hM: App.stampHM,
-      color: App.mode === 'parking-stamp' ? '#1d4ed8' : '#78350f',
+      label: App.stampLabel != null ? App.stampLabel : (isP ? 'P' : '家屋'),
+      lineStyle: App.stampLineStyle || (isP ? 'dashed' : 'solid'),
+      lineColor: App.stampLineColor || (isP ? '#1d4ed8' : '#78350f'),
     });
     App.dirty = true;
     return;
@@ -2840,7 +2915,29 @@ function openStampEditor(id, clientX, clientY) {
   document.getElementById('stamp-edit-label').textContent = isParking ? '🅿 駐車場スタンプ' : '🏠 家屋スタンプ';
   document.getElementById('stamp-edit-w').value = t.wM;
   document.getElementById('stamp-edit-h').value = t.hM;
-  document.getElementById('stamp-edit-angle').value = t.angle || 0;
+  const ang = t.angle || 0;
+  document.getElementById('stamp-edit-angle').value = ang;
+  const sl = document.getElementById('stamp-edit-angle-slider');
+  if (sl) sl.value = ang;
+  // テキスト
+  const labelInp = document.getElementById('stamp-edit-label-text');
+  if (labelInp) labelInp.value = t.label != null ? t.label : (isParking ? 'P' : '家屋');
+  // 線の種類
+  const ls = t.lineStyle || (isParking ? 'dashed' : 'solid');
+  document.querySelectorAll('.btn-stamp-edit-line').forEach(b => {
+    const active = b.dataset.ls === ls;
+    b.classList.toggle('active-stamp-edit-line', active);
+    b.style.background = active ? '#1d4ed8' : '#0f1a2e';
+    b.style.color = active ? '#fff' : '#94a3b8';
+    b.style.borderColor = active ? '#3b82f6' : '#334155';
+  });
+  // 線の色
+  const lc = t.lineColor || (isParking ? '#1d4ed8' : '#78350f');
+  document.querySelectorAll('.stamp-edit-color-swatch').forEach(sw => {
+    const active = sw.dataset.sc === lc;
+    sw.classList.toggle('active-stamp-edit-color', active);
+    sw.style.outline = active ? '2px solid #60a5fa' : 'none';
+  });
   const rect = canvas.getBoundingClientRect();
   panel.style.left = Math.min(clientX - rect.left, canvas.clientWidth - 280) + 'px';
   panel.style.top  = Math.max(clientY - rect.top - 20, 4) + 'px';
@@ -3612,7 +3709,7 @@ function loadProjectJSON(file) {
         App.pageCount = App.pdf.numPages;
         App.pageNum = data.pageNum || 1;
         document.getElementById('page-nav').classList.remove('hidden');
-        await renderPDFPage(App.pageNum);
+        await renderPDFPage(App.pageNum, true); // skipRescale: JSON読み込み時はリスケール不要
       } else if (data.imageDataUrl) {
         await new Promise(resolve => {
           const img = new Image();
