@@ -1128,11 +1128,15 @@ function bindEvents() {
     loadImage(f, true);  // keepDrawings = true
     e.target.value = '';
   });
+  function positionOverlayBar(barEl) {
+    const tb = document.getElementById('toolbar');
+    if (tb && barEl) barEl.style.top = tb.getBoundingClientRect().bottom + 'px';
+  }
   document.getElementById('btn-bg-adjust')?.addEventListener('click', () => {
     const bar = document.getElementById('bg-adjust-bar');
     if (bar) {
       const hidden = bar.classList.toggle('hidden');
-      if (!hidden) syncBgAdjUI();
+      if (!hidden) { positionOverlayBar(bar); syncBgAdjUI(); }
     }
   });
 
@@ -1172,7 +1176,7 @@ function bindEvents() {
       const delta = parseFloat(btn.dataset.delta) || 0;
       const def = field === 'bgScale' ? 1 : 0;
       App[field] = Math.round(((App[field] ?? def) + delta) * 1000) / 1000;
-      if (field === 'bgScale') App[field] = Math.max(0.1, App[field]);
+      if (field === 'bgScale') App[field] = Math.max(0.05, App[field]);
       syncBgAdjUI();
     });
   });
@@ -1893,7 +1897,7 @@ function togglePaperMode() {
     btn.classList.add('active-mode');
     const d = getPaperDims(App.paperSize);
     App.paperW = d.w; App.paperH = d.h;
-    if (bar) bar.classList.remove('hidden');
+    if (bar) { bar.classList.remove('hidden'); positionOverlayBar(bar); }
     fitPaperToView();
   } else {
     btn.textContent = '📄 用紙';

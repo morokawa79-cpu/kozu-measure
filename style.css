@@ -108,6 +108,14 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* ===== メインレイアウト ===== */
 #main { display: flex; flex: 1; overflow: hidden; }
 
+/* 下絵調整バー・用紙情報バーはキャンバスの上に浮かせてレイアウトに影響させない */
+#bg-adjust-bar, #paper-info-bar {
+  position: fixed;
+  left: 0; right: 0;
+  z-index: 80;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
 /* ===== 左サイドバー ===== */
 #tools {
   width: 70px;
