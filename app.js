@@ -4485,6 +4485,7 @@ function drawLot(lot) {
 
   const lines = [
     ...(App.showLotNumbers && lot.hideNumber !== 'hide' ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
+    ...(lot.topLabel ? [{ text: lot.topLabel, fs: fsSm * 1.05, color: '#334155', editKey: null }] : []),
     ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: areaColor,  editKey: 'area'  }] : []),
     ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: tsuboColor, editKey: 'tsubo' }] : []),
     ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309',  editKey: null }] : []),
@@ -5671,6 +5672,7 @@ function openLotEditor(id) {
     const priceNum = lot.price ? lot.price.replace(/[^0-9]/g, '') : '';
     document.getElementById('lot-edit-price').value = priceNum ? Number(priceNum).toLocaleString() : '';
     document.getElementById('lot-edit-memo').value = lot.memo || '';
+    document.getElementById('lot-edit-top-label').value = lot.topLabel || '';
     document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(sw => {
       sw.classList.toggle('active-swatch', sw.dataset.lotcolor === lot.color);
     });
@@ -5827,8 +5829,9 @@ function commitLotEdit() {
     lot.color = selFc ? selFc.dataset.fc : '#94a3b8';
   } else {
     const rawPrice = document.getElementById('lot-edit-price').value.replace(/[^0-9]/g, '');
-    lot.price = rawPrice ? Number(rawPrice).toLocaleString() + '万円' : '';
-    lot.memo  = document.getElementById('lot-edit-memo').value.trim();
+    lot.price    = rawPrice ? Number(rawPrice).toLocaleString() + '万円' : '';
+    lot.memo     = document.getElementById('lot-edit-memo').value.trim();
+    lot.topLabel = document.getElementById('lot-edit-top-label').value.trim() || null;
     const sel = document.querySelector('#lot-color-swatches .color-swatch.active-swatch');
     if (sel) lot.color = sel.dataset.lotcolor;
     const selB = document.querySelector('#lot-border-swatches .border-swatch.active-border');
