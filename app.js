@@ -120,6 +120,7 @@ const App = {
   bgScale: 1.0,          // 下絵のみのスケール
   bgOffsetX: 0,          // 下絵のみのX位置オフセット（canvas座標）
   bgOffsetY: 0,          // 下絵のみのY位置オフセット（canvas座標）
+  bgRotation: 0,         // 下絵のみの回転角度（度）
   cornerCutLotId: null,  // 隅切り対象の区画ID
   cornerCutIdx: -1,      // 隅切り対象の頂点インデックス
   dragLotOrigPoints: null, // ドラッグ開始時の区画頂点コピー
@@ -421,10 +422,19 @@ function drawBgImage() {
   const ox = App.bgOffsetX || 0, oy = App.bgOffsetY || 0;
   const sc = App.bgScale || 1.0;
   const rot = App.imageRotation || 0;
+  const bgRot = App.bgRotation || 0;
   const W = App.pdfOffscreen.width, H = App.pdfOffscreen.height;
   ctx.save();
   ctx.translate(ox, oy);
   if (sc !== 1.0) ctx.scale(sc, sc);
+  // 微調整回転（画像中心を軸に）
+  if (bgRot !== 0) {
+    const cx = W / 2, cy = H / 2;
+    ctx.translate(cx, cy);
+    ctx.rotate(bgRot * Math.PI / 180);
+    ctx.translate(-cx, -cy);
+  }
+  // 90°スナップ回転
   if (rot === 0) {
     ctx.drawImage(App.pdfOffscreen, 0, 0);
   } else {
@@ -1122,12 +1132,7 @@ function bindEvents() {
     const bar = document.getElementById('bg-adjust-bar');
     if (bar) {
       const hidden = bar.classList.toggle('hidden');
-      if (!hidden) {
-        document.getElementById('bg-scale-slider').value = App.bgScale || 1.0;
-        document.getElementById('bg-scale-val').textContent = Math.round((App.bgScale || 1.0) * 100) + '%';
-        document.getElementById('bg-offset-x').value = Math.round(App.bgOffsetX || 0);
-        document.getElementById('bg-offset-y').value = Math.round(App.bgOffsetY || 0);
-      }
+      if (!hidden) syncBgAdjUI();
     }
   });
 
@@ -1137,11 +1142,22 @@ function bindEvents() {
     document.getElementById('bg-scale-val').textContent = Math.round(App.bgScale * 100) + '%';
     document.getElementById('bg-offset-x').value = Math.round(App.bgOffsetX);
     document.getElementById('bg-offset-y').value = Math.round(App.bgOffsetY);
+    const rot = Math.round((App.bgRotation || 0) * 10) / 10;
+    const rotSlider = document.getElementById('bg-rotation-slider');
+    if (rotSlider) rotSlider.value = rot;
+    const rotVal = document.getElementById('bg-rotation-val');
+    if (rotVal) rotVal.textContent = rot + '°';
     App.dirty = true;
   }
   document.getElementById('bg-scale-slider')?.addEventListener('input', e => {
     App.bgScale = parseFloat(e.target.value);
     document.getElementById('bg-scale-val').textContent = Math.round(App.bgScale * 100) + '%';
+    App.dirty = true;
+  });
+  document.getElementById('bg-rotation-slider')?.addEventListener('input', e => {
+    App.bgRotation = parseFloat(e.target.value) || 0;
+    const rotVal = document.getElementById('bg-rotation-val');
+    if (rotVal) rotVal.textContent = (Math.round(App.bgRotation * 10) / 10) + '°';
     App.dirty = true;
   });
   document.getElementById('bg-offset-x')?.addEventListener('input', e => {
@@ -1154,13 +1170,14 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       const field = btn.dataset.field;
       const delta = parseFloat(btn.dataset.delta) || 0;
-      App[field] = Math.round(((App[field] || (field === 'bgScale' ? 1 : 0)) + delta) * 1000) / 1000;
+      const def = field === 'bgScale' ? 1 : 0;
+      App[field] = Math.round(((App[field] ?? def) + delta) * 1000) / 1000;
       if (field === 'bgScale') App[field] = Math.max(0.1, App[field]);
       syncBgAdjUI();
     });
   });
   document.getElementById('btn-bg-adj-reset')?.addEventListener('click', () => {
-    App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
+    App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0; App.bgRotation = 0;
     syncBgAdjUI();
   });
   document.getElementById('btn-bg-adj-close')?.addEventListener('click', () =>
@@ -1623,7 +1640,7 @@ function bindEvents() {
   });
 
   // 表示設定トグルボタン（モーダル内 — イベント委譲）
-  ['lot-edge-disp-group', 'lot-area-disp-group', 'lot-yaku-disp-group'].forEach(groupId => {
+  ['lot-num-disp-group', 'lot-edge-disp-group', 'lot-area-disp-group', 'lot-yaku-disp-group'].forEach(groupId => {
     document.getElementById(groupId)?.addEventListener('click', e => {
       const btn = e.target.closest('.lot-disp-btn');
       if (!btn) return;
@@ -3356,7 +3373,7 @@ async function saveProjectJSON() {
     vx: App.vx, vy: App.vy, vz: App.vz,
     pageNum: App.pageNum,
     isImageMode: App.isImageMode,
-    bgScale: App.bgScale, bgOffsetX: App.bgOffsetX, bgOffsetY: App.bgOffsetY,
+    bgScale: App.bgScale, bgOffsetX: App.bgOffsetX, bgOffsetY: App.bgOffsetY, bgRotation: App.bgRotation,
     lots: App.lots,
     lotNextNum: App.lotNextNum,
     lotBorderColor: App.lotBorderColor,
@@ -3426,9 +3443,10 @@ function loadProjectJSON(file) {
       // メタデータ復元
       if (data.mpp != null)      App.mpp = data.mpp;
       if (data.mapScale != null) App.mapScale = data.mapScale;
-      App.bgScale   = data.bgScale   ?? 1.0;
-      App.bgOffsetX = data.bgOffsetX ?? 0;
-      App.bgOffsetY = data.bgOffsetY ?? 0;
+      App.bgScale    = data.bgScale    ?? 1.0;
+      App.bgOffsetX  = data.bgOffsetX  ?? 0;
+      App.bgOffsetY  = data.bgOffsetY  ?? 0;
+      App.bgRotation = data.bgRotation ?? 0;
       if (data.vx != null) { App.vx = data.vx; App.vy = data.vy; App.vz = data.vz; }
       App.lots       = data.lots       || [];
       App.lotNextNum = data.lotNextNum || 1;
@@ -4026,7 +4044,7 @@ function drawLot(lot) {
   const tsuboColor = lot.customTsuboLabelColor || (lot.customTsuboLabel != null ? '#f59e0b' : '#475569');
 
   const lines = [
-    ...(App.showLotNumbers ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
+    ...(App.showLotNumbers && lot.hideNumber !== 'hide' ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
     ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: areaColor,  editKey: 'area'  }] : []),
     ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: tsuboColor, editKey: 'tsubo' }] : []),
     ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309',  editKey: null }] : []),
@@ -5230,7 +5248,8 @@ function openLotEditor(id) {
       sw.classList.toggle('active-edgelabel-color', isSel);
     });
     // 表示設定トグル
-    [['lot-edge-disp-group', lot.edgeDisplay || ''],
+    [['lot-num-disp-group',  lot.hideNumber  || ''],
+     ['lot-edge-disp-group', lot.edgeDisplay || ''],
      ['lot-area-disp-group', lot.areaDisplay || ''],
      ['lot-yaku-disp-group', lot.yakuMode    || '']].forEach(([groupId, val]) => {
       document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(btn => {
@@ -5376,7 +5395,8 @@ function commitLotEdit() {
     const selElc = document.querySelector('#lot-edgelabel-color-swatches .edgelabel-color-swatch.active-edgelabel-color');
     lot.edgeLabelColor = selElc ? selElc.dataset.elc : '#334155';
     // 表示設定
-    [['lot-edge-disp-group', 'edgeDisplay'],
+    [['lot-num-disp-group',  'hideNumber'],
+     ['lot-edge-disp-group', 'edgeDisplay'],
      ['lot-area-disp-group', 'areaDisplay'],
      ['lot-yaku-disp-group', 'yakuMode']].forEach(([groupId, prop]) => {
       const active = document.querySelector(`#${groupId} .lot-disp-btn.active-disp`);
