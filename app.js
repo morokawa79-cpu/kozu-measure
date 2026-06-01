@@ -171,12 +171,25 @@ const App = {
 
 let canvas, ctx;
 
+// オーバーレイバーをツールバー直下に配置（DOMContentLoaded外から呼べるようモジュールレベルで定義）
+function positionOverlayBar(barEl) {
+  const tb = document.getElementById('toolbar');
+  if (tb && barEl) barEl.style.top = tb.getBoundingClientRect().bottom + 'px';
+}
+
 // ===== 初期化 =====
 window.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('canvas');
   ctx = canvas.getContext('2d');
   resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    // オーバーレイバーの位置を再計算
+    ['paper-info-bar', 'bg-adjust-bar'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b && !b.classList.contains('hidden')) positionOverlayBar(b);
+    });
+  });
   bindEvents();
   setAppMode('subdivision');
   setScaleDisplay('縮尺: 未設定');  // ボタンラベルを初期化
@@ -1205,10 +1218,6 @@ function bindEvents() {
     loadImage(f, true);  // keepDrawings = true
     e.target.value = '';
   });
-  function positionOverlayBar(barEl) {
-    const tb = document.getElementById('toolbar');
-    if (tb && barEl) barEl.style.top = tb.getBoundingClientRect().bottom + 'px';
-  }
   document.getElementById('btn-bg-adjust')?.addEventListener('click', () => {
     const bar = document.getElementById('bg-adjust-bar');
     if (bar) {
@@ -3641,7 +3650,7 @@ function loadProjectJSON(file) {
         App.paperW = (data.paperW && data.paperW > 1000) ? data.paperW : d.w;
         App.paperH = (data.paperH && data.paperH > 700)  ? data.paperH : d.h;
         const bar = document.getElementById('paper-info-bar');
-        if (bar) bar.classList.toggle('hidden', !App.paperMode);
+        if (bar) { bar.classList.toggle('hidden', !App.paperMode); if (App.paperMode) positionOverlayBar(bar); }
         const pmBtn = document.getElementById('btn-paper-mode');
         if (pmBtn) { pmBtn.textContent = App.paperMode ? '本図に戻す' : '📄 用紙'; pmBtn.classList.toggle('active-mode', App.paperMode); }
       }
