@@ -1414,8 +1414,9 @@ function bindEvents() {
   // メモパネル
   const mi = document.getElementById('memo-input');
   mi.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); commitTextInput(); }
-    if (e.key === 'Escape') cancelTextInput();
+    // Shift+Enter or Ctrl+Enter で確定、単独Enter は改行（textarea のデフォルト動作）
+    if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey)) { e.preventDefault(); commitTextInput(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelTextInput(); }
   });
   document.getElementById('memo-ok').addEventListener('click', commitTextInput);
   document.getElementById('memo-cancel').addEventListener('click', cancelTextInput);
@@ -1736,7 +1737,10 @@ function bindEvents() {
   document.getElementById('lot-edit-ok').addEventListener('click', commitLotEdit);
   ['lot-edit-price', 'lot-edit-memo'].forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); commitLotEdit(); }
+      // price は Enter で確定、memo は Shift+Enter で確定（textarea で Enter=改行）
+      if (e.key === 'Enter' && (id === 'lot-edit-price' || e.shiftKey || e.ctrlKey)) {
+        e.preventDefault(); commitLotEdit();
+      }
     });
   });
   // 道路テンプレートボタン

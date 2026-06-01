@@ -517,7 +517,8 @@
             </button>
           </div>
         </div>
-        <input type="text" id="memo-input" placeholder="例：北側境界　間口5m">
+        <textarea id="memo-input" rows="3" placeholder="例：北側境界　間口5m&#10;Shift+Enter で確定" style="resize:vertical;min-height:56px"></textarea>
+        <div style="font-size:10px;color:#475569;margin:-2px 0 4px;text-align:right">Enter=改行　Shift+Enter=確定</div>
         <div class="memo-panel-buttons">
           <button id="memo-cancel" class="btn-secondary">キャンセル</button>
           <button id="memo-ok" class="btn-primary">確定</button>
@@ -731,7 +732,7 @@
       </div>
       <div class="modal-section">
         <label class="modal-label">メモ</label>
-        <input type="text" id="lot-edit-memo" placeholder="例: 角地、南向き" style="width:100%;box-sizing:border-box">
+        <textarea id="lot-edit-memo" rows="2" placeholder="例: 角地、南向き" style="width:100%;box-sizing:border-box;resize:vertical;min-height:44px"></textarea>
       </div>
       <div class="modal-section">
         <label class="modal-label">塗り色</label>

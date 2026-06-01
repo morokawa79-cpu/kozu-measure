@@ -238,7 +238,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   text-transform: uppercase; letter-spacing: 0.08em;
   margin-bottom: 8px;
 }
-.memo-panel input {
+.memo-panel input, .memo-panel textarea {
   width: 100%;
   background: #0f172a;
   border: 1px solid #334155;
@@ -249,10 +249,24 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 14px;
   outline: none;
   margin-top: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
   box-sizing: border-box;
+  line-height: 1.5;
 }
-.memo-panel input:focus { border-color: #3b82f6; }
+.memo-panel input:focus, .memo-panel textarea:focus { border-color: #3b82f6; }
+/* モーダル内 textarea */
+.modal textarea {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  line-height: 1.5;
+}
+.modal textarea:focus { border-color: #3b82f6; }
 .memo-panel-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ===== ヒントバー ===== */
