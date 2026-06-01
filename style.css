@@ -525,7 +525,16 @@ button:disabled { opacity: 0.4; cursor: default; }
   display: flex;
   flex-direction: column;
   gap: 3px;
-  align-items: flex-start;
+  align-items: stretch;
+}
+/* サイドバー内要素の幅を確保 */
+#tools-subdivision .sb-section-title,
+#tools-subdivision .lot-tool-grid,
+#tools-subdivision .lot-tool-grid-3,
+#tools-subdivision .lot-tool-row,
+#tools-subdivision .stroke-color-picker {
+  width: 100%;
+  box-sizing: border-box;
 }
 .lot-form { width: 100%; }
 .divide-info {

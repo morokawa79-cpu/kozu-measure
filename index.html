@@ -289,36 +289,19 @@
           <button class="btn-stamp-step" data-delta="45" style="background:#0f1a2e;color:#94a3b8;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;cursor:pointer">+45</button>
         </div>
       </div>
-      <!-- 注記の色 -->
-      <div style="margin-top:6px">
-        <div class="sb-section-title" style="margin-top:0;margin-bottom:4px">注記の色</div>
-        <div class="stroke-color-picker">
-          <div class="sc-swatch active-sc" data-sc="#f87171" style="background:#f87171"></div>
-          <div class="sc-swatch" data-sc="#60a5fa" style="background:#60a5fa"></div>
-          <div class="sc-swatch" data-sc="#34d399" style="background:#34d399"></div>
-          <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
-          <div class="sc-swatch" data-sc="#a78bfa" style="background:#a78bfa"></div>
-          <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
-          <div class="sc-swatch" data-sc="#38bdf8" style="background:#38bdf8"></div>
-          <div class="sc-swatch" data-sc="#f472b6" style="background:#f472b6"></div>
-          <div class="sc-swatch" data-sc="#ffffff" style="background:#fff"></div>
-          <div class="sc-swatch" data-sc="#1e293b" style="background:#1e293b;border-color:#475569"></div>
-        </div>
-      </div>
-
       <!-- ── 表示サイズ ── -->
       <div class="sb-section-title" style="margin-top:10px">表示サイズ</div>
-      <div style="padding:0 4px">
+      <div style="width:100%;box-sizing:border-box;padding:0 4px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
           <span style="font-size:11px;color:#94a3b8">番号・面積</span>
           <span id="lot-text-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">1.4×</span>
         </div>
-        <input type="range" id="lot-text-scale-slider" min="0.3" max="5.0" step="0.05" value="1.4" style="width:100%;accent-color:#3b82f6">
+        <input type="range" id="lot-text-scale-slider" min="0.3" max="5.0" step="0.05" value="1.4" style="width:100%;box-sizing:border-box;accent-color:#3b82f6">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;margin-bottom:2px">
           <span style="font-size:11px;color:#94a3b8">寸法テキスト</span>
           <span id="edge-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">1.0×</span>
         </div>
-        <input type="range" id="edge-scale-slider" min="0.2" max="5.0" step="0.05" value="1.0" style="width:100%;accent-color:#3b82f6">
+        <input type="range" id="edge-scale-slider" min="0.2" max="5.0" step="0.05" value="1.0" style="width:100%;box-sizing:border-box;accent-color:#3b82f6">
         <!-- 寸法の約表記 sub-group -->
         <div style="background:#0a1628;border-radius:4px;padding:4px 6px;margin-top:4px;border-left:2px solid #334155">
           <div style="display:flex;align-items:center;gap:5px">
@@ -342,44 +325,66 @@
           <span style="font-size:11px;color:#94a3b8">測定・注記</span>
           <span id="sub-measure-scale-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">0.9×</span>
         </div>
-        <input type="range" id="sub-measure-scale-slider" min="0.1" max="5.0" step="0.05" value="0.9" style="width:100%;accent-color:#3b82f6">
+        <input type="range" id="sub-measure-scale-slider" min="0.1" max="5.0" step="0.05" value="0.9" style="width:100%;box-sizing:border-box;accent-color:#3b82f6">
       </div>
 
-      <!-- ── 区画スタイル ── -->
-      <div class="sb-section-title" style="margin-top:10px">区画スタイル</div>
-      <div style="padding:0 4px;margin-bottom:6px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <span style="font-size:11px;color:#94a3b8">塗りの濃さ</span>
+      <!-- ── 色の設定（まとめて） ── -->
+      <div class="sb-section-title" style="margin-top:10px">色の設定</div>
+      <div style="width:100%;box-sizing:border-box;padding:0 4px">
+
+        <!-- 注記・計測の色 -->
+        <div style="font-size:11px;color:#60a5fa;margin-bottom:4px;font-weight:600">📝 注記・計測の色</div>
+        <div class="stroke-color-picker" style="margin-bottom:8px">
+          <div class="sc-swatch active-sc" data-sc="#f87171" style="background:#f87171"></div>
+          <div class="sc-swatch" data-sc="#60a5fa" style="background:#60a5fa"></div>
+          <div class="sc-swatch" data-sc="#34d399" style="background:#34d399"></div>
+          <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
+          <div class="sc-swatch" data-sc="#a78bfa" style="background:#a78bfa"></div>
+          <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
+          <div class="sc-swatch" data-sc="#38bdf8" style="background:#38bdf8"></div>
+          <div class="sc-swatch" data-sc="#f472b6" style="background:#f472b6"></div>
+          <div class="sc-swatch" data-sc="#ffffff" style="background:#fff"></div>
+          <div class="sc-swatch" data-sc="#1e293b" style="background:#1e293b;border-color:#475569"></div>
+        </div>
+
+        <div style="border-top:1px solid #1e3a5f;margin:6px 0"></div>
+
+        <!-- 区画の塗り色 -->
+        <div style="font-size:11px;color:#60a5fa;margin-bottom:4px;font-weight:600">🏠 区画の塗り色</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-size:11px;color:#94a3b8">濃さ</span>
           <span id="lot-fill-opacity-val" style="font-size:11px;color:#60a5fa;min-width:28px;text-align:right">73%</span>
         </div>
-        <input type="range" id="lot-fill-opacity-slider" min="0" max="100" step="1" value="73" style="width:100%;accent-color:#3b82f6">
+        <input type="range" id="lot-fill-opacity-slider" min="0" max="100" step="1" value="73" style="width:100%;box-sizing:border-box;accent-color:#3b82f6;margin-bottom:5px">
+        <div class="stroke-color-picker" id="lot-sc-picker" style="margin-bottom:8px">
+          <div class="sc-swatch active-sc" data-sc="#bfdbfe" style="background:#bfdbfe"></div>
+          <div class="sc-swatch" data-sc="#bbf7d0" style="background:#bbf7d0"></div>
+          <div class="sc-swatch" data-sc="#fef08a" style="background:#fef08a"></div>
+          <div class="sc-swatch" data-sc="#fed7aa" style="background:#fed7aa"></div>
+          <div class="sc-swatch" data-sc="#fce7f3" style="background:#fce7f3"></div>
+          <div class="sc-swatch" data-sc="#e9d5ff" style="background:#e9d5ff"></div>
+          <div class="sc-swatch" data-sc="#f1f5f9" style="background:#f1f5f9"></div>
+          <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
+          <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
+          <div class="sc-swatch" data-sc="#f87171" style="background:#f87171"></div>
+        </div>
+
+        <div style="border-top:1px solid #1e3a5f;margin:6px 0"></div>
+
+        <!-- 区画の線色 -->
+        <div style="font-size:11px;color:#60a5fa;margin-bottom:4px;font-weight:600">🖊 区画の線色（全体）</div>
+        <div id="lot-border-color-picker" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:3px">
+          <div class="border-gc-swatch active-border-gc" data-bc="#1d4ed8" style="background:#1d4ed8;width:18px;height:18px;border-radius:3px;cursor:pointer;outline:2px solid #60a5fa"></div>
+          <div class="border-gc-swatch" data-bc="#1e3a5f" style="background:#1e3a5f;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
+          <div class="border-gc-swatch" data-bc="#1a1a1a" style="background:#1a1a1a;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
+          <div class="border-gc-swatch" data-bc="#334155" style="background:#334155;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
+          <div class="border-gc-swatch" data-bc="#64748b" style="background:#64748b;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
+          <div class="border-gc-swatch" data-bc="#dc2626" style="background:#dc2626;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
+          <div class="border-gc-swatch" data-bc="#7c3aed" style="background:#7c3aed;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
+          <div class="border-gc-swatch" data-bc="#065f46" style="background:#065f46;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
+        </div>
+        <div style="font-size:10px;color:#475569;padding:2px 0 0">個別変更は区画編集で</div>
       </div>
-      <div style="font-size:11px;color:#94a3b8;padding:0 4px 3px">塗り色</div>
-      <div class="stroke-color-picker" id="lot-sc-picker">
-        <div class="sc-swatch active-sc" data-sc="#bfdbfe" style="background:#bfdbfe"></div>
-        <div class="sc-swatch" data-sc="#bbf7d0" style="background:#bbf7d0"></div>
-        <div class="sc-swatch" data-sc="#fef08a" style="background:#fef08a"></div>
-        <div class="sc-swatch" data-sc="#fed7aa" style="background:#fed7aa"></div>
-        <div class="sc-swatch" data-sc="#fce7f3" style="background:#fce7f3"></div>
-        <div class="sc-swatch" data-sc="#e9d5ff" style="background:#e9d5ff"></div>
-        <div class="sc-swatch" data-sc="#f1f5f9" style="background:#f1f5f9"></div>
-        <div class="sc-swatch" data-sc="#fbbf24" style="background:#fbbf24"></div>
-        <div class="sc-swatch" data-sc="#fb923c" style="background:#fb923c"></div>
-        <div class="sc-swatch" data-sc="#f87171" style="background:#f87171"></div>
-      </div>
-      <!-- 線の色（全体） -->
-      <div style="font-size:11px;color:#94a3b8;padding:6px 4px 3px">線の色（全体）</div>
-      <div id="lot-border-color-picker" style="display:flex;flex-wrap:wrap;gap:5px;padding:0 4px">
-        <div class="border-gc-swatch active-border-gc" data-bc="#1d4ed8" style="background:#1d4ed8;width:18px;height:18px;border-radius:3px;cursor:pointer;outline:2px solid #60a5fa"></div>
-        <div class="border-gc-swatch" data-bc="#1e3a5f" style="background:#1e3a5f;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
-        <div class="border-gc-swatch" data-bc="#1a1a1a" style="background:#1a1a1a;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
-        <div class="border-gc-swatch" data-bc="#334155" style="background:#334155;width:18px;height:18px;border-radius:3px;cursor:pointer;border:1px solid #475569"></div>
-        <div class="border-gc-swatch" data-bc="#64748b" style="background:#64748b;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
-        <div class="border-gc-swatch" data-bc="#dc2626" style="background:#dc2626;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
-        <div class="border-gc-swatch" data-bc="#7c3aed" style="background:#7c3aed;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
-        <div class="border-gc-swatch" data-bc="#065f46" style="background:#065f46;width:18px;height:18px;border-radius:3px;cursor:pointer"></div>
-      </div>
-      <div style="font-size:10px;color:#475569;padding:4px 4px 0">個別変更は区画編集で</div>
 
       <div class="tool-divider"></div>
       <div class="zoom-info" id="zoom-info-sub">100%</div>
