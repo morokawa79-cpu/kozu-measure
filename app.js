@@ -144,6 +144,12 @@ const App = {
   northArrowSize: 1.0,
   editingNorthArrowId: null,
 
+  // スタンプ（家屋・駐車場）
+  stampWM: 10,
+  stampHM: 8,
+  stampAngle: 0,
+  editingStampId: null,
+
   // 区画番号表示
   showLotNumbers: true,
 
@@ -879,9 +885,80 @@ function drawNorthArrow(t) {
   });
 }
 
+function drawStamp(t) {
+  const mpp = App.mpp;
+  const wPx = mpp ? t.wM / mpp : pfs(20) * (t.wM / 5);
+  const hPx = mpp ? t.hM / mpp : pfs(12) * (t.hM / 3);
+  const angle = ((t.angle || 0) * Math.PI) / 180;
+  const isParking = t.textType === 'parking-stamp';
+  const borderColor = t.color || (isParking ? '#1d4ed8' : '#78350f');
+  const fillColor   = isParking ? 'rgba(219,234,254,0.80)' : 'rgba(254,243,199,0.88)';
+  const hw = wPx / 2, hh = hPx / 2;
+
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(angle);
+
+  // 背景
+  ctx.fillStyle = fillColor;
+  ctx.fillRect(-hw, -hh, wPx, hPx);
+
+  // ハッチング（家屋）
+  if (!isParking) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-hw, -hh, wPx, hPx); ctx.clip();
+    ctx.strokeStyle = borderColor + '30';
+    ctx.lineWidth = 1 / App.vz;
+    const sp = Math.max(pfs(5), Math.min(wPx, hPx) * 0.12);
+    for (let d = -wPx - hPx; d < wPx + hPx; d += sp) {
+      ctx.beginPath(); ctx.moveTo(d, -hPx); ctx.lineTo(d + hPx * 2, hPx); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 枠線
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 2 / App.vz;
+  if (isParking) ctx.setLineDash([6 / App.vz, 3 / App.vz]);
+  ctx.strokeRect(-hw, -hh, wPx, hPx);
+  ctx.setLineDash([]);
+
+  // 駐車場：中央の仕切り線
+  if (isParking) {
+    ctx.strokeStyle = borderColor + '60';
+    ctx.lineWidth = 1 / App.vz;
+    ctx.beginPath(); ctx.moveTo(-hw, 0); ctx.lineTo(hw, 0); ctx.stroke();
+  }
+
+  // ラベル
+  const fsMain = Math.min(pfs(isParking ? 14 : 10), hPx * 0.45, wPx * 0.3);
+  ctx.font = `bold ${fsMain}px 'Segoe UI', sans-serif`;
+  ctx.fillStyle = borderColor;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(isParking ? 'P' : '家屋', 0, isParking ? -hh * 0.25 : -hh * 0.18);
+
+  // 寸法テキスト
+  const fsDim = Math.min(pfs(6.5), hPx * 0.22, wPx * 0.18);
+  ctx.font = `${fsDim}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`${t.wM}m×${t.hM}m`, 0, hh * 0.6);
+
+  ctx.restore();
+
+  // ヒットボックス（回転考慮で対角を半径に）
+  const diagR = Math.hypot(wPx, hPx) / 2;
+  const scx = t.x * App.vz + App.vx, scy = t.y * App.vz + App.vy;
+  App.labelBoxes.push({
+    itemId: t.id, labelKey: 'stamp', isText: true,
+    cx: t.x, cy: t.y,
+    sx: scx - diagR * App.vz, sy: scy - diagR * App.vz,
+    sw: diagR * 2 * App.vz, sh: diagR * 2 * App.vz,
+  });
+}
+
 function drawTextAnnotation(t) {
   if (t.textType === 'lot-table') { drawLotTable(t); return; }
   if (t.textType === 'north-arrow') { drawNorthArrow(t); return; }
+  if (t.textType === 'house-stamp' || t.textType === 'parking-stamp') { drawStamp(t); return; }
   const textColor = t.color || '#1a1a1a';
   const bgColor   = t.bgColor || 'rgba(255,255,220,0.92)';
 
@@ -1807,6 +1884,65 @@ function bindEvents() {
     if (el) { el.value = today; App.paperInfo.date = today; syncPaperInfo(); }
   });
 
+  // スタンプツールボタン
+  document.getElementById('sub-btn-house-stamp')?.addEventListener('click', () => setSubMeasureMode('house-stamp'));
+  document.getElementById('sub-btn-parking-stamp')?.addEventListener('click', () => setSubMeasureMode('parking-stamp'));
+
+  // スタンプ設定パネル（サイドバー）
+  document.getElementById('stamp-w-input')?.addEventListener('input', e => {
+    App.stampWM = parseFloat(e.target.value) || 1; e.target._userEdited = true;
+  });
+  document.getElementById('stamp-h-input')?.addEventListener('input', e => {
+    App.stampHM = parseFloat(e.target.value) || 1; e.target._userEdited = true;
+  });
+  document.getElementById('stamp-angle-input')?.addEventListener('input', e => {
+    App.stampAngle = parseFloat(e.target.value) || 0;
+  });
+  document.querySelectorAll('.btn-stamp-step').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseFloat(btn.dataset.delta) || 0;
+      App.stampAngle = ((App.stampAngle + d) % 360 + 360) % 360;
+      const inp = document.getElementById('stamp-angle-input');
+      if (inp) inp.value = App.stampAngle;
+    });
+  });
+
+  // スタンプ編集オーバーレイ
+  const updateEditingStamp = () => {
+    const t = App.texts.find(x => x.id === App.editingStampId);
+    if (!t) return;
+    t.wM = parseFloat(document.getElementById('stamp-edit-w')?.value) || t.wM;
+    t.hM = parseFloat(document.getElementById('stamp-edit-h')?.value) || t.hM;
+    t.angle = parseFloat(document.getElementById('stamp-edit-angle')?.value) || 0;
+    App.dirty = true;
+  };
+  document.getElementById('stamp-edit-w')?.addEventListener('input', updateEditingStamp);
+  document.getElementById('stamp-edit-h')?.addEventListener('input', updateEditingStamp);
+  document.getElementById('stamp-edit-angle')?.addEventListener('input', updateEditingStamp);
+  document.querySelectorAll('.btn-stamp-edit-step').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseFloat(btn.dataset.delta) || 0;
+      const inp = document.getElementById('stamp-edit-angle');
+      const cur = parseFloat(inp?.value) || 0;
+      const next = ((cur + d) % 360 + 360) % 360;
+      if (inp) inp.value = next;
+      updateEditingStamp();
+    });
+  });
+  document.getElementById('btn-stamp-edit-ok')?.addEventListener('click', () => {
+    document.getElementById('stamp-edit-panel')?.classList.add('hidden');
+    App.editingStampId = null;
+  });
+  document.getElementById('btn-stamp-edit-delete')?.addEventListener('click', () => {
+    if (App.editingStampId != null) {
+      saveState();
+      App.texts = App.texts.filter(x => x.id !== App.editingStampId);
+      App.editingStampId = null;
+      document.getElementById('stamp-edit-panel')?.classList.add('hidden');
+      App.dirty = true;
+    }
+  });
+
   // 北マークツールボタン
   document.getElementById('sub-btn-north-arrow')?.addEventListener('click', () => setSubMeasureMode('north-arrow'));
 
@@ -2356,6 +2492,23 @@ function onMouseDown(e) {
     return;
   }
 
+  // スタンプモード（家屋・駐車場）
+  if (App.mode === 'house-stamp' || App.mode === 'parking-stamp') {
+    if (!App.mpp) { document.getElementById('calibration-modal').classList.remove('hidden'); return; }
+    saveState();
+    App.texts.push({
+      id: App.nextId++,
+      textType: App.mode,
+      x: cp.x, y: cp.y,
+      angle: App.stampAngle,
+      wM: App.stampWM,
+      hM: App.stampHM,
+      color: App.mode === 'parking-stamp' ? '#1d4ed8' : '#78350f',
+    });
+    App.dirty = true;
+    return;
+  }
+
   // 引出線モード
   if (App.mode === 'callout') {
     if (App.pts.length === 0) {
@@ -2668,10 +2821,35 @@ function openNorthArrowEditor(id, clientX, clientY) {
   panel.classList.remove('hidden');
 }
 
+function openStampEditor(id, clientX, clientY) {
+  const t = App.texts.find(x => x.id === id);
+  if (!t) return;
+  App.editingStampId = id;
+  const panel = document.getElementById('stamp-edit-panel');
+  if (!panel) return;
+  const isParking = t.textType === 'parking-stamp';
+  document.getElementById('stamp-edit-label').textContent = isParking ? '🅿 駐車場スタンプ' : '🏠 家屋スタンプ';
+  document.getElementById('stamp-edit-w').value = t.wM;
+  document.getElementById('stamp-edit-h').value = t.hM;
+  document.getElementById('stamp-edit-angle').value = t.angle || 0;
+  const rect = canvas.getBoundingClientRect();
+  panel.style.left = Math.min(clientX - rect.left, canvas.clientWidth - 280) + 'px';
+  panel.style.top  = Math.max(clientY - rect.top - 20, 4) + 'px';
+  panel.classList.remove('hidden');
+}
+
 function onDblClick(e) {
   if (!App.pdfReady && !App.paperMode) return;
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
+
+  // スタンプ編集（全モード共通）
+  const hitS = hitLabel(sx, sy);
+  if (hitS && hitS.isText) {
+    const st = App.texts.find(x => x.id === hitS.itemId &&
+      (x.textType === 'house-stamp' || x.textType === 'parking-stamp'));
+    if (st) { openStampEditor(st.id, e.clientX, e.clientY); return; }
+  }
 
   // 北マーク編集（全モード共通で最優先）
   const hitN = hitLabel(sx, sy);
@@ -3807,14 +3985,26 @@ function setSubMeasureMode(mode) {
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('parallel-panel').classList.add('hidden');
   document.querySelectorAll('#tools-subdivision .btn-lot-tool').forEach(b => b.classList.remove('active'));
-  ['distance','polyline','area','arrow','text','callout','north-arrow','vertex-edit','label-edit'].forEach(m => {
+  ['distance','polyline','area','arrow','text','callout','north-arrow','house-stamp','parking-stamp','vertex-edit','label-edit'].forEach(m => {
     const id = (m === 'vertex-edit') ? 'btn-vertex-edit-sub'
              : (m === 'label-edit')  ? 'btn-label-edit-sub'
              : `sub-btn-${m}`;
     document.getElementById(id)?.classList.toggle('active', m === mode);
   });
-  // 北マーク設定パネルの表示切替
+  // パネル表示切替
   document.getElementById('north-arrow-settings')?.classList.toggle('hidden', mode !== 'north-arrow');
+  const showStamp = mode === 'house-stamp' || mode === 'parking-stamp';
+  document.getElementById('stamp-settings')?.classList.toggle('hidden', !showStamp);
+  if (showStamp) {
+    const label = document.getElementById('stamp-settings-label');
+    if (label) label.textContent = mode === 'parking-stamp' ? '🅿 駐車場スタンプ' : '🏠 家屋スタンプ';
+    // モード切替時のデフォルト値をセット
+    const defs = mode === 'parking-stamp' ? [5, 2.5] : [10, 8];
+    const wInp = document.getElementById('stamp-w-input');
+    const hInp = document.getElementById('stamp-h-input');
+    if (wInp && !wInp._userEdited) { wInp.value = defs[0]; App.stampWM = defs[0]; }
+    if (hInp && !hInp._userEdited) { hInp.value = defs[1]; App.stampHM = defs[1]; }
+  }
   updateHint();
   App.dirty = true;
 }
