@@ -1,0 +1,47 @@
+appId: com.fmoro.kozu-measure.v210
+productName: 土地区画作成工房 v2.1
+copyright: Copyright © 2026
+
+directories:
+  output: dist-installer-v210
+
+files:
+  - index-v210.html
+  - jww-v210.css
+  - "v210/**"
+  - main-v210.js
+  - preload-v210.js
+  - "vendor/**"
+  - "!node_modules/**"
+  - "!dist-installer*/**"
+  - "!*.backup*"
+  - "!backup_*/**"
+  - "!ui-*/**"
+  - "!qa-*/**"
+  - "!*.map"
+
+extraResources:
+  - from: node_modules/pdfjs-dist/cmaps
+    to: cmaps
+    filter: "**/*"
+  - from: node_modules/pdfjs-dist/standard_fonts
+    to: standard_fonts
+    filter: "**/*"
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: kozu-measure-v210-Setup-${version}-${arch}.${ext}
+  shortcutName: 土地区画作成工房 v2.1
+  uninstallDisplayName: 土地区画作成工房 v2.1.0-alpha.8
+  deleteAppDataOnUninstall: false
+  installerLanguages:
+    - ja
+  language: 1041
