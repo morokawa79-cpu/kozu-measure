@@ -1430,15 +1430,26 @@
       }
     })
     const lots = rows.filter(row => row.kind === 'lot')
+    const roads = rows.filter(row => row.kind === 'road')
+    const waters = rows.filter(row => row.kind === 'water')
+    const included = [...lots, ...roads, ...waters]
+    const sum = (values, key) => values.reduce((total, row) => total + (row[key] || 0), 0)
     return {
       rows,
       totals: {
         lotCount: lots.length,
-        lotAreaM2: lots.reduce((sum, row) => sum + (row.areaM2 || 0), 0),
-        lotTsubo: lots.reduce((sum, row) => sum + (row.tsubo || 0), 0),
+        roadCount: roads.length,
+        waterCount: waters.length,
+        includedCount: included.length,
+        lotAreaM2: sum(lots, 'areaM2'),
+        lotTsubo: sum(lots, 'tsubo'),
         price: lots.reduce((sum, row) => sum + (row.price || 0), 0),
-        roadAreaM2: rows.filter(row => row.kind === 'road').reduce((sum, row) => sum + (row.areaM2 || 0), 0),
-        waterAreaM2: rows.filter(row => row.kind === 'water').reduce((sum, row) => sum + (row.areaM2 || 0), 0),
+        roadAreaM2: sum(roads, 'areaM2'),
+        roadTsubo: sum(roads, 'tsubo'),
+        waterAreaM2: sum(waters, 'areaM2'),
+        waterTsubo: sum(waters, 'tsubo'),
+        includedAreaM2: sum(included, 'areaM2'),
+        includedTsubo: sum(included, 'tsubo'),
         cutoutAreaM2: rows.filter(row => row.kind === 'cutout').reduce((sum, row) => sum + (row.areaM2 || 0), 0)
       }
     }

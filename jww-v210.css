@@ -1190,10 +1190,42 @@ body[data-workspace="output"] [data-workspace-target="output"] {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: auto 38px minmax(0, 1fr);
   padding: 7px;
   background: #fff;
 }
+
+.registry-area-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding-bottom: 5px;
+}
+
+.registry-area-summary[hidden] { display: none; }
+
+.registry-area-summary button {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 17px 15px;
+  align-items: center;
+  gap: 0 5px;
+  padding: 2px 6px;
+  border: 1px solid #a5adb6;
+  color: #26323d;
+  background: #f7f9fb;
+  cursor: pointer;
+  text-align: left;
+}
+
+.registry-area-summary button:hover { border-color: #65717c; background: #fff; }
+.registry-area-summary button.active { border-color: var(--active); box-shadow: inset 3px 0 0 var(--active); background: #e6f1ff; }
+.registry-area-summary strong { overflow: hidden; font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
+.registry-area-summary button > span { overflow: hidden; font-size: 11px; font-weight: 700; text-align: right; white-space: nowrap; text-overflow: ellipsis; }
+.registry-area-summary small { grid-column: 1 / -1; overflow: hidden; color: #596674; font-size: 9.5px; text-align: right; white-space: nowrap; text-overflow: ellipsis; }
 
 .registry-toolbar {
   min-width: 0;
@@ -1357,11 +1389,28 @@ body[data-workspace="output"] [data-workspace-target="output"] {
 .registry-dock .workspace-tabs button.active { border-bottom: 1px solid var(--active-dark); }
 
 .registry-dock .registry-main {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 4px;
   padding: 4px;
   overflow: hidden;
 }
+
+.registry-dock .registry-area-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding-bottom: 0;
+}
+
+.registry-dock .registry-area-summary button {
+  min-height: 34px;
+  grid-template-rows: 15px 13px;
+  gap: 0 3px;
+  padding: 1px 4px;
+}
+
+.registry-dock .registry-area-summary strong { font-size: 9.5px; }
+.registry-dock .registry-area-summary button > span { font-size: 10px; }
+.registry-dock .registry-area-summary small { font-size: 9px; }
 
 .registry-dock .registry-toolbar {
   display: grid;

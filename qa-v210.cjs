@@ -493,6 +493,11 @@ function staticChecks(add) {
     /ipcMain\.handle\(['"]save-project-v210['"]/.test(main) && /showSaveDialog/.test(main) &&
     /exportPng\(payload\).*export-png-v210/.test(preload) && /saveProject\(payload\).*save-project-v210/.test(preload) &&
     /300dpi・印刷縮尺を保持/.test(html))
+  add('registry-kind-area-summary-and-filter-wired',
+    /id=["']registry-area-summary["']/.test(html) &&
+    ['all', 'lot', 'road', 'water'].every(kind => new RegExp(`data-registry-area-filter=["']${kind}["']`).test(html)) &&
+    /includedAreaM2/.test(coreSource) && /roadTsubo/.test(coreSource) && /waterTsubo/.test(coreSource) &&
+    /registryAreaFilter[\s\S]{0,260}filter\.value = registryAreaFilter\.dataset\.registryAreaFilter/.test(appSource))
   add('object-editor-applies-immediately-without-auto-save-label-or-confirm-discard',
     !/auto-save-indicator|自動保存/.test(objectEditTemplate) && /data-action=["']clear-selection["']/.test(objectEditTemplate) &&
     !/data-action=["'](?:save-edit|cancel-edit)["']/.test(objectEditTemplate) &&
@@ -872,8 +877,10 @@ async function rendererSuite() {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }], { price: 3500, label: 'A' })
     K.addShape(doc, 'lot', [{ x: 110, y: 0 }, { x: 210, y: 0 }, { x: 210, y: 100 }, { x: 110, y: 100 }], { price: 1500, label: 'B' })
+    K.addShape(doc, 'road', [{ x: 0, y: 110 }, { x: 200, y: 110 }, { x: 200, y: 160 }, { x: 0, y: 160 }], { label: '道路' })
+    K.addShape(doc, 'water', [{ x: 0, y: 170 }, { x: 100, y: 170 }, { x: 100, y: 190 }, { x: 0, y: 190 }], { label: '水路' })
     const summary = K.registrySummary(doc)
-    return { pass: summary.rows.length === 2 && summary.totals.lotCount === 2 && summary.totals.price === 5000 && Math.abs(summary.totals.lotAreaM2 - 200) < 1e-7, details: summary }
+    return { pass: summary.rows.length === 4 && summary.totals.lotCount === 2 && summary.totals.roadCount === 1 && summary.totals.waterCount === 1 && summary.totals.includedCount === 4 && summary.totals.price === 5000 && Math.abs(summary.totals.lotAreaM2 - 200) < 1e-7 && Math.abs(summary.totals.roadAreaM2 - 100) < 1e-7 && Math.abs(summary.totals.waterAreaM2 - 20) < 1e-7 && Math.abs(summary.totals.includedAreaM2 - 320) < 1e-7 && Math.abs(summary.totals.includedTsubo - (320 / K.TSUBO_M2)) < 1e-7, details: summary }
   })
 
   await run('core-undo-redo-history', () => {
@@ -3390,11 +3397,19 @@ async function rendererSuite() {
     const priceFields = [...document.querySelectorAll('[data-registry-field="price"]')]
     const priceValues = priceFields.map(field => field.value)
     const priceText = registry?.textContent || ''
+    const areaSummaryButtons = [...document.querySelectorAll('[data-registry-area-filter]')]
+    const areaSummaryText = document.getElementById('registry-area-summary')?.textContent || ''
+    const roadSummaryButton = document.querySelector('[data-registry-area-filter="road"]')
+    const allSummaryButton = document.querySelector('[data-registry-area-filter="all"]')
+    roadSummaryButton?.click(); await sleep(30)
+    const roadFilterApplied = document.getElementById('registry-filter')?.value === 'road' && [...document.querySelectorAll('#registry-rows tr[data-object-id]')].every(row => row.children[2]?.textContent === '道路')
+    allSummaryButton?.click(); await sleep(30)
+    const allFilterRestored = document.getElementById('registry-filter')?.value === 'all'
     api.setWorkspace('output'); await sleep(40)
     const outputVisible = !document.querySelector('[data-workspace-panel="output"]')?.hidden
     const outputText = document.querySelector('[data-workspace-panel="output"]')?.textContent || ''
     api.setWorkspace('drawing')
-    return { pass: registryVisible && docked && JSON.stringify(viewBefore) === JSON.stringify(viewAfterRegistry) && outputVisible && priceFields.length >= 2 && priceValues.some(value => Number(String(value).replace(/,/g, '')) === 3500) && !/(買取価格試算|セットバック)/.test(`${priceText}\n${outputText}`) && !document.querySelector('[data-output-tab="estimate"]'), details: { registryVisible, docked, viewBefore, viewAfterRegistry, canvasRect, registryRect, outputVisible, priceValues, priceText: priceText.slice(0, 500), outputText: outputText.slice(0, 500) } }
+    return { pass: registryVisible && docked && JSON.stringify(viewBefore) === JSON.stringify(viewAfterRegistry) && outputVisible && priceFields.length >= 2 && priceValues.some(value => Number(String(value).replace(/,/g, '')) === 3500) && areaSummaryButtons.length === 4 && /合計\s*4件/.test(areaSummaryText) && /1102\.00㎡/.test(areaSummaryText) && roadFilterApplied && allFilterRestored && !/(買取価格試算|セットバック)/.test(`${priceText}\n${outputText}`) && !document.querySelector('[data-output-tab="estimate"]'), details: { registryVisible, docked, viewBefore, viewAfterRegistry, canvasRect, registryRect, outputVisible, priceValues, areaSummaryText, roadFilterApplied, allFilterRestored, priceText: priceText.slice(0, 500), outputText: outputText.slice(0, 500) } }
   })
 
   return { checks, runtimeErrors, facts }

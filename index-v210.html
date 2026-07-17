@@ -229,6 +229,12 @@
             <button type="button" data-registry-tab="tables">表・ガイド</button>
           </nav>
           <div class="registry-main">
+            <div id="registry-area-summary" class="registry-area-summary" aria-label="区画・道路・水路の面積集計">
+              <button type="button" class="active" data-registry-area-filter="all" aria-pressed="true"><strong>合計 <span data-registry-total-count="all">0</span>件</strong><span data-registry-total-area="all">0.00㎡</span><small data-registry-total-tsubo="all">0.00坪</small></button>
+              <button type="button" data-registry-area-filter="lot" aria-pressed="false"><strong>区画 <span data-registry-total-count="lot">0</span>件</strong><span data-registry-total-area="lot">0.00㎡</span><small data-registry-total-tsubo="lot">0.00坪</small></button>
+              <button type="button" data-registry-area-filter="road" aria-pressed="false"><strong>道路 <span data-registry-total-count="road">0</span>件</strong><span data-registry-total-area="road">0.00㎡</span><small data-registry-total-tsubo="road">0.00坪</small></button>
+              <button type="button" data-registry-area-filter="water" aria-pressed="false"><strong>水路 <span data-registry-total-count="water">0</span>件</strong><span data-registry-total-area="water">0.00㎡</span><small data-registry-total-tsubo="water">0.00坪</small></button>
+            </div>
             <div class="registry-toolbar">
               <label class="workspace-field search-field"><span>検索</span><input id="registry-search" type="search" placeholder="番号・名称・メモ"></label>
               <label class="workspace-field compact-field"><span>種類</span><select id="registry-filter"><option value="all">すべて</option><option value="lot">区画</option><option value="road">道路</option><option value="water">水路</option></select></label>

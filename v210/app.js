@@ -159,6 +159,7 @@
     scaleRequiredDialog: byId('scale-required-dialog'),
     registryRows: byId('registry-rows'),
     registrySummary: byId('registry-summary'),
+    registryAreaSummary: byId('registry-area-summary'),
     outputPreview: byId('output-preview-canvas')
   }
 
@@ -3668,11 +3669,41 @@
     } else {
       for (const object of objects) dom.registryRows.append(makeRegistryRow(object))
     }
-    const lots = active?.shapes.filter(shape => shape.kind === 'lot').length || 0
-    const roads = active?.shapes.filter(shape => shape.kind === 'road' || shape.kind === 'water').length || 0
+    const summary = K.registrySummary(documentModel)
+    const totals = summary.totals
+    const lots = totals.lotCount || 0
+    const roads = totals.roadCount || 0
+    const waters = totals.waterCount || 0
     const notes = active?.entities.length || 0
-    const priceTotal = K.registrySummary(documentModel).totals.price
-    dom.registrySummary.textContent = `区画 ${lots}・道路/水路 ${roads}・要素 ${notes}・価格合計 ${Math.round(priceTotal).toLocaleString('ja-JP')}万円`
+    const priceTotal = totals.price
+    dom.registrySummary.textContent = `区画 ${lots}・道路 ${roads}・水路 ${waters}・要素 ${notes}・価格合計 ${Math.round(priceTotal).toLocaleString('ja-JP')}万円`
+    if (dom.registryAreaSummary) {
+      const calibrated = finite(documentModel.calibration?.mpp) > 0
+      const groups = {
+        all: { count: totals.includedCount, area: totals.includedAreaM2, tsubo: totals.includedTsubo },
+        lot: { count: totals.lotCount, area: totals.lotAreaM2, tsubo: totals.lotTsubo },
+        road: { count: totals.roadCount, area: totals.roadAreaM2, tsubo: totals.roadTsubo },
+        water: { count: totals.waterCount, area: totals.waterAreaM2, tsubo: totals.waterTsubo }
+      }
+      const activeFilter = byId('registry-filter')?.value || 'all'
+      dom.registryAreaSummary.hidden = ui.registryTab !== 'lots'
+      $$('[data-registry-area-filter]', dom.registryAreaSummary).forEach(button => {
+        const key = button.dataset.registryAreaFilter
+        const group = groups[key] || groups.all
+        const hasUnscaledObjects = group.count > 0 && !calibrated
+        const areaText = hasUnscaledObjects ? '縮尺未設定' : `${formatArea(group.area)}㎡`
+        const tsuboText = hasUnscaledObjects ? '縮尺未設定' : `${formatArea(group.tsubo)}坪`
+        const countNode = $(`[data-registry-total-count="${key}"]`, button)
+        const areaNode = $(`[data-registry-total-area="${key}"]`, button)
+        const tsuboNode = $(`[data-registry-total-tsubo="${key}"]`, button)
+        if (countNode) countNode.textContent = String(group.count || 0)
+        if (areaNode) areaNode.textContent = areaText
+        if (tsuboNode) tsuboNode.textContent = tsuboText
+        button.classList.toggle('active', key === activeFilter)
+        button.setAttribute('aria-pressed', String(key === activeFilter))
+        button.title = `${key === 'all' ? '区画・道路・水路 合計' : key === 'lot' ? '区画' : key === 'road' ? '道路' : '水路'}: ${group.count || 0}件 / ${areaText} / ${tsuboText}`
+      })
+    }
     $$('[data-registry-tab]').forEach(button => button.classList.toggle('active', button.dataset.registryTab === ui.registryTab))
     const checkAll = byId('registry-check-all')
     if (checkAll) {
@@ -4586,6 +4617,14 @@
       ui.registryTab = registryTab.dataset.registryTab
       const filter = byId('registry-filter')
       if (filter) filter.value = 'all'
+      renderRegistry()
+      return
+    }
+
+    const registryAreaFilter = event.target.closest('[data-registry-area-filter]')
+    if (registryAreaFilter) {
+      const filter = byId('registry-filter')
+      if (filter) filter.value = registryAreaFilter.dataset.registryAreaFilter || 'all'
       renderRegistry()
       return
     }
