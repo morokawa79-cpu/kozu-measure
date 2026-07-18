@@ -2,10 +2,16 @@ const { app, BrowserWindow, dialog, ipcMain, protocol, shell } = require('electr
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { atomicWriteFile } = require('./atomic-write-v210')
+const { setPngPhysicalResolution300Dpi } = require('./png-physical-resolution-v210')
 
-const VERSION = '2.1.0-alpha.9'
+const VERSION = app.getVersion()
 const TITLE = `土地区画作成工房 v${VERSION}`
 const APP_ID = 'com.fmoro.kozu-measure.v210'
+const PAPER_SIZE_MM = Object.freeze({
+  A4: Object.freeze({ width: 210, height: 297 }),
+  A3: Object.freeze({ width: 297, height: 420 })
+})
 const dataRoot = path.join(app.getPath('appData'), 'FMoro', 'KozuMeasureV210')
 
 fs.mkdirSync(dataRoot, { recursive: true })
@@ -79,6 +85,22 @@ async function withOutputWindow(owner, html, callback) {
   }
 }
 
+function physicalPaperOptions(payload = {}) {
+  const pageSize = payload.pageSize === 'A3' ? 'A3' : 'A4'
+  const landscape = payload.landscape !== false
+  const portraitMm = PAPER_SIZE_MM[pageSize]
+  return Object.freeze({
+    pageSize,
+    landscape,
+    widthMm: landscape ? portraitMm.height : portraitMm.width,
+    heightMm: landscape ? portraitMm.width : portraitMm.height,
+    // webContents.print のカスタム用紙はマイクロメートル指定。
+    printPageSize: Object.freeze({ width: portraitMm.width * 1000, height: portraitMm.height * 1000 }),
+    // webContents.printToPDF のカスタム用紙はインチ指定。
+    pdfPageSize: Object.freeze({ width: portraitMm.width / 25.4, height: portraitMm.height / 25.4 })
+  })
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -138,7 +160,7 @@ async function saveProjectPayload(event, payload = {}) {
     title: '編集データを保存する', fallback: 'kozu-project.kozu.json', extension: '.json', filterName: '区画作成工房 編集データ'
   })
   if (!target) return { success: false, canceled: true }
-  await fs.promises.writeFile(target, payload.contents, 'utf8')
+  await atomicWriteFile(target, payload.contents, { encoding: 'utf8' })
   return { success: true, canceled: false, path: target, fileName: path.basename(target) }
 }
 
@@ -167,20 +189,21 @@ ipcMain.handle('export-png-v210', async (event, payload = {}) => {
     title: 'PNG画像を書き出す', fallback: '区画図.png', extension: '.png', filterName: 'PNG画像'
   })
   if (!target) return { success: false, canceled: true }
-  await fs.promises.writeFile(target, Buffer.from(bytes))
+  await fs.promises.writeFile(target, setPngPhysicalResolution300Dpi(bytes))
   if (payload.reveal !== false) shell.showItemInFolder(target)
   return { success: true, canceled: false, path: target, fileName: path.basename(target) }
 })
 
 ipcMain.handle('print-drawing-v210', async (event, payload = {}) => {
   const owner = BrowserWindow.fromWebContents(event.sender)
+  const paper = physicalPaperOptions(payload)
   return withOutputWindow(owner, payload.html, outputWindow => new Promise((resolve, reject) => {
     outputWindow.webContents.print({
       silent: false,
       printBackground: true,
       color: true,
-      pageSize: payload.pageSize === 'A3' ? 'A3' : 'A4',
-      landscape: payload.landscape !== false,
+      pageSize: paper.printPageSize,
+      landscape: paper.landscape,
       margins: { marginType: 'none' },
       scaleFactor: 100
     }, (success, failureReason) => {
@@ -192,10 +215,11 @@ ipcMain.handle('print-drawing-v210', async (event, payload = {}) => {
 
 ipcMain.handle('export-pdf-v210', async (event, payload = {}) => {
   const owner = BrowserWindow.fromWebContents(event.sender)
+  const paper = physicalPaperOptions(payload)
   const buffer = await withOutputWindow(owner, payload.html, outputWindow => outputWindow.webContents.printToPDF({
     printBackground: true,
-    landscape: payload.landscape !== false,
-    pageSize: payload.pageSize === 'A3' ? 'A3' : 'A4',
+    landscape: paper.landscape,
+    pageSize: paper.pdfPageSize,
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
     preferCSSPageSize: true
   }))

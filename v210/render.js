@@ -255,9 +255,39 @@
       sans: DEFAULT_FONT,
       mincho: '"Yu Mincho", "MS PMincho", serif',
       serif: '"Yu Mincho", "MS PMincho", serif',
-      mono: 'Consolas, "BIZ UDゴシック", monospace',
+      // `even` is laid out one glyph at a time by fillTextWithLayout. Keep the
+      // glyph design Gothic instead of substituting a monospace font.
+      even: DEFAULT_FONT,
+      mono: DEFAULT_FONT,
     };
     return presets[value] || value || DEFAULT_FONT;
+  }
+
+  function evenlySpacedText(style = {}) {
+    return ['even', 'mono'].includes(String(style.fontFamily || style.font || '').toLowerCase());
+  }
+
+  function evenTextWidth(text, cellWidth) {
+    return Array.from(String(text ?? '')).length * Math.max(0, finite(cellWidth));
+  }
+
+  function fillTextWithLayout(context, text, x, y, style = {}, cellWidth = 0) {
+    const value = String(text ?? '');
+    if (!evenlySpacedText(style) || !value) {
+      context.fillText(value, x, y);
+      return;
+    }
+    const characters = Array.from(value);
+    const cell = Math.max(0.1, finite(cellWidth, 1));
+    const width = characters.length * cell;
+    const align = context.textAlign || 'start';
+    let start = x;
+    if (align === 'center') start -= width / 2;
+    else if (align === 'right' || align === 'end') start -= width;
+    const previousAlign = context.textAlign;
+    context.textAlign = 'center';
+    characters.forEach((character, index) => context.fillText(character, start + cell * (index + 0.5), y));
+    context.textAlign = previousAlign;
   }
 
   function lineDash(style, unit) {
@@ -998,13 +1028,13 @@
         {
           property: 'areaLabel', legacyPosition: shape.areaLabelPosition,
           visible: metricLabelIsVisible(shape, 'area'),
-          automaticText: areaSquareMeters == null ? null : `${approx ? '約' : ''}${formatMeasuredValue(areaSquareMeters, { ...metricFormat, decimals: areaDigits, digits: areaDigits })}㎡`,
+          automaticValue: areaSquareMeters, unit: '㎡', defaultDigits: areaDigits,
           kind: 'shape-area-label', key: 'area', id: `shape-area-label:${shape.id}`,
         },
         {
           property: 'tsuboLabel', legacyPosition: shape.tsuboLabelPosition,
           visible: metricLabelIsVisible(shape, 'tsubo'),
-          automaticText: areaSquareMeters == null ? null : `${approx ? '約' : ''}${formatMeasuredValue(areaSquareMeters / K.TSUBO_M2, { ...metricFormat, decimals: tsuboDigits, digits: tsuboDigits })}坪`,
+          automaticValue: areaSquareMeters == null ? null : areaSquareMeters / K.TSUBO_M2, unit: '坪', defaultDigits: tsuboDigits,
           kind: 'shape-tsubo-label', key: 'tsubo', id: `shape-tsubo-label:${shape.id}`,
         },
       ];
@@ -1025,7 +1055,13 @@
         labelStyle.size = resolvedSize;
         labelStyle.fontSize = resolvedSize;
         const automaticIndex = automaticDefinitions.indexOf(definition);
-        const text = label.text == null ? definition.automaticText : String(label.text);
+        const digits = clamp(Math.round(finite(customStyle.decimals ?? customStyle.digits, definition.defaultDigits)), 0, 3);
+        const formatStyle = { ...metricFormat, ...customStyle, decimals: digits, digits };
+        const useApprox = customStyle.approximate == null ? approx : customStyle.approximate === true;
+        const automaticText = definition.automaticValue == null
+          ? null
+          : `${useApprox ? '約' : ''}${formatMeasuredValue(definition.automaticValue, formatStyle)}${definition.unit}`;
+        const text = label.text == null ? automaticText : String(label.text);
         if (!text) continue;
         const renderedLineHeight = resolvedSize * 1.18 * (labelStyle.vertical ? Math.max(1, Array.from(String(text)).length) : 1);
         let automaticAnchor = null;
@@ -1712,7 +1748,7 @@
       context.fillStyle = style.color;
       if (titleHeight) {
         context.textAlign = 'left';
-        context.fillText(String(entity.title || '区画一覧'), 7 * tableScale, titleHeight / 2);
+        fillTextWithLayout(context, String(entity.title || '区画一覧'), 7 * tableScale, titleHeight / 2, style, fontSize);
         y += titleHeight;
         context.beginPath();
         context.moveTo(0, y);
@@ -1725,7 +1761,7 @@
       let x = 0;
       for (const column of columns) {
         context.textAlign = 'center';
-        context.fillText(String(column.label || column.key), x + column.width / 2, y + headerHeight / 2);
+        fillTextWithLayout(context, String(column.label || column.key), x + column.width / 2, y + headerHeight / 2, style, fontSize);
         x += column.width;
         context.beginPath();
         context.moveTo(x, y);
@@ -1763,7 +1799,7 @@
           context.textAlign = align;
           const textX = align === 'center' ? x + column.width / 2 : align === 'right' ? x + column.width - padding : x + padding;
           const raw = typeof column.value === 'function' ? column.value(lot, { area, document: documentModel }) : values[column.key];
-          context.fillText(raw == null ? '' : String(raw), textX, y + rowHeight / 2);
+          fillTextWithLayout(context, raw == null ? '' : String(raw), textX, y + rowHeight / 2, style, fontSize);
           x += column.width;
         }
         y += rowHeight;
@@ -1789,7 +1825,7 @@
         const align = column.align || 'left';
         context.textAlign = align;
         const textX = align === 'center' ? x + column.width / 2 : align === 'right' ? x + column.width - padding : x + padding;
-        context.fillText(totalValues[column.key] ?? '', textX, y + rowHeight / 2);
+        fillTextWithLayout(context, totalValues[column.key] ?? '', textX, y + rowHeight / 2, style, fontSize);
         x += column.width;
       }
       y += rowHeight;
@@ -1871,11 +1907,12 @@
       const lineHeight = size * clamp(finite(style.lineHeight, 1.18), 0.8, 2.5);
       const lines = Array.isArray(content) ? content.map(String) : String(content ?? '').split(/\r?\n/);
       const vertical = style.vertical === true;
+      const evenLayout = evenlySpacedText(style);
       const padding = Math.max(0, finite(style.padding, 0)) * fixedWorld;
       context.save();
       context.font = `${italic}${weight} ${size}px ${family}`;
       context.textBaseline = 'middle';
-      const widths = lines.map((line) => context.measureText(line || ' ').width);
+      const widths = lines.map((line) => evenLayout ? evenTextWidth(line || ' ', size) : context.measureText(line || ' ').width);
       let contentWidth;
       let contentHeight;
       if (vertical) {
@@ -1921,7 +1958,7 @@
             ? localX + boxWidth - padding
             : localX + boxWidth / 2;
         const startY = localY + padding + (contentHeight - lines.length * lineHeight) / 2 + lineHeight / 2;
-        lines.forEach((line, index) => context.fillText(line, textX, startY + index * lineHeight));
+        lines.forEach((line, index) => fillTextWithLayout(context, line, textX, startY + index * lineHeight, style, size));
       }
       if (style.underline === true || ['underline', '下線'].includes(boxStyle)) {
         context.beginPath();

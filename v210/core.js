@@ -2,8 +2,10 @@
   'use strict'
 
   const K = window.KozuV210 = window.KozuV210 || {}
-  const APP_VERSION = '2.1.0-alpha.8'
-  const SCHEMA_VERSION = 6
+  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.10'
+  const desktopVersion = typeof window.kozuDesktop?.version === 'string' ? window.kozuDesktop.version.trim() : ''
+  const APP_VERSION = desktopVersion || WEB_APP_VERSION_FALLBACK
+  const SCHEMA_VERSION = 7
   const TSUBO_M2 = 3.3057851239669422
   const EPS = 1e-7
   const HISTORY_LIMIT = 120
@@ -501,7 +503,13 @@
   }
 
   function createCalibration(source = {}) {
+    const hasTwoPoint = Array.isArray(source.points) && source.points.length === 2 && source.points.every(isPoint) && Number(source.realDistanceM) > 0
+    const hasScaleValue = Number(source.mapScale) > 0
+    const method = source.method === 'two-point' || source.method === 'scale'
+      ? source.method
+      : hasTwoPoint ? 'two-point' : hasScaleValue ? 'scale' : null
     return {
+      method,
       mpp: Number.isFinite(Number(source.mpp)) && Number(source.mpp) > 0 ? Number(source.mpp) : null,
       mapScale: Number.isFinite(Number(source.mapScale)) && Number(source.mapScale) > 0 ? Number(source.mapScale) : null,
       points: Array.isArray(source.points) && source.points.length === 2 && source.points.every(isPoint) ? source.points.map(point) : null,
@@ -549,8 +557,18 @@
       preferences: {
         typography: clone(DEFAULTS.typography),
         lot: { style: clone(DEFAULTS.lotStyle), labelStyle: clone(DEFAULTS.labelStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle) },
-        road: { style: clone(DEFAULTS.roadStyle), labelStyle: clone(DEFAULTS.labelStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle), type: '道路', name: '道路', widthM: 4, vertical: false },
-        water: { style: clone(DEFAULTS.waterStyle), labelStyle: clone(DEFAULTS.labelStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle), type: '水路', name: '水路', widthM: null, vertical: false },
+        road: {
+          style: clone(DEFAULTS.roadStyle), labelStyle: clone(DEFAULTS.labelStyle),
+          widthLabelStyle: clone(DEFAULTS.dimensionStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle),
+          type: '道路', name: '道路', widthM: 4, vertical: false,
+          showArea: false, showTsubo: false, showLengths: false
+        },
+        water: {
+          style: clone(DEFAULTS.waterStyle), labelStyle: clone(DEFAULTS.labelStyle),
+          widthLabelStyle: clone(DEFAULTS.dimensionStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle),
+          type: '水路', name: '水路', widthM: null, vertical: false,
+          showArea: false, showTsubo: false, showLengths: false
+        },
         text: clone(DEFAULTS.textStyle), line: clone(DEFAULTS.lineStyle), measurement: { dimensionStyle: clone(DEFAULTS.dimensionStyle) }, snap: clone(DEFAULTS.snap),
         stamp: {
           house: { widthM: 10, heightM: 8, label: '家屋', showDimensions: true, scale: 1 },
@@ -601,7 +619,10 @@
     if (!text) return 'gothic'
     if (['gothic', 'sans', 'sans-serif'].includes(text) || /gothic|ゴシック|meiryo|メイリオ/.test(text)) return 'gothic'
     if (['mincho', 'serif'].includes(text) || /mincho|明朝/.test(text)) return 'mincho'
-    if (['mono', 'monospace'].includes(text) || /consolas|courier|等幅|mono/.test(text)) return 'mono'
+    // v2.1 の「均等」はフォント名ではなく、ゴシック体の各文字を
+    // 同じ送り幅で配置する文字レイアウトである。旧版の mono/等幅も
+    // 同じ見た目へ移行し、select が未選択になる状態を防ぐ。
+    if (['even', 'justify', 'mono', 'monospace'].includes(text) || /均等|consolas|courier|等幅|mono/.test(text)) return 'even'
     return 'gothic'
   }
   function normalizeStyle(style, fallback) {
@@ -739,6 +760,210 @@
       return { ...metadata, id, from: point(p), to: point(q) }
     })
   }
+  const CONVERTIBLE_SHAPE_KINDS = Object.freeze(['lot', 'road', 'water'])
+  const KIND_STATE_EXCLUDED_KEYS = new Set([
+    'id', 'kind', 'points', 'edges', 'kindStates',
+    'parentShapeId', 'parentOriginalPoints', 'parentOriginalEdges'
+  ])
+  function normalizeKindStateEdge(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const edge = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === 'id') continue
+      if (key === 'from' || key === 'to') {
+        if (isPoint(value)) edge[key] = point(value)
+        continue
+      }
+      edge[key] = clone(value)
+    }
+    return edge
+  }
+  function normalizeKindState(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const state = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (KIND_STATE_EXCLUDED_KEYS.has(key)) continue
+      state[key] = clone(value)
+    }
+    state.edges = (Array.isArray(raw.edges) ? raw.edges : []).map(normalizeKindStateEdge).filter(Boolean)
+    return state
+  }
+  function normalizeKindStates(raw) {
+    const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+    return Object.fromEntries(CONVERTIBLE_SHAPE_KINDS.map(kind => [kind, normalizeKindState(source[kind])]))
+  }
+  function captureShapeKindState(shape) {
+    const state = {}
+    for (const [key, value] of Object.entries(shape || {})) {
+      if (KIND_STATE_EXCLUDED_KEYS.has(key)) continue
+      state[key] = clone(value)
+    }
+    state.edges = (Array.isArray(shape?.edges) ? shape.edges : []).map(normalizeKindStateEdge).filter(Boolean)
+    return state
+  }
+  function kindConversionEdges(document, source, targetState) {
+    const polygon = cleanPoints(source?.points)
+    const current = edgeMetadata(document, polygon, source?.edges)
+    const stored = Array.isArray(targetState?.edges) ? targetState.edges : []
+    const matches = stored.length ? edgeMetadataMatches(stored, polygon) : []
+    return polygon.map((from, index, all) => {
+      const to = all[(index + 1) % all.length]
+      const metadata = matches[index] ? normalizeKindStateEdge(matches[index]) : {
+        hidden: false,
+        customText: null,
+        labelOffset: { x: 0, y: 0 },
+        rotationOffset: 0,
+        style: null
+      }
+      return {
+        ...metadata,
+        id: current[index].id,
+        from: point(from),
+        to: point(to)
+      }
+    })
+  }
+  function identifierKey(value) {
+    return `${typeof value}:${String(value)}`
+  }
+  function documentIdentifierCounts(document) {
+    const counts = new Map()
+    const add = value => {
+      if (!(typeof value === 'string' && value) && !(typeof value === 'number' && Number.isSafeInteger(value))) return
+      const key = identifierKey(value)
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+    for (const pageValue of Array.isArray(document?.pages) ? document.pages : []) {
+      add(pageValue?.id)
+      for (const shape of Array.isArray(pageValue?.shapes) ? pageValue.shapes : []) {
+        add(shape?.id)
+        for (const edge of Array.isArray(shape?.edges) ? shape.edges : []) add(edge?.id)
+      }
+      for (const entity of Array.isArray(pageValue?.entities) ? pageValue.entities : []) {
+        add(entity?.id)
+        for (const segment of Array.isArray(entity?.segments) ? entity.segments : []) add(segment?.id)
+      }
+    }
+    return counts
+  }
+  function splitSourceEdges(shape) {
+    const polygon = cleanPoints(shape?.points)
+    const existing = Array.isArray(shape?.edges) ? shape.edges : []
+    const matches = edgeMetadataMatches(existing, polygon)
+    return polygon.map((from, index, all) => ({
+      ...(matches[index] ? clone(matches[index]) : {}),
+      from: point(from),
+      to: point(all[(index + 1) % all.length])
+    }))
+  }
+  function splitSourceEdgeMatch(sourceEdges, from, to, tolerance) {
+    const edgeLength = distance(from, to)
+    if (edgeLength <= tolerance) return null
+    let best = null
+    sourceEdges.forEach((source, sourceIndex) => {
+      const overlap = edgeCollinearOverlap(source, from, to, tolerance)
+      const sourceLength = distance(source.from, source.to)
+      const allowance = tolerance * Math.max(1, edgeLength, sourceLength)
+      // A split boundary edge must be wholly contained in an original outer
+      // edge. Interior cut edges may touch the outline at an endpoint, but do
+      // not have full collinear overlap and therefore never inherit metadata.
+      if (overlap <= tolerance || overlap + allowance < edgeLength) return
+      const candidate = { sourceIndex, overlap, edgeLength }
+      if (!best || candidate.overlap > best.overlap + tolerance ||
+        (Math.abs(candidate.overlap - best.overlap) <= tolerance && candidate.sourceIndex < best.sourceIndex)) best = candidate
+    })
+    return best
+  }
+  function assignSplitEdgeMetadata(document, original, children, claimedIdentifiers = new Set(), options = {}) {
+    const tolerance = Math.max(EPS * 10, finite(options.tolerance, 1e-4))
+    const counts = documentIdentifierCounts(document)
+    for (const edge of Array.isArray(original?.edges) ? original.edges : []) {
+      const key = identifierKey(edge?.id)
+      const count = counts.get(key) || 0
+      if (count <= 1) counts.delete(key)
+      else counts.set(key, count - 1)
+    }
+    const used = new Set([...counts.keys(), ...claimedIdentifiers])
+    for (const child of children) {
+      if (child?.id != null) {
+        const key = identifierKey(child.id)
+        used.add(key)
+        claimedIdentifiers.add(key)
+      }
+    }
+
+    const sourceEdges = splitSourceEdges(original)
+    const sourceIdentifierKeys = new Set(sourceEdges
+      .filter(edge => typeof edge.id === 'string' && edge.id)
+      .map(edge => identifierKey(edge.id)))
+    const descriptors = []
+    children.forEach((child, childIndex) => {
+      const polygon = cleanPoints(child?.points)
+      polygon.forEach((from, edgeIndex, all) => {
+        const to = all[(edgeIndex + 1) % all.length]
+        descriptors.push({
+          childIndex,
+          edgeIndex,
+          from: point(from),
+          to: point(to),
+          freshId: child?.edges?.[edgeIndex]?.id,
+          match: splitSourceEdgeMatch(sourceEdges, from, to, tolerance)
+        })
+      })
+    })
+
+    // When an original outer edge is divided between both children, preserve
+    // its stable id on the longest fragment. Other matching fragments retain
+    // the same visual/text metadata but receive fresh ids.
+    const keepers = new Map()
+    for (const descriptor of descriptors) {
+      if (!descriptor.match) continue
+      const current = keepers.get(descriptor.match.sourceIndex)
+      if (!current || descriptor.match.overlap > current.match.overlap + tolerance ||
+        (Math.abs(descriptor.match.overlap - current.match.overlap) <= tolerance &&
+          (descriptor.childIndex < current.childIndex ||
+            (descriptor.childIndex === current.childIndex && descriptor.edgeIndex < current.edgeIndex)))) {
+        keepers.set(descriptor.match.sourceIndex, descriptor)
+      }
+    }
+
+    const claimFreshEdgeId = preferred => {
+      let id = typeof preferred === 'string' && preferred ? preferred : null
+      while (!id || used.has(identifierKey(id)) || sourceIdentifierKeys.has(identifierKey(id))) id = allocId(document, 'edge')
+      const key = identifierKey(id)
+      used.add(key)
+      claimedIdentifiers.add(key)
+      return id
+    }
+    const output = children.map(() => [])
+    for (const descriptor of descriptors) {
+      const source = descriptor.match ? sourceEdges[descriptor.match.sourceIndex] : null
+      const stableId = source && keepers.get(descriptor.match.sourceIndex) === descriptor && typeof source.id === 'string' && source.id
+        ? source.id
+        : null
+      let id = stableId && !used.has(identifierKey(stableId)) ? stableId : null
+      if (id) {
+        const key = identifierKey(id)
+        used.add(key)
+        claimedIdentifiers.add(key)
+      } else id = claimFreshEdgeId(descriptor.freshId)
+      const metadata = source ? clone(source) : {
+        hidden: false,
+        customText: null,
+        labelOffset: { x: 0, y: 0 },
+        rotationOffset: 0,
+        style: null
+      }
+      output[descriptor.childIndex][descriptor.edgeIndex] = {
+        ...metadata,
+        id,
+        from: descriptor.from,
+        to: descriptor.to
+      }
+    }
+    children.forEach((child, index) => { child.edges = output[index] })
+    return children
+  }
   function segmentMetadata(document, points, closed = false, existing = [], options = {}) {
     const vertices = cleanPoints(points)
     const old = Array.isArray(existing) ? existing : []
@@ -799,7 +1024,13 @@
     if (Array.isArray(attributes.parentOriginalPoints)) shape.parentOriginalPoints = cleanPoints(attributes.parentOriginalPoints)
     if (Array.isArray(attributes.parentOriginalEdges)) shape.parentOriginalEdges = clone(attributes.parentOriginalEdges)
     if (kind === 'lot') {
-      shape.number = Number.isFinite(Number(attributes.number)) ? Number(attributes.number) : document.pages.flatMap(p => p.shapes).filter(s => s.kind === 'lot').length + 1
+      const hasNumber = Object.prototype.hasOwnProperty.call(attributes, 'number')
+      const blankNumber = attributes.number === null || attributes.number === undefined || attributes.number === ''
+      shape.number = hasNumber && blankNumber
+        ? null
+        : Number.isFinite(Number(attributes.number))
+          ? Number(attributes.number)
+          : document.pages.flatMap(p => p.shapes).filter(s => s.kind === 'lot').length + 1
       shape.label = String(attributes.label || '')
       const normalizedLabel = shape.label.replace(/[\s　]+/g, '')
       const generatedNumberLabel = shape.number != null && normalizedLabel === `区画${shape.number}`
@@ -905,6 +1136,10 @@
       shape.label = String(attributes.label || '隅切り')
     }
     shape.edges = edgeMetadata(document, polygon, attributes.edges, { freshIds: options.freshEdgeIds === true })
+    if (CONVERTIBLE_SHAPE_KINDS.includes(kind)) {
+      shape.kindStates = normalizeKindStates(attributes.kindStates)
+      shape.kindStates[kind] = captureShapeKindState(shape)
+    }
     return shape
   }
   function createEntity(document, kind, attributes = {}, options = {}) {
@@ -1037,7 +1272,7 @@
       if (p.text) fresh.preferences.text = normalizeStyle(p.text, DEFAULTS.textStyle)
       if (p.line) fresh.preferences.line = normalizeStyle(p.line, DEFAULTS.lineStyle)
       if (p.measurement?.dimensionStyle) fresh.preferences.measurement.dimensionStyle = normalizeStyle(p.measurement.dimensionStyle, DEFAULTS.dimensionStyle)
-      if (p.snap) fresh.preferences.snap = { ...fresh.preferences.snap, ...clone(p.snap) }
+      if (p.snap) fresh.preferences.snap = { ...fresh.preferences.snap, ...clone(p.snap), grid: false }
       if (p.stamp) fresh.preferences.stamp = { ...fresh.preferences.stamp, ...clone(p.stamp) }
     }
     fresh.pages = []
@@ -1212,7 +1447,7 @@
       number: original.kind === 'lot' ? original.number : undefined,
       price: original.kind === 'lot' && options.copyPrice === true ? original.price : null,
       memo: original.memo
-    })
+    }, { freshEdgeIds: true })
     resetShapeLabelLayout(first)
     first.id = original.id
     const second = createShape(document, original.kind, secondPoints, {
@@ -1220,8 +1455,9 @@
       number: original.kind === 'lot' ? nextLotNumber(document) : undefined,
       price: original.kind === 'lot' && options.copyPrice === true ? original.price : null,
       memo: original.memo
-    })
+    }, { freshEdgeIds: true })
     resetShapeLabelLayout(second)
+    assignSplitEdgeMetadata(document, original, [first, second], new Set(), options)
     const index = found.collection.indexOf(original)
     found.collection.splice(index, 1, first, second)
     return [first, second]
@@ -1231,12 +1467,14 @@
     const candidates = pageValue.shapes.filter(shape => shape.kind === 'lot').map(shape => ({ shape, split: splitPolygonByLine(shape.points, a, b) })).filter(value => value.split)
     if (!candidates.length) return []
     const replacements = []
+    const claimedIdentifiers = new Set()
     for (const { shape, split } of candidates) {
-      const first = createShape(document, 'lot', split[0], { ...shape, number: shape.number, price: options.copyPrice === true ? shape.price : null })
+      const first = createShape(document, 'lot', split[0], { ...shape, number: shape.number, price: options.copyPrice === true ? shape.price : null }, { freshEdgeIds: true })
       resetShapeLabelLayout(first)
       first.id = shape.id
-      const second = createShape(document, 'lot', split[1], { ...shape, number: pageValue.shapes.filter(s => s.kind === 'lot').length + replacements.length + 1, price: options.copyPrice === true ? shape.price : null })
+      const second = createShape(document, 'lot', split[1], { ...shape, number: pageValue.shapes.filter(s => s.kind === 'lot').length + replacements.length + 1, price: options.copyPrice === true ? shape.price : null }, { freshEdgeIds: true })
       resetShapeLabelLayout(second)
+      assignSplitEdgeMetadata(document, shape, [first, second], claimedIdentifiers, options)
       replacements.push({ shape, first, second })
     }
     for (const replacement of replacements) {
@@ -1256,7 +1494,7 @@
       number: original.kind === 'lot' ? original.number : undefined,
       price,
       memo: original.memo
-    })
+    }, { freshEdgeIds: true })
     resetShapeLabelLayout(first)
     first.id = original.id
     const second = createShape(document, original.kind, polygons[1], {
@@ -1264,8 +1502,9 @@
       number: original.kind === 'lot' ? nextLotNumber(document) : undefined,
       price,
       memo: original.memo
-    })
+    }, { freshEdgeIds: true })
     resetShapeLabelLayout(second)
+    assignSplitEdgeMetadata(document, original, [first, second], new Set(), options)
     const index = found.collection.indexOf(original)
     if (index < 0) return null
     found.collection.splice(index, 1, first, second)
@@ -1321,21 +1560,28 @@
     return replacements.flat()
   }
   function convertShapeKind(document, id, targetKind) {
-    if (!['lot', 'road', 'water'].includes(targetKind)) return null
+    if (!CONVERTIBLE_SHAPE_KINDS.includes(targetKind)) return null
     const found = objectById(document, id)
-    if (!found || found.type !== 'shape' || !['lot', 'road', 'water'].includes(found.object.kind)) return null
+    if (!found || found.type !== 'shape' || !CONVERTIBLE_SHAPE_KINDS.includes(found.object.kind)) return null
     const source = found.object
     if (source.kind === targetKind) return source
     const preference = document.preferences?.[targetKind] || {}
+    const kindStates = normalizeKindStates(source.kindStates)
+    kindStates[source.kind] = captureShapeKindState(source)
+    const targetState = kindStates[targetKind]
     const common = {
       memo: source.memo,
       visible: source.visible,
-      labelStyle: source.labelStyle,
-      dimensionStyle: source.dimensionStyle,
+      // 初めて別種類へ切り替える時は、変更先の標準書式を使う。
+      // 以前その種類だった図形は targetState が後段で上書きし、当時の
+      // 書式・位置・番号等を正確に復元する。
+      labelStyle: preference.labelStyle,
+      dimensionStyle: preference.dimensionStyle,
       style: preference.style,
-      labelPosition: null
+      labelPosition: null,
+      kindStates
     }
-    const attributes = targetKind === 'lot'
+    const defaults = targetKind === 'lot'
       ? {
           ...common,
           number: nextLotNumber(document), label: '', topLabel: '', price: null,
@@ -1358,13 +1604,17 @@
           },
           visibility: { label: true, number: false, topLabel: false, area: false, tsubo: false, price: false, memo: true, dimensions: false, width: true, approximate: false }
         }
+    const attributes = {
+      ...defaults,
+      ...(targetState ? clone(targetState) : {}),
+      kindStates,
+      edges: kindConversionEdges(document, source, targetState)
+    }
     const converted = createShape(document, targetKind, source.points, attributes)
     converted.id = source.id
-    resetShapeLabelLayout(converted)
     const index = found.collection.indexOf(source)
     if (index < 0) return null
     found.collection.splice(index, 1, converted)
-    if (source.kind === 'lot' || targetKind === 'lot') renumberLots(document)
     return converted
   }
   function mergeLotShapes(document, firstId, secondId, options = {}) {
@@ -1641,28 +1891,45 @@
     return unionBounds(bounds)
   }
 
+  function documentContentFingerprint(document) {
+    if (!document || typeof document !== 'object') return JSON.stringify(document)
+    // updatedAt records when a change was made, not what was saved. Excluding
+    // only the root timestamp lets Undo/Redo recognize an exact saved content
+    // state even when that state was reached at a different time.
+    const { updatedAt: _updatedAt, ...content } = document
+    return JSON.stringify(content)
+  }
+
   class DocumentStore {
     constructor(document = createDocument()) {
       this.document = normalizeDocument(document)
       this.undoStack = []
       this.redoStack = []
       this.listeners = new Set()
+      this.savedFingerprint = documentContentFingerprint(this.document)
       this.dirty = false
     }
     subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) }
     emit(event) { this.listeners.forEach(listener => listener({ ...event, document: this.document, dirty: this.dirty })) }
+    refreshDirty() {
+      this.dirty = this.savedFingerprint == null || documentContentFingerprint(this.document) !== this.savedFingerprint
+      return this.dirty
+    }
     commit(label, mutator) {
       const before = clone(this.document)
       const draft = clone(this.document)
       const result = mutator(draft)
       const after = normalizeDocument(draft)
-      if (JSON.stringify(before) === JSON.stringify(after)) return result
+      if (documentContentFingerprint(before) === documentContentFingerprint(after)) {
+        this.refreshDirty()
+        return result
+      }
       this.undoStack.push({ label: String(label || '変更'), document: before })
       if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift()
       this.redoStack = []
       this.document = after
       this.document.updatedAt = nowIso()
-      this.dirty = true
+      this.refreshDirty()
       this.emit({ type: 'commit', label, result })
       return result
     }
@@ -1670,7 +1937,9 @@
       this.document = normalizeDocument(document)
       this.undoStack = []
       this.redoStack = []
-      this.dirty = options.clean === false
+      const clean = options.clean !== false
+      this.savedFingerprint = clean ? documentContentFingerprint(this.document) : null
+      this.dirty = !clean
       this.emit({ type: 'replace' })
       return this.document
     }
@@ -1679,7 +1948,7 @@
       if (!entry) return false
       this.redoStack.push({ label: entry.label, document: clone(this.document) })
       this.document = normalizeDocument(entry.document)
-      this.dirty = true
+      this.refreshDirty()
       this.emit({ type: 'undo', label: entry.label })
       return true
     }
@@ -1688,11 +1957,15 @@
       if (!entry) return false
       this.undoStack.push({ label: entry.label, document: clone(this.document) })
       this.document = normalizeDocument(entry.document)
-      this.dirty = true
+      this.refreshDirty()
       this.emit({ type: 'redo', label: entry.label })
       return true
     }
-    markSaved() { this.dirty = false; this.emit({ type: 'saved' }) }
+    markSaved() {
+      this.savedFingerprint = documentContentFingerprint(this.document)
+      this.dirty = false
+      this.emit({ type: 'saved' })
+    }
     clearHistory() { this.undoStack = []; this.redoStack = []; this.emit({ type: 'history-clear' }) }
     get canUndo() { return this.undoStack.length > 0 }
     get canRedo() { return this.redoStack.length > 0 }
@@ -1742,4 +2015,9 @@
     metersFromPixels, squareMetersFromPixels, squareMetersToTsubo, applyRounding, formatMeasurement,
     shapeMetrics, entityMetrics, registrySummary, documentBounds, DocumentStore, CommandSession
   })
+
+  if (window.document) {
+    window.document.title = `土地区画作成工房 v${APP_VERSION}`
+    window.document.querySelectorAll?.('[data-app-version]').forEach(node => { node.textContent = `v${APP_VERSION}` })
+  }
 })()

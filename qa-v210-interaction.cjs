@@ -15,9 +15,11 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { spawnSync } = require('child_process')
+const packageJson = require('./package.json')
 
 const root = __dirname
 const reportPath = path.join(root, 'qa-v210-interaction-report.json')
+let activeCaseName = 'startup'
 
 if (!process.versions.electron) {
   const electronBinary = require('electron')
@@ -75,7 +77,7 @@ async function runElectronSuite() {
 
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level >= 2 && !/Autofill|DevTools|Electron Security Warning/i.test(message)) {
-      consoleErrors.push({ level, message, line, sourceId })
+      consoleErrors.push({ caseName: activeCaseName, level, message, line, sourceId })
     }
   })
   win.webContents.on('render-process-gone', (_event, details) => {
@@ -114,24 +116,30 @@ async function runElectronSuite() {
       await mouseClick(win, center(statusScaleRect))
       await wait(win, 100)
       const opened = await readScaleState(win)
-      const typedValue = await replaceTextInput(win, '[data-field="manual-scale"]', '500')
       const applyRect = await visibleRect(win, '[data-action="apply-manual-scale"]')
-      if (!applyRect) throw new Error('manual scale apply button was not visible')
-      await mouseClick(win, center(applyRect))
+      const typedEnterValue = await replaceTextInput(win, '[data-field="manual-scale"]', '500')
+      await pressKey(win, 'ENTER')
       await wait(win, 140)
-      const after = await readScaleState(win)
+      const afterEnter = await readScaleState(win)
+      const typedTabValue = await replaceTextInput(win, '[data-field="manual-scale"]', '600')
+      await pressKey(win, 'TAB')
+      await wait(win, 140)
+      const afterTab = await readScaleState(win)
       add('scale-unset-guidance-clears-after-manual-scale-setting',
         before.statusVisible && /縮尺\s*未設定/.test(before.statusText) && before.unsetGuidance.length >= 1 &&
-        opened.command === 'calibrate' && typedValue === '500' &&
-        after.mpp > 0 && Math.abs(after.mapScale - 500) < 1e-6 &&
-        /縮尺\s*1\s*:\s*500/.test(after.statusText) && !/未設定/.test(after.statusText) &&
-        after.unsetGuidance.length === 0,
-        { before, opened, typedValue, after })
+        opened.command === 'calibrate' && !applyRect && typedEnterValue === '500' &&
+        afterEnter.mpp > 0 && Math.abs(afterEnter.mapScale - 500) < 1e-6 &&
+        /縮尺\s*1\s*:\s*500/.test(afterEnter.statusText) && !/未設定/.test(afterEnter.statusText) &&
+        afterEnter.unsetGuidance.length === 0 && typedTabValue === '600' &&
+        afterTab.mpp > 0 && Math.abs(afterTab.mapScale - 600) < 1e-6 &&
+        /縮尺\s*1\s*:\s*600/.test(afterTab.statusText) && afterTab.unsetGuidance.length === 0,
+        { before, opened, hasLegacyApplyButton: Boolean(applyRect), typedEnterValue, afterEnter, typedTabValue, afterTab })
     })
 
     await runCase(win, 'lot-fill-named-select-applies-to-create-and-edit', async () => {
       const checkName = 'lot-fill-named-select-applies-to-create-and-edit'
       await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
+      await openCreatePage(win, 'create-appearance')
       const createChoice = await changeNamedColorSelect(win, '塗り')
       if (!createChoice.found || !createChoice.changed) {
         add(checkName, false, { stage: 'create-color-select', createChoice })
@@ -183,7 +191,39 @@ async function runElectronSuite() {
         { createChoice, createdLot, editChoice, editedLot, created, edited })
     })
 
-    await runCase(win, 'blank-canvas-click-keeps-selection-until-explicit-clear', async () => {
+    await runCase(win, 'road-fill-named-select-applies-after-appearance-tab', async () => {
+      const checkName = 'road-fill-named-select-applies-after-appearance-tab'
+      await activateByShortcut(win, 'R', 'road-draw', 'road')
+      const openedPage = await openCreatePage(win, 'create-appearance')
+      const createChoice = await changeNamedColorSelect(win, '塗り')
+      if (!createChoice.found || !createChoice.changed) {
+        add(checkName, false, { stage: 'create-color-select', openedPage, createChoice })
+        return
+      }
+      const points = await canvasTestPoints(win)
+      for (const point of points) await mouseClick(win, point)
+      await pressKey(win, 'ENTER')
+      await wait(win, 140)
+      const state = await readState(win)
+      const road = state.shapes.find(shape => shape.kind === 'road')
+      const normalize = value => String(value || '').trim().toLowerCase()
+      add(checkName,
+        openedPage === 'create-appearance' && createChoice.tagName === 'SELECT' &&
+        createChoice.namedOptions && createChoice.changeEvents >= 1 &&
+        Boolean(road) && normalize(road?.style?.fill) === normalize(createChoice.value),
+        { openedPage, createChoice, road, state })
+    })
+
+    await runCase(win, 'deprecated-confirm-and-apply-buttons-are-absent', async () => {
+      await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
+      const deprecated = await win.webContents.executeJavaScript(`(()=>{
+        const actions=['apply-manual-scale','save-edit','cancel-edit','finish-command','apply-edit','confirm-command','save-attributes'];
+        return actions.map(action=>({action,count:document.querySelectorAll('[data-action="'+action+'"]').length})).filter(item=>item.count>0);
+      })()`, true)
+      add('deprecated-confirm-and-apply-buttons-are-absent', deprecated.length === 0, { deprecated })
+    })
+
+    await runCase(win, 'blank-canvas-click-clears-selection-without-history', async () => {
       await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
       const points = await canvasTestPoints(win)
       for (const point of points) await mouseClick(win, point)
@@ -193,18 +233,18 @@ async function runElectronSuite() {
       const centerPoint = { x: Math.round((points[0].x + points[2].x) / 2), y: Math.round((points[0].y + points[2].y) / 2) }
       await mouseClick(win, centerPoint)
       const selected = await readSelectionState(win)
+      const historyBeforeBlank = await readState(win)
       const canvas = await visibleRect(win, '#drawing-canvas')
       if (!canvas) throw new Error('drawing canvas was not visible')
       await mouseClick(win, { x: Math.round(canvas.x + canvas.width - 14), y: Math.round(canvas.y + canvas.height - 14) })
       await wait(win, 90)
       const afterBlank = await readSelectionState(win)
+      const historyAfterBlank = await readState(win)
       const clearRect = await visibleRect(win, '[data-action="clear-selection"]')
-      if (clearRect) await mouseClick(win, center(clearRect))
-      await wait(win, 80)
-      const afterClear = await readSelectionState(win)
-      add('blank-canvas-click-keeps-selection-until-explicit-clear',
-        selected.ids.length === 1 && sameJson(afterBlank.ids, selected.ids) && Boolean(clearRect) && afterClear.ids.length === 0 && /Esc|選択/.test(afterBlank.status),
-        { selected, afterBlank, clearButton: Boolean(clearRect), afterClear })
+      add('blank-canvas-click-clears-selection-without-history',
+        selected.ids.length === 1 && afterBlank.ids.length === 0 && !clearRect &&
+        /選択を解除/.test(afterBlank.status) && historyAfterBlank.undoDepth === historyBeforeBlank.undoDepth,
+        { selected, historyBeforeBlank, afterBlank, historyAfterBlank, clearButton: Boolean(clearRect) })
     })
 
     await runCase(win, 'manual-area-change-auto-saves-linked-tsubo-warning-without-color-change', async () => {
@@ -391,6 +431,7 @@ async function runElectronSuite() {
       { shortcut: 'O', command: 'callout', dataCommand: 'callout', kind: 'callout' }
     ]
     for (const item of twoPointCases) {
+      activeCaseName = `${item.kind}-two-click-auto-finish`
       await reloadForCase(win)
       try {
         if (item.command === 'distance') {
@@ -477,7 +518,7 @@ async function runElectronSuite() {
     const skipped = checks.filter(check => check.skipped)
     const report = {
       generatedAt: new Date().toISOString(),
-      target: { version: '2.1.0-alpha.9', entry: 'index-v210.html', mode: 'real-dom-input' },
+      target: { version: packageJson.version, entry: 'index-v210.html', mode: 'real-dom-input' },
       fixture: { pdf: path.basename(pdfPath), onDisk: true },
       summary: {
         pass: failed.length === 0,
@@ -502,6 +543,7 @@ async function runElectronSuite() {
 }
 
 async function runCase(win, name, callback) {
+  activeCaseName = name
   await reloadForCase(win)
   try {
     await callback()
@@ -606,6 +648,30 @@ async function chooseSelectOptionWithKeyboard(win, selector, wantedValue) {
   await pressKey(win, 'ENTER')
   await wait(win, 80)
   return win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)})?.value ?? null`, true)
+}
+
+async function openCreatePage(win, pageName) {
+  const selector = `[data-create-command-page="${cssEscape(pageName)}"]`
+  // A human pauses while moving from a field to the fixed tab. Let any pending
+  // input/change transaction settle before the real mouse click so the test
+  // does not create two simultaneous command-surface renders.
+  await win.webContents.executeJavaScript('document.activeElement?.blur?.()', true)
+  await wait(win, 120)
+  const rect = await visibleRect(win, selector)
+  if (!rect) throw new Error(`create command page was not visible: ${pageName}`)
+  await mouseClick(win, center(rect))
+  await wait(win, 100)
+  const state = await win.webContents.executeJavaScript(`(()=>{
+    const button=document.querySelector(${JSON.stringify(selector)});
+    const visible=node=>{if(!node)return false;const style=getComputedStyle(node),rect=node.getBoundingClientRect();return !node.hidden&&style.display!=='none'&&style.visibility!=='hidden'&&rect.width>0&&rect.height>0};
+    const visibleFields=[...document.querySelectorAll('#command-controls [data-create-page]')]
+      .filter(node=>visible(node)||[...node.querySelectorAll('*')].some(visible)).map(node=>node.dataset.createPage);
+    return{active:button?.classList.contains('active')?button.dataset.createCommandPage:null,visibleFields};
+  })()`, true)
+  if (state.active !== pageName || !state.visibleFields.includes(pageName)) {
+    throw new Error(`create command page did not activate: ${pageName}; state=${JSON.stringify(state)}`)
+  }
+  return state.active
 }
 
 async function readDimensionEditorState(win) {

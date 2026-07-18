@@ -23,12 +23,15 @@
   const TWO_POINT_AUTO_FINISH_COMMANDS = new Set(['distance', 'arrow', 'callout'])
   const AUTO_COMPLETE_COMMANDS = new Set(['distance', 'arrow', 'callout', 'text', 'north', 'house', 'parking', 'lot-table', 'merge', 'division-guide'])
   const SCALE_REQUIRED_COMMANDS = new Set(['lot-draw', 'road-draw', 'distance', 'polyline', 'area', 'corner-cut', 'parallel-guide', 'house', 'parking'])
+  const SELECTION_TARGET_COMMANDS = new Set(['move', 'copy', 'vertex-edit', 'split', 'merge', 'corner-cut', 'lot-division-guide'])
   const DRAWING_SCALE_PRESETS = new Set([5, 10, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 1000])
   const CENTERABLE_LABEL_KINDS = new Set(['lot', 'road', 'water', 'cutout', 'distance', 'polyline', 'area', 'dimension', 'arrow', 'callout'])
   const OBJECT_EDITOR_ROUTES = Object.freeze({
-    lot: Object.freeze([['object-basic', '基本'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-record', '台帳']]),
-    road: Object.freeze([['object-basic', '道路情報'], ['object-special', '道路名・幅員'], ['object-dimension', '辺寸法'], ['object-values', '面積・坪'], ['object-appearance', '表示'], ['object-text', '文字']]),
-    water: Object.freeze([['object-basic', '水路情報'], ['object-special', '水路名・水路幅'], ['object-dimension', '辺寸法'], ['object-values', '面積・坪'], ['object-appearance', '表示'], ['object-text', '文字']]),
+    // 区画・道路・水路は同じ並びに固定する。種類ごとの専用ページを挟むと、
+    // 同じ設定が別の場所へ移動して見えるため、基本→表示→文字→数値→辺→台帳に統一。
+    lot: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法'], ['object-record', '台帳']]),
+    road: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法']]),
+    water: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法']]),
     cutout: Object.freeze([['object-basic', '隅切り情報'], ['object-special', '元へ戻す'], ['object-dimension', '寸法'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-record', '台帳']]),
     distance: Object.freeze([['object-basic', '値・表示'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
     polyline: Object.freeze([['object-basic', '合計・区間'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
@@ -38,12 +41,19 @@
     arrow: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '線・矢印']]),
     text: Object.freeze([['object-basic', '内容'], ['object-text', '文字・配置']]),
     callout: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '引出線']]),
-    north: Object.freeze([['object-special', '配置・表示'], ['object-text', '文字']]),
-    house: Object.freeze([['object-basic', '内容'], ['object-special', '家屋'], ['object-text', '文字'], ['object-dimension', '寸法']]),
-    parking: Object.freeze([['object-basic', '内容'], ['object-special', '駐車'], ['object-text', '文字'], ['object-dimension', '寸法']]),
+    north: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・配置']]),
+    house: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・寸法']]),
+    parking: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・寸法']]),
     'lot-table': Object.freeze([['object-special', '面積表'], ['object-text', '文字']]),
     guide: Object.freeze([['object-special', '均等ガイド']]),
     parallel: Object.freeze([['object-special', '平行線']])
+  })
+  const CREATE_COMMAND_ROUTES = Object.freeze({
+    'lot-draw': Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字'], ['create-dimension', '辺寸法']]),
+    'road-draw': Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字'], ['create-dimension', '辺寸法']]),
+    north: Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字']]),
+    house: Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字']]),
+    parking: Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字']])
   })
   const COLOR_OPTIONS = Object.freeze({
     ink: [['#172033', '濃紺'], ['#0f172a', '黒'], ['#334155', '灰'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
@@ -127,7 +137,7 @@
     parking: { category: 'note', name: '駐車', icon: 'i-parking', template: 'controls-stamp', hint: '幅・奥行・角度を確認して配置' },
     'lot-table': { category: 'note', name: '面積表', icon: 'i-table', template: 'controls-place-table', hint: '配置前プレビューを確認して位置を指定' },
     'display-settings': { category: 'select', name: '表示設定', icon: 'i-display', template: 'controls-display-settings', hint: '図面全体の表示・吸着を設定' },
-    'typography-settings': { category: 'select', name: '文字サイズ設定', icon: 'i-text', template: 'controls-typography-settings', hint: '新規の標準値と既存図形への一括反映を分けて設定' }
+    'typography-settings': { category: 'select', name: '文字サイズ設定', icon: 'i-text', template: 'controls-typography-settings', hint: '反映先を選び、入力終了時に自動保存' }
   })
 
   const UI_COMMAND_ALIASES = Object.freeze({
@@ -176,7 +186,6 @@
     replaceInput: byId('underlay-replace-input'),
     projectInput: byId('project-input'),
     closeBar: byId('close-bar'),
-    scaleRequiredDialog: byId('scale-required-dialog'),
     registryRows: byId('registry-rows'),
     registrySummary: byId('registry-summary'),
     registryAreaSummary: byId('registry-area-summary'),
@@ -194,27 +203,32 @@
     category: 'underlay',
     launcher: false,
     contextPage: '',
+    createPage: '',
     selectedIds: [],
     registryIds: new Set(),
     registryTab: 'lots',
-    outputTab: 'export',
+    outputTab: 'paper',
     editDraft: null,
     editOriginal: null,
     batchDrafts: [],
     batchOriginals: [],
     batchTouched: new Set(),
+    mixedFields: new Set(),
     editEdgeIndex: null,
     editSegmentIndex: null,
     segmentPanel: 'text',
     specialPanel: 'primary',
     valueLabelPanel: 'area',
+    textRole: 'name',
     clipboard: [],
     clipboardPasteCount: 0,
     statusOverride: '',
     statusTimer: 0,
     documentName: '無題',
-    output: { includeUnderlay: true, note: '', showTitleFrame: true, placing: false },
-    scaleFlow: { reason: null, returnCommand: null }
+    output: { includeUnderlay: true, note: '', showTitleFrame: true },
+    workspaceSelection: [],
+    workspaceContextPage: '',
+    scaleFlow: { reason: null, returnCommand: null, returnTargetIds: [] }
   }
 
   const runtime = {
@@ -238,8 +252,14 @@
     pendingDestructiveResolve: null,
     currentProjectPath: null,
     fileDragDepth: 0,
-    compositionEndedAt: 0
+    compositionEndedAt: 0,
+    inputTransaction: null,
+    backgroundTaskToken: 0,
+    backgroundSyncRequest: 0,
+    backgroundVisualState: null
   }
+
+  const PAPER_INPUT_SELECTOR = '#paper-size,#paper-orientation,#paper-print-scale-preset,#paper-print-scale-custom,#paper-frame-visible,#paper-underlay-visible,#paper-guides-visible,#paper-title,#paper-date,#paper-author,#paper-note,#title-frame-visible'
 
   function parseNumeric(value, fallback = null) {
     if (typeof value === 'number') return Number.isFinite(value) ? value : fallback
@@ -301,6 +321,10 @@
     const options = (COLOR_OPTIONS[palette] || COLOR_OPTIONS.ink)
       .map(([value, name]) => `<option value="${value}">${name}</option>`).join('')
     return `<label class="field-inline ${extraClass}"><span>${label}</span><select class="ctrl-select color-select" data-field="${field}" data-color-select="${palette}">${options}</select></label>`
+  }
+
+  function fontOptionsMarkup() {
+    return '<option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option>'
   }
 
   function hasScale(documentModel = store.document) {
@@ -434,6 +458,7 @@
     ui.batchDrafts = []
     ui.batchOriginals = []
     ui.batchTouched = new Set()
+    ui.mixedFields = new Set()
   }
 
   function allObjects() {
@@ -556,8 +581,12 @@
     return true
   }
 
+  function activeSnapSettings(documentModel = store.document) {
+    return { ...(documentModel?.preferences?.snap || {}), grid: false }
+  }
+
   function pointerSnapSettings() {
-    const settings = { ...(store.document.preferences.snap || {}) }
+    const settings = activeSnapSettings()
     if ((session.command === 'move' || session.command === 'copy') && session.targetIds.length && session.points.length) {
       settings.excludeObjectIds = [...session.targetIds]
     } else if (session.command === 'vertex-edit' && session.vertexIndex != null && session.targetIds.length) {
@@ -606,7 +635,7 @@
 
   function setWorkspace(name) {
     if (name === 'registry') {
-      commitPendingEdit()
+      flushActiveEditor()
       renderRegistry()
       byId('registry-search')?.focus({ preventScroll: true })
       setStatus('右側の一覧を表示しています。図面の表示倍率と選択は保持されます', 1800)
@@ -616,16 +645,28 @@
     const next = ['drawing', 'registry', 'output'].includes(name) ? name : 'drawing'
     const changed = ui.workspace !== next
     if (changed) {
-      commitPendingEdit()
+      if (ui.workspace === 'drawing') {
+        ui.workspaceSelection = [...ui.selectedIds]
+        ui.workspaceContextPage = ui.contextPage
+      }
+      flushActiveEditor()
       cancelTransient(false)
       if (ui.statusTimer) clearTimeout(ui.statusTimer)
       ui.statusTimer = null
       ui.statusOverride = ''
-      ui.selectedIds = []
-      ui.contextPage = ''
-      ui.launcher = true
       ui.category = 'select'
-      session.activate('launcher:select')
+      if (next === 'drawing') {
+        ui.selectedIds = ui.workspaceSelection.filter(id => Boolean(K.objectById(store.document, id)?.object))
+        ui.contextPage = ui.workspaceContextPage
+        ui.launcher = ui.selectedIds.length === 0
+        session.activate(ui.selectedIds.length ? 'select' : 'launcher:select')
+        if (ui.selectedIds.length) setObjectSelection(ui.selectedIds, { openEditor: true, preserveSubselection: true })
+      } else {
+        ui.selectedIds = []
+        ui.contextPage = ''
+        ui.launcher = true
+        session.activate('launcher:select')
+      }
       session.category = 'select'
     }
     ui.workspace = next
@@ -677,6 +718,7 @@
   function showLauncher(category = ui.category) {
     if (ui.workspace !== 'drawing') setWorkspace('drawing')
     const selectedCategory = CATEGORY[category] ? category : 'select'
+    const selectedBefore = [...ui.selectedIds]
     commitPendingEdit()
     cancelTransient(false)
     ui.category = selectedCategory
@@ -684,7 +726,9 @@
     ui.contextPage = ''
     session.activate(`launcher:${selectedCategory}`)
     session.category = selectedCategory
-    ui.selectedIds = []
+    // 加工ランチャーを開いただけでは対象選択を捨てない。ここで保持した
+    // 選択は分割・合筆・隅切り等を選んだ時に targetIds へ引き継がれる。
+    ui.selectedIds = selectedBefore.filter(id => Boolean(K.objectById(store.document, id)?.object))
     resetEditDrafts()
     ui.editEdgeIndex = null
     ui.editSegmentIndex = null
@@ -711,7 +755,9 @@
       case 'calibrate': {
         const currentScale = resolvedMapScale(documentModel)
         const scaleText = Number.isFinite(currentScale) && currentScale > 0 ? String(Number(currentScale.toFixed(4))) : ''
+        const currentMethod = documentModel.calibration?.method === 'two-point' ? 'two-point' : 'scale'
         return {
+          'scale-method': currentMethod,
           'calibration-distance': '',
           'manual-scale': scaleText,
           'scale-preset': DRAWING_SCALE_PRESETS.has(Number(scaleText)) ? scaleText : ''
@@ -735,12 +781,19 @@
         'road-type': road.type || '道路', 'road-name': road.name || '道路', 'road-width': finite(road.widthM, 4),
         fill: road.style?.fill || K.DEFAULTS.roadStyle.fill, stroke: road.style?.stroke || K.DEFAULTS.roadStyle.stroke,
         'fill-opacity': Math.round(finite(road.style?.opacity, K.DEFAULTS.roadStyle.opacity) * 100),
+        'show-label': true, 'road-width-visible': true,
+        'show-area': road.showArea === true, 'show-tsubo': road.showTsubo === true, 'show-lengths': road.showLengths === true,
         'font-family': fontToken(road.labelStyle?.fontFamily), 'text-size': fontScale(road.labelStyle, LABEL_BASE_SIZE),
         'road-width-font': fontToken(road.widthLabelStyle?.fontFamily), 'road-width-size': fontScale(road.widthLabelStyle, ROAD_WIDTH_BASE_SIZE),
-        'text-vertical': Boolean(road.vertical)
+        'text-vertical': Boolean(road.vertical),
+        'dimension-font': fontToken(road.dimensionStyle?.fontFamily), 'dimension-size': fontScale(road.dimensionStyle, DIMENSION_BASE_SIZE),
+        approximate: Boolean(road.dimensionStyle?.approximate),
+        'dimension-decimals': road.dimensionStyle?.decimals ?? road.dimensionStyle?.digits ?? 2,
+        'dimension-rounding': road.dimensionStyle?.rounding || 'round',
+        'dimension-adjustment': finite(road.dimensionStyle?.adjustment)
       }
       case 'division-guide': case 'lot-division-guide': return { 'division-count': 2 }
-      case 'parallel-guide': return { 'parallel-distance': 3, parallelSign: 1, parallelCount: 0 }
+      case 'parallel-guide': return { 'parallel-distance': 3, 'parallel-count': 1, parallelSign: 1 }
       case 'corner-cut': return { 'corner-length': 2 }
       case 'distance': case 'polyline': case 'area': return {
         'line-style': line.lineStyle || 'solid', 'line-width': finite(line.lineWidth, 1.4), color: line.color || '#253858',
@@ -791,11 +844,12 @@
           'global-show-area': everyLot(shape => shape.visibility?.area !== false && shape.areaLabel?.visible !== false),
           'global-show-tsubo': everyLot(shape => shape.visibility?.tsubo !== false && shape.tsuboLabel?.visible !== false),
           'global-show-lengths': everyLot(shape => shape.visibility?.dimensions !== false),
-          'snap-grid': Boolean(prefs.snap?.grid), 'snap-vertex': prefs.snap?.vertex !== false,
+          'snap-vertex': prefs.snap?.vertex !== false,
           'snap-intersection': prefs.snap?.intersection !== false, 'snap-edge': prefs.snap?.edge !== false
         }
       }
       case 'typography-settings': return {
+        'typography-apply-target': 'new',
         'typography-lot': finite(prefs.lot?.labelStyle?.fontSize ?? prefs.typography?.lot, 14),
         'typography-metric': finite(prefs.typography?.metric, 12),
         'typography-dimension': finite(prefs.lot?.dimensionStyle?.fontSize ?? prefs.typography?.dimension, 10),
@@ -810,19 +864,32 @@
     const command = UI_COMMAND_ALIASES[rawCommand] || rawCommand
     const meta = COMMAND[command]
     if (!meta) return false
-    closeScaleRequiredDialog()
+    const requestedTargets = options.preserveSelection && SELECTION_TARGET_COMMANDS.has(command)
+      ? selectedObjects()
+      : []
     if (ui.workspace !== 'drawing') setWorkspace('drawing')
     commitPendingEdit()
     cancelTransient(false)
     ui.launcher = false
     ui.category = meta.category
     ui.contextPage = ''
+    ui.createPage = ''
     ui.selectedIds = []
     resetEditDrafts()
     ui.editEdgeIndex = null
     ui.editSegmentIndex = null
     session.activate(command, defaultForm(command))
     session.category = meta.category
+    if (requestedTargets.length) {
+      let targets = requestedTargets
+      if (command === 'split') targets = targets.length === 1 && ['lot', 'road', 'water'].includes(targets[0].kind) ? targets : []
+      else if (command === 'merge') targets = targets.length <= 2 && targets.every(object => ['lot', 'road', 'water', 'cutout'].includes(object.kind)) ? targets : []
+      else if (command === 'corner-cut') targets = targets.length === 1 && targets[0].kind === 'lot' ? targets : []
+      else if (command === 'lot-division-guide') targets = targets.length === 1 && targets[0].kind === 'lot' ? targets : []
+      else if (command === 'vertex-edit') targets = targets.length === 1 ? targets : []
+      session.targetIds = targets.map(object => String(object.id))
+      ui.selectedIds = [...session.targetIds]
+    }
     if (command === 'paper-blank') {
       store.commit('白紙図面', documentModel => {
         documentModel.background = { ...K.createDocument().background }
@@ -835,47 +902,45 @@
     }
     renderCommandSurface()
     render()
+    if (command === 'merge' && session.targetIds.length === 2) {
+      queueMicrotask(() => {
+        if (session.command === 'merge' && session.targetIds.length === 2) finishCommand()
+      })
+    }
     if (options.focusCanvas !== false) dom.canvas.focus({ preventScroll: true })
     return true
-  }
-
-  function closeScaleRequiredDialog() {
-    const dialog = dom.scaleRequiredDialog
-    if (!dialog) return
-    if (typeof dialog.close === 'function' && dialog.open) dialog.close()
-    else dialog.removeAttribute('open')
-  }
-
-  function showScaleRequiredDialog(command) {
-    const dialog = dom.scaleRequiredDialog
-    if (!dialog) return
-    const commandLabel = $('[data-scale-required-command]', dialog)
-    const pageLabel = $('[data-scale-required-page]', dialog)
-    if (commandLabel) commandLabel.textContent = `「${COMMAND[command]?.name || command}」`
-    if (pageLabel) pageLabel.textContent = `${Math.max(1, finite(store.document.background?.currentPage, 1))}ページ`
-    if (typeof dialog.showModal === 'function') {
-      if (!dialog.open) dialog.showModal()
-    } else dialog.setAttribute('open', '')
   }
 
   function requestUserCommand(rawCommand, options = {}) {
     const command = UI_COMMAND_ALIASES[rawCommand] || rawCommand
     if (SCALE_REQUIRED_COMMANDS.has(command) && !hasScale()) {
-      ui.scaleFlow = { reason: 'required-command', returnCommand: command }
+      const returnTargetIds = SELECTION_TARGET_COMMANDS.has(command) ? [...ui.selectedIds] : []
+      ui.scaleFlow = { reason: 'required-command', returnCommand: command, returnTargetIds }
       activateCommand('calibrate', options)
       setStatus(`現在の${Math.max(1, finite(store.document.background?.currentPage, 1))}ページは縮尺未設定です。縮尺を設定するまで「${COMMAND[command]?.name || command}」は開始できません`, 0)
-      showScaleRequiredDialog(command)
       return false
     }
-    return activateCommand(command, options)
+    return activateCommand(command, { ...options, preserveSelection: options.preserveSelection !== false })
   }
 
   function completeScaleFlow(message) {
     const returnCommand = ui.scaleFlow.returnCommand
-    ui.scaleFlow = { reason: null, returnCommand: null }
-    closeScaleRequiredDialog()
-    activateCommand(returnCommand || 'select', { focusCanvas: false })
-    setStatus(returnCommand ? `${message}　「${COMMAND[returnCommand]?.name || returnCommand}」を開始します` : message, 2400)
+    const returnTargetIds = Array.isArray(ui.scaleFlow.returnTargetIds) ? [...ui.scaleFlow.returnTargetIds] : []
+    ui.scaleFlow = { reason: null, returnCommand: null, returnTargetIds: [] }
+    if (returnCommand) {
+      ui.selectedIds = returnTargetIds.filter(id => Boolean(K.objectById(store.document, id)?.object))
+      activateCommand(returnCommand, { focusCanvas: false, preserveSelection: true })
+      setStatus(`${message}　「${COMMAND[returnCommand]?.name || returnCommand}」を開始します`, 2400)
+    } else {
+      // 明示的な再設定と下絵読込後は、この画面に留める。候補と2点校正を
+      // 何度でも切り替えられ、「選択へ戻る」だけを画面移動にする。
+      session.points = []
+      session.step = 0
+      runtime.hoverSnap = null
+      renderCommandSurface()
+      render()
+      setStatus(`${message}　このページの縮尺は続けて再設定できます`, 2400)
+    }
     return true
   }
 
@@ -891,6 +956,70 @@
     if (rerender) { renderCommandSurface(); render() }
   }
 
+  function resetDocumentScopedUiState(options = {}) {
+    const { resetViews = false } = options
+    const outputDrag = runtime.outputDrag
+    const panPointerId = runtime.pan?.pointerId
+    try {
+      if (outputDrag && dom.outputPreview?.hasPointerCapture?.(outputDrag.pointerId)) dom.outputPreview.releasePointerCapture(outputDrag.pointerId)
+      if (Number.isInteger(panPointerId) && dom.canvas?.hasPointerCapture?.(panPointerId)) dom.canvas.releasePointerCapture(panPointerId)
+    } catch (_) { /* pointer capture may already be lost */ }
+
+    cancelTransient(false)
+    runtime.pointerWorld = null
+    runtime.pointerScreen = null
+    runtime.moveSnap = null
+    runtime.pan = null
+    runtime.spaceDown = false
+    runtime.composing = false
+    runtime.compositionEndedAt = 0
+    runtime.outputDrag = null
+    runtime.fileDragDepth = 0
+    dom.outputPreview?.classList.remove('is-dragging')
+    dom.stage?.classList.remove('file-drag-active')
+
+    ui.selectedIds = []
+    ui.registryIds.clear()
+    ui.contextPage = ''
+    ui.editEdgeIndex = null
+    ui.editSegmentIndex = null
+    ui.segmentPanel = 'text'
+    ui.specialPanel = 'primary'
+    ui.valueLabelPanel = 'area'
+    ui.textRole = 'name'
+    ui.clipboard = []
+    ui.clipboardPasteCount = 0
+    ui.workspaceSelection = []
+    ui.workspaceContextPage = ''
+    ui.scaleFlow = { reason: null, returnCommand: null, returnTargetIds: [] }
+
+    if (resetViews) {
+      ui.registryTab = 'lots'
+      ui.outputTab = 'paper'
+      const registrySearch = byId('registry-search')
+      const registryFilter = byId('registry-filter')
+      const registrySort = byId('registry-sort')
+      if (registrySearch) registrySearch.value = ''
+      if (registryFilter) registryFilter.value = 'all'
+      if (registrySort) registrySort.value = 'number'
+      $$('[data-output-tab]').forEach(button => button.classList.toggle('active', button.dataset.outputTab === ui.outputTab))
+      $$('[data-output-panel]').forEach(panel => {
+        const active = panel.dataset.outputPanel === ui.outputTab
+        panel.hidden = !active
+        panel.classList.toggle('is-active', active)
+      })
+    }
+
+    closeMenus()
+  }
+
+  function prepareForDocumentReplacement() {
+    // Pending drafts must be resolved against the old document. Clearing them
+    // only after store.replace() can overwrite same-id objects in the new file.
+    commitPendingEdit()
+    resetDocumentScopedUiState({ resetViews: true })
+  }
+
   function commandStepText() {
     const command = session.command
     const points = session.points.length
@@ -898,6 +1027,7 @@
     if (ui.launcher) return { small: 'コマンド', strong: '選択' }
     if (command === 'underlay-open') return { small: '下絵', strong: '未読込' }
     if (command === 'calibrate') {
+      if (session.form['scale-method'] !== 'two-point') return { small: `ページ ${Math.max(1, finite(store.document.background?.currentPage, 1))}`, strong: hasScale() ? '縮尺入力' : '未設定' }
       if (points === 0) return { small: `ページ ${Math.max(1, finite(store.document.background?.currentPage, 1))}`, strong: hasScale() ? '設定済' : '未設定' }
       return { small: points === 1 ? '2点校正 終点' : '実距離入力', strong: points === 1 ? '2/2' : '確定' }
     }
@@ -942,12 +1072,22 @@
     if (command === 'calibrate' || command === 'underlay-open') {
       const hasUnderlay = Boolean(store.document.background?.type)
       const openButton = $('[data-action="open-underlay"]', dom.commandControls)
-      const applyButton = $('[data-action="apply-calibration"]', dom.commandControls)
       openButton?.classList.toggle('primary', !hasUnderlay)
-      applyButton?.classList.toggle('primary', false)
       const directScaleAvailable = (hasUnderlay || store.document.paper?.enabled) && worldUnitsPerMeter() != null
-      $$('[data-direct-scale]', dom.commandControls).forEach(element => { element.hidden = !directScaleAvailable })
-      $$('.underlay-calibration-controls', dom.commandControls).forEach(element => { element.hidden = !hasUnderlay })
+      if (!directScaleAvailable) session.form['scale-method'] = 'two-point'
+      const method = session.form['scale-method'] === 'two-point' ? 'two-point' : 'scale'
+      const methodSelect = $('[data-field="scale-method"]', dom.commandControls)
+      if (methodSelect) {
+        methodSelect.value = method
+        const scaleOption = methodSelect.querySelector('option[value="scale"]')
+        if (scaleOption) scaleOption.disabled = !directScaleAvailable
+      }
+      $$('[data-scale-method-panel]', dom.commandControls).forEach(element => {
+        // 下絵なしのページでも、既存図形上の既知距離を使って再校正できる。
+        // 設定済み縮尺から2点校正へいつでも切り替えられる状態を保つ。
+        element.hidden = element.dataset.scaleMethodPanel !== method
+      })
+      $$('[data-direct-scale]', dom.commandControls).forEach(element => { if (!directScaleAvailable) element.hidden = true })
       if (hasUnderlay && !directScaleAvailable) {
         const warning = document.createElement('span')
         warning.className = 'notice-warning'
@@ -958,7 +1098,7 @@
     }
     if (command === 'road-draw') {
       const widthField = $('[data-field="road-width"]', dom.commandControls)?.closest('label')
-      widthField?.insertAdjacentHTML('beforebegin', '<label class="field-inline"><span>名称</span><input class="ctrl-input wide" data-field="road-name" type="text" placeholder="道路名称"></label>')
+      widthField?.insertAdjacentHTML('beforebegin', '<label class="field-inline" data-create-page="create-basic"><span>名称</span><input class="ctrl-input wide" data-field="road-name" type="text" placeholder="道路・水路名称"></label>')
     }
     if (command === 'line') {
       for (const fieldName of ['note-text', 'note-size', 'note-angle']) {
@@ -977,17 +1117,37 @@
       }
     }
     if (['line', 'arrow', 'callout'].includes(command)) {
-      dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline context-optional"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline context-optional"><span>太さ</span><input class="ctrl-input number-small" data-field="line-width" type="number" min="0.5" max="10" step="0.5"></label>')
+      dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="line-width" type="number" min="0.5" max="10" step="0.5"></label>')
     }
     if (['north', 'house', 'parking'].includes(command)) {
       const appearance = command === 'north'
         ? `${colorSelectMarkup('color', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
         : `${colorSelectMarkup('color', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${command === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
-      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="stamp-label" type="text"></label><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel">${appearance}</div></details>`)
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline" data-create-page="create-text"><span>文字</span><input class="ctrl-input" data-field="stamp-label" type="text"></label><span class="control-section" data-create-page="create-appearance" aria-label="表示"><span class="control-section-title">表示</span>${appearance}</span>`)
       if (command === 'north') {
         $$('.stamp-metric-only, .stamp-dimension-only', dom.commandControls).forEach(element => { element.hidden = true })
       }
     }
+  }
+
+  function configureCreateCommandPages(command) {
+    const route = CREATE_COMMAND_ROUTES[command]
+    if (!route) return false
+    if (!route.some(([pageId]) => pageId === ui.createPage)) ui.createPage = route[0][0]
+    dom.commandPages.replaceChildren(...route.map(([pageId, label]) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `ctrl-tab${pageId === ui.createPage ? ' active' : ''}`
+      button.dataset.createCommandPage = pageId
+      button.textContent = label
+      return button
+    }))
+    dom.commandPages.hidden = false
+    $$('[data-create-page]', dom.commandControls).forEach(element => {
+      const unavailableForNorth = command === 'north' && element.matches('.stamp-metric-only, .stamp-dimension-only')
+      element.hidden = unavailableForNorth || element.dataset.createPage !== ui.createPage
+    })
+    return true
   }
 
   function makeInstructionControls(meta) {
@@ -1029,28 +1189,45 @@
     if (!['lot', 'road', 'water'].includes(kind)) return
     const panel = ui.valueLabelPanel === 'tsubo' ? 'tsubo' : 'area'
     const prefix = panel === 'tsubo' ? 'tsubo-label' : 'area-label'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group value-toggle" aria-label="面積と坪の切替"><button class="ctrl-tab ${panel === 'area' ? 'active' : ''}" type="button" data-value-label-panel="area">㎡ 面積</button><span class="value-switch-arrow" aria-hidden="true">⇔</span><button class="ctrl-tab ${panel === 'tsubo' ? 'active' : ''}" type="button" data-value-label-panel="tsubo">坪表示</button></div><label class="check-control"><input data-field="${prefix}-visible" type="checkbox">表示</label><label class="field-inline value-text-field"><span>表示文字</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄で自動計算">${panel === 'area' ? '<em class="field-warning" data-area-manual-warning hidden>手入力値・坪も更新</em>' : ''}</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><button class="ctrl-btn" type="button" data-action="reset-value-label-position">${panel === 'tsubo' ? '坪' : '㎡'}を元の位置へ戻す</button>`)
+    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group value-toggle" aria-label="面積と坪の切替"><button class="ctrl-tab ${panel === 'area' ? 'active' : ''}" type="button" data-value-label-panel="area">㎡ 面積</button><span class="value-switch-arrow" aria-hidden="true">⇔</span><button class="ctrl-tab ${panel === 'tsubo' ? 'active' : ''}" type="button" data-value-label-panel="tsubo">坪</button></div><label class="check-control"><input data-field="${prefix}-visible" type="checkbox">表示</label><label class="field-inline value-text-field"><span>表示文字</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄で自動計算">${panel === 'area' ? '<em class="field-warning" data-area-manual-warning hidden>手入力値・坪も更新</em>' : ''}</label><label class="check-control"><input data-field="${prefix}-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="${prefix}-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option><option value="3">3桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="${prefix}-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="${prefix}-adjustment" type="number" step="0.01"><em>${panel === 'area' ? '㎡' : '坪'}</em></label>`)
   }
 
-  function appendRoadWidthControls(kind) {
+  function appendRoadBasicControls(kind, { batch = false } = {}) {
     const water = kind === 'water'
     const widthName = water ? '水路幅' : '幅員'
-    const widthPanel = ['primary', 'angle', 'style'].includes(ui.specialPanel) ? ui.specialPanel : 'primary'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group nested-tabs"><button class="ctrl-tab ${widthPanel === 'primary' ? 'active' : ''}" type="button" data-special-panel="primary">内容</button><button class="ctrl-tab ${widthPanel === 'angle' ? 'active' : ''}" type="button" data-special-panel="angle">角度</button><button class="ctrl-tab ${widthPanel === 'style' ? 'active' : ''}" type="button" data-special-panel="style">書式</button></div>`)
-    if (widthPanel === 'primary') {
-      const categoryOptions = water
-        ? '<option value="水路">水路</option>'
-        : '<option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option>'
-      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>${water ? '水路名' : '道路名'}</span><input class="ctrl-input wide" data-field="object-label" type="text"></label><label class="field-inline"><span>区分</span><select class="ctrl-select" data-field="road-category">${categoryOptions}</select></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">${widthName}を表示</label><label class="field-inline"><span>${widthName}</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="自動: ${widthName} 4.0m"></label>`)
-    } else if (widthPanel === 'angle') {
-      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>${widthName}の角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label>`)
-    } else {
-      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup('road-width-color', '色', 'dimension')}`)
+    const categoryOptions = water
+      ? '<option value="水路">水路</option>'
+      : '<option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option>'
+    dom.commandControls.insertAdjacentHTML('beforeend', `${batch ? '' : `<label class="field-inline"><span>${water ? '水路名' : '道路名'}</span><input class="ctrl-input wide" data-field="object-label" type="text"></label>`}<label class="field-inline"><span>区分</span><select class="ctrl-select" data-field="road-category">${categoryOptions}</select></label><label class="field-inline"><span>${widthName}</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">${widthName}を表示</label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="空欄で自動表示"></label>`)
+  }
+
+  function appendTextRoleControls(object) {
+    if (!['lot', 'road', 'water'].includes(object.kind)) return
+    const roles = [['name', object.kind === 'lot' ? '区画名' : object.kind === 'water' ? '水路名' : '道路名']]
+    if (object.kind === 'road' || object.kind === 'water') roles.push(['width', object.kind === 'water' ? '水路幅' : '幅員'])
+    roles.push(['area', '面積'], ['tsubo', '坪'])
+    if (!roles.some(([value]) => value === ui.textRole)) ui.textRole = 'name'
+    const options = roles.map(([value, label]) => `<option value="${value}" ${value === ui.textRole ? 'selected' : ''}>${label}</option>`).join('')
+    dom.commandControls.insertAdjacentHTML('afterbegin', `<label class="field-inline"><span>編集対象</span><select class="ctrl-select" data-text-role>${options}</select></label>`)
+    if (ui.textRole === 'name') return
+    // 名前以外では静的テンプレートの名前用書式を使わず、対象固有の書式を同じ順序で表示する。
+    $$('[data-field="font-family"],[data-field="text-size"],[data-field="text-angle"],[data-field="text-vertical"],[data-field="textColor"],[data-field="text-frame"],[data-field="text-underline"]', dom.commandControls).forEach(field => {
+      const container = field.closest('label') || field
+      container.hidden = true
+    })
+    $$('[data-action="center-label"]', dom.commandControls).forEach(button => { button.hidden = true })
+    if (ui.textRole === 'width') {
+      const widthName = object.kind === 'water' ? '水路幅' : '幅員'
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="road-width-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('road-width-color', '文字色', 'dimension')}<label class="check-control"><input data-field="road-width-frame" type="checkbox">枠</label><label class="check-control"><input data-field="road-width-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="width">${widthName}を自動位置へ戻す</button>`)
+      return
     }
+    const prefix = ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'
+    const label = ui.textRole === 'tsubo' ? '坪' : '面積'
+    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${prefix}-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="${prefix}-vertical" type="checkbox">縦書き</label>${colorSelectMarkup(`${prefix}-color`, '文字色', 'ink')}<label class="check-control"><input data-field="${prefix}-frame" type="checkbox">枠</label><label class="check-control"><input data-field="${prefix}-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="${ui.textRole}">${label}を自動位置へ戻す</button>`)
   }
 
   function lotTableControlsMarkup() {
-    return '<label class="field-inline"><span>題名</span><input class="ctrl-input wide" data-field="table-title" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="table-show-price" type="checkbox">価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25"></label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label></div></details>'
+    return `<label class="field-inline"><span>題名</span><input class="ctrl-input wide" data-field="table-title" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="check-control"><input data-field="table-show-price" type="checkbox">価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25"></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label>`
   }
 
   function appendGuideEditControls(object, { batch = false } = {}) {
@@ -1105,7 +1282,20 @@
       $$('.shape-appearance-only', dom.commandControls).forEach(element => { element.hidden = !isShape })
       $$('.editable-text-only', dom.commandControls).forEach(element => { element.hidden = !hasEditableText })
       $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = kind !== 'lot' })
+      if (isRoadLike) appendRoadBasicControls(kind, { batch: true })
     }
+    if (ui.contextPage === 'object-appearance' && isStamp) {
+      dom.commandControls.replaceChildren()
+      if (kind === 'north') {
+        dom.commandControls.insertAdjacentHTML('beforeend', `${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
+      } else {
+        const hatch = kind === 'house'
+          ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>'
+          : ''
+        dom.commandControls.insertAdjacentHTML('beforeend', `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatch}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
+      }
+    }
+    if (ui.contextPage === 'object-text' && isShape) appendTextRoleControls(object)
     if (ui.contextPage === 'object-values') {
       appendValueLabelControls(kind)
       $$('[data-action="reset-value-label-position"]', dom.commandControls).forEach(button => { button.hidden = true })
@@ -1119,15 +1309,12 @@
     if (ui.contextPage === 'object-special') {
       if (isStamp) {
         const metricControls = kind === 'north' ? '' : '<label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label>'
-        const appearanceControls = kind === 'north' ? `${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>` : `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
-        dom.commandControls.insertAdjacentHTML('beforeend', `${metricControls}<label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${kind === 'north' ? '' : '<label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法</label>'}${appearanceControls}`)
+        dom.commandControls.insertAdjacentHTML('beforeend', `${metricControls}<label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${kind === 'north' ? '' : '<label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法表示</label>'}`)
       } else if (kind === 'lot-table') {
         dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup())
       } else if (hasLineStyle) {
         appendGuideEditControls(object, { batch: true })
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="object-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="object-line-width" type="number" min="0.5" max="10" step="0.5"></label>${colorSelectMarkup('object-line-color', '線色', 'line')}`)
-      } else if (isRoadLike) {
-        appendRoadWidthControls(kind)
       }
     }
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
@@ -1163,14 +1350,14 @@
     select.dataset.dimensionTarget = ''
     const all = document.createElement('option')
     all.value = 'all'
-    all.textContent = edgeCount ? '全辺共通' : '全体'
+    all.textContent = edgeCount ? '全ての辺（共通設定）' : '全ての区間（共通設定）'
     select.append(all)
     const type = edgeCount ? 'edge' : 'segment'
     const count = edgeCount || segmentCount
     for (let index = 0; index < count; index += 1) {
       const option = document.createElement('option')
       option.value = `${type}:${index}`
-      option.textContent = dimensionPartLabel(object, type, index)
+      option.textContent = `${dimensionPartLabel(object, type, index)}・個別設定`
       select.append(option)
     }
     select.value = Number.isInteger(ui.editEdgeIndex) ? `edge:${ui.editEdgeIndex}` : Number.isInteger(ui.editSegmentIndex) ? `segment:${ui.editSegmentIndex}` : 'all'
@@ -1185,13 +1372,12 @@
     const isEdge = Number.isInteger(ui.editEdgeIndex)
     const isSegment = Number.isInteger(ui.editSegmentIndex)
     if (!(isEdge || isSegment)) return
-    // Flattened single row (no nested sub-tabs): matches the "全辺共通" layout —
-    // key controls inline, the rest tucked into dropdowns.
+    // 共通設定と同じ順序（表示→文字→数値→書体→位置）に固定する。
     const visibleField = isEdge ? 'edge-visible' : 'segment-visible'
     const textField = isEdge ? 'edge-custom-text' : 'segment-custom-text'
     const rotationField = isEdge ? 'edge-rotation-offset' : 'segment-rotation-offset'
     const visibleLabel = '表示'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label><button class="ctrl-btn preset-button part-approx-button" type="button" data-action="apply-legacy-approx" data-approx-scope="part">約・切捨て</button><details class="toolbar-dropdown"><summary class="ctrl-btn">数値</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="part-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>桁</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>寸法値</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">書式</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label>${colorSelectMarkup('part-color', '色', 'dimension')}</div></details><button class="ctrl-btn" type="button" data-action="reset-dimension-part-position" title="番号・面積・坪・寸法などの文字は図面上でドラッグして移動できます">自動位置へ戻す</button>`)
+    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label><label class="check-control"><input data-field="part-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label>${colorSelectMarkup('part-color', '文字色', 'dimension')}<button class="ctrl-btn" type="button" data-action="reset-dimension-part-position">位置を自動へ戻す</button>`)
   }
 
   function selectDimensionTarget(value) {
@@ -1242,15 +1428,27 @@
       if (labelControl) {
         const caption = $('span', labelControl)
         if (caption) caption.textContent = object.kind === 'road' ? '道路名' : object.kind === 'water' ? '水路名' : object.kind === 'lot' ? '名称' : '文字'
-        labelControl.hidden = !hasEditableText
+        labelControl.hidden = !hasEditableText || isRoadLike
+      }
+      if (isRoadLike) appendRoadBasicControls(object.kind)
+    }
+    if (ui.contextPage === 'object-appearance' && ['house', 'parking', 'north'].includes(object.kind)) {
+      dom.commandControls.replaceChildren()
+      if (object.kind === 'north') {
+        dom.commandControls.insertAdjacentHTML('beforeend', `${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
+      } else {
+        const hatch = object.kind === 'house'
+          ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>'
+          : ''
+        dom.commandControls.insertAdjacentHTML('beforeend', `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatch}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
       }
     }
+    if (ui.contextPage === 'object-text' && isShape) appendTextRoleControls(object)
     if (ui.contextPage === 'object-special') {
       if (object.kind === 'house' || object.kind === 'parking') {
-        const hatchControl = object.kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''
-        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>種類</span><select class="ctrl-select compact-select" data-field="stamp-kind"><option value="house">家屋</option><option value="parking">駐車場</option></select></label><label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法</label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel">${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatchControl}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label></div></details>`)
+        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>種類</span><select class="ctrl-select compact-select" data-field="stamp-kind"><option value="house">家屋</option><option value="parking">駐車場</option></select></label><label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法表示</label>`)
       } else if (object.kind === 'north') {
-        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
+        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>`)
       } else if (object.kind === 'lot-table') {
         dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup())
       } else if (object.kind === 'cutout') {
@@ -1259,12 +1457,16 @@
       } else if (hasLineStyle) {
         appendGuideEditControls(object)
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="object-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="object-line-width" type="number" min="0.5" max="10" step="0.5"></label>${colorSelectMarkup('object-line-color', '色', 'line')}`)
-      } else if (isRoadLike) {
-        appendRoadWidthControls(object.kind)
       }
     }
     if (ui.contextPage === 'object-dimension') {
-      if (hasSegmentSelection) dom.commandControls.replaceChildren()
+      if (hasSegmentSelection) {
+        $$('[data-field],[data-action="apply-legacy-approx"]', dom.commandControls).forEach(element => {
+          const container = element.closest('label') || element
+          container.hidden = true
+        })
+        $$('.control-section', dom.commandControls).forEach(section => { section.hidden = true })
+      }
       const targetControl = makeDimensionTargetControl(object)
       if (targetControl) dom.commandControls.prepend(targetControl)
       if (hasSegmentSelection) appendDimensionPartControls(object)
@@ -1272,7 +1474,11 @@
     if (ui.contextPage === 'object-values') appendValueLabelControls(object.kind)
     $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = object.kind !== 'lot' })
     $$('.shape-appearance-only', dom.commandControls).forEach(element => { element.hidden = !isShape })
-    $$('.editable-text-only', dom.commandControls).forEach(element => { element.hidden = !hasEditableText })
+    $$('.editable-text-only', dom.commandControls).forEach(element => {
+      // 道路・水路の基本ページは appendRoadBasicControls が名称欄を1つだけ
+      // 生成する。静的な共通名称欄をここで再表示すると二重入力になる。
+      element.hidden = !hasEditableText || (ui.contextPage === 'object-basic' && isRoadLike)
+    })
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
     $$('.area-only', dom.commandControls).forEach(element => { element.hidden = object.kind !== 'area' })
     if (isMeasurement) $$('[data-action="center-label"]', dom.commandControls).forEach(button => { button.textContent = '寸法を自動位置へ戻す' })
@@ -1285,6 +1491,23 @@
   }
 
   function renderCommandSurface() {
+    if (runtime.renderingCommandSurface) {
+      runtime.commandSurfaceRenderPending = true
+      return
+    }
+    runtime.renderingCommandSurface = true
+    try {
+      renderCommandSurfaceNow()
+    } finally {
+      runtime.renderingCommandSurface = false
+    }
+    if (runtime.commandSurfaceRenderPending) {
+      runtime.commandSurfaceRenderPending = false
+      queueMicrotask(renderCommandSurface)
+    }
+  }
+
+  function renderCommandSurfaceNow() {
     dom.controlBar?.classList.remove('object-editing', 'batch-editing')
     if (ui.workspace !== 'drawing') {
       renderWorkspaceCommandSurface()
@@ -1320,6 +1543,7 @@
     else if (meta.template) {
       dom.commandControls.append(cloneTemplate(meta.template))
       addDynamicCommandControls(session.command)
+      configureCreateCommandPages(session.command)
     } else makeInstructionControls(meta)
 
     $$('[data-for-command]', dom.commandControls).forEach(element => {
@@ -1336,9 +1560,26 @@
     $$('[data-field]', dom.commandControls).forEach(field => {
       const key = field.dataset.field
       if (!(key in session.form)) return
-      if (field.type === 'checkbox') field.checked = Boolean(session.form[key])
+      const mixed = ui.mixedFields.has(key)
+      field.toggleAttribute('data-mixed', mixed)
+      if (mixed) field.setAttribute('aria-label', `${field.closest('label')?.querySelector('span')?.textContent || key}：複数値`)
+      if (field.type === 'checkbox') {
+        field.indeterminate = mixed
+        field.checked = mixed ? false : Boolean(session.form[key])
+      }
       else {
         const value = session.form[key] ?? ''
+        if (mixed) {
+          if (field.matches('select')) {
+            const option = document.createElement('option')
+            option.value = ''
+            option.textContent = '複数値'
+            option.dataset.mixedOption = ''
+            field.prepend(option)
+          } else field.placeholder = '複数値'
+          field.value = ''
+          return
+        }
         if (field.matches('select[data-color-select]') && value && ![...field.options].some(option => option.value === String(value))) {
           const option = document.createElement('option')
           option.value = String(value)
@@ -1348,38 +1589,7 @@
         field.value = value
       }
     })
-    enhanceColorSelects()
     syncColorSelects()
-  }
-
-  function enhanceColorSelects() {
-    $$('select[data-color-select]', dom.commandControls).forEach(select => {
-      if (select.classList.contains('enhanced-source')) return
-      select.classList.add('enhanced-source')
-      const picker = document.createElement('span')
-      picker.className = 'color-picker'
-      picker.dataset.colorField = select.dataset.field
-      const toggle = document.createElement('button')
-      toggle.type = 'button'
-      toggle.className = 'color-picker-toggle'
-      toggle.dataset.colorPickerToggle = ''
-      toggle.innerHTML = '<span class="color-picker-swatch" aria-hidden="true"></span><span class="color-picker-caret" aria-hidden="true">▾</span>'
-      const panel = document.createElement('span')
-      panel.className = 'color-picker-panel'
-      panel.hidden = true
-      for (const option of [...select.options]) {
-        const choice = document.createElement('button')
-        choice.type = 'button'
-        choice.className = 'color-picker-choice'
-        choice.dataset.colorChoice = option.value
-        choice.style.setProperty('--choice-color', option.value)
-        choice.title = option.textContent || option.value
-        choice.setAttribute('aria-label', option.textContent || option.value)
-        panel.append(choice)
-      }
-      picker.append(toggle, panel)
-      select.insertAdjacentElement('afterend', picker)
-    })
   }
 
   function syncColorSelects() {
@@ -1393,17 +1603,8 @@
       }
       if (value && select.value !== String(value)) select.value = String(value)
       select.style.setProperty('--selected-color', select.value || '#ffffff')
+      select.style.borderColor = select.value || ''
       select.title = select.selectedOptions?.[0]?.textContent || '色を選択'
-      const picker = select.nextElementSibling?.classList?.contains('color-picker') ? select.nextElementSibling : null
-      const toggle = picker?.querySelector('[data-color-picker-toggle]')
-      if (toggle) {
-        toggle.style.setProperty('--selected-color', select.value || '#ffffff')
-        toggle.title = `選択中：${select.selectedOptions?.[0]?.textContent || select.value}`
-        toggle.setAttribute('aria-label', toggle.title)
-      }
-      picker?.querySelectorAll('[data-color-choice]').forEach(choice => {
-        choice.classList.toggle('active', choice.dataset.colorChoice === select.value)
-      })
     })
   }
 
@@ -1452,29 +1653,29 @@
     setOutput('measure-step', count === 0 ? '1点目' : count === 1 ? '2点目' : '確定できます')
     setOutput('process-step', processStatusText())
     setOutput('move-all-step', count === 0 ? '1/2 基準点' : '2/2 移動先')
-    const nextParallel = Math.max(1, Math.round(finite(session.form.parallelCount, 0)) + 1) * Math.abs(finite(session.form['parallel-distance'], 3))
-    setOutput('parallel-next', `次 ${Number(nextParallel.toFixed(3))}m`)
+    const parallelDistance = Math.abs(finite(session.form['parallel-distance'], 3))
+    const parallelCount = K.clamp(Math.round(finite(session.form['parallel-count'], 1)), 1, 20)
+    setOutput('parallel-next', `${Number(parallelDistance.toFixed(3))}m間隔・${parallelCount}本`)
     const background = store.document.background
     setOutput('underlay-opacity', `${Math.round(finite(background.opacity, 1) * 100)}%`)
     const pageCount = Math.max(1, background.pages?.length || runtime.backgroundRuntime?.pageCount || 1)
     setOutput('page', `${Math.min(background.currentPage || 1, pageCount)} / ${pageCount}`)
     $$('[data-action="pop-point"]', dom.commandControls).forEach(button => { button.disabled = count === 0 })
-    $$('[data-action="finish-command"]', dom.commandControls).forEach(button => {
-      const canFinish = canFinishCommand()
-      button.disabled = !canFinish
-      if (['lot-division-guide', 'parallel-guide'].includes(session.command)) button.textContent = '作成'
-      button.hidden = !canFinish || session.command === 'edge-hide' || AUTO_COMPLETE_COMMANDS.has(session.command)
-    })
     $$('[data-action="pop-point"]', dom.commandControls).forEach(button => {
       button.hidden = count === 0 || ['edge-hide', 'merge', 'corner-cut'].includes(session.command) || AUTO_COMPLETE_COMMANDS.has(session.command)
     })
     $$('[data-action="flip-parallel"]', dom.commandControls).forEach(button => {
       button.textContent = '反転'
       button.title = '基準線の反対側へ作成方向を切り替えます'
-      button.hidden = session.command !== 'parallel-guide' || count < 2
+      // 平行線は2点目で自動作成するため、2点取得後にだけ表示すると
+      // ユーザーが押せる瞬間がない。基準線を取る前から作成側を選べるようにする。
+      button.hidden = session.command !== 'parallel-guide'
+      button.classList.toggle('active', finite(session.form.parallelSign, 1) < 0)
+      button.setAttribute('aria-pressed', finite(session.form.parallelSign, 1) < 0 ? 'true' : 'false')
     })
     $$('[data-action="reset-parallel-baseline"]', dom.commandControls).forEach(button => {
-      button.hidden = session.command !== 'parallel-guide' || count < 2
+      // 1本ごとに自動完了して選択へ戻る現在の操作では基準線保持を行わない。
+      button.hidden = true
     })
     const hasPendingOperation = count > 0 || session.targetIds.length > 0 || session.vertexIndex != null
     $$('[data-action="cancel-command"]', dom.commandControls).forEach(button => { button.textContent = hasPendingOperation ? '作図取消' : '選択へ戻る' })
@@ -1484,7 +1685,6 @@
       button.setAttribute('aria-pressed', String(active))
       button.textContent = active ? '約・切捨て ON' : '約・切捨て'
     })
-    $$('[data-action="apply-calibration"]', dom.commandControls).forEach(button => { button.disabled = !(count === 2 && parseNumeric(session.form['calibration-distance']) > 0) })
     $$('[data-action="reset-calibration-points"]', dom.commandControls).forEach(button => { button.hidden = count < 2 })
     const currentScale = Number(store.document.calibration?.mapScale) > 0
       ? Number(store.document.calibration.mapScale)
@@ -1495,9 +1695,6 @@
         ? (Number.isFinite(currentScale) && currentScale > 0 ? `設定済 1:${Math.round(currentScale).toLocaleString('ja-JP')}` : '設定済 2点校正')
         : '未設定'
       output.dataset.state = ready ? 'ready' : 'missing'
-    })
-    $$('[data-action="apply-manual-scale"]', dom.commandControls).forEach(button => {
-      button.disabled = !(parseNumeric(session.form['manual-scale']) > 0) || worldUnitsPerMeter() == null
     })
     const lock = $('[data-action="toggle-underlay-lock"]', dom.commandControls)
     if (lock) lock.classList.toggle('active', Boolean(background.locked))
@@ -1522,7 +1719,6 @@
     const activePage = page(store.document)
     const activeObjectCount = (activePage?.shapes?.length || 0) + (activePage?.entities?.length || 0)
     const guideCount = activePage?.entities?.filter(entity => entity.kind === 'guide' || entity.kind === 'parallel').length || 0
-    const documentObjectCount = (store.document.pages || []).reduce((sum, currentPage) => sum + (currentPage.shapes?.length || 0) + (currentPage.entities?.length || 0), 0)
     const setActionAvailability = (selector, enabled, enabledTitle, disabledTitle) => {
       $$(selector).forEach(button => {
         button.disabled = !enabled
@@ -1532,7 +1728,6 @@
     setActionAvailability('[data-action="clear-document"]', activeObjectCount > 0, '現在のページの図形をすべて消去します', '消去する図形がありません')
     setActionAvailability('[data-action="clear-guides"]', guideCount > 0, `${guideCount}本の補助線を消去します`, '消去する補助線がありません')
     setActionAvailability('[data-action="paste"]', ui.clipboard.length > 0, `${ui.clipboard.length}件を貼り付けます`, '先に図形をコピーしてください')
-    setActionAvailability('[data-action="apply-typography-existing"]', documentObjectCount > 0, '現在の図面に文字サイズを一括反映します', '反映する図形がありません')
     const preferencesAreStandard = JSON.stringify(store.document.preferences) === JSON.stringify(STANDARD_PREFERENCES)
     setActionAvailability('[data-action="reset-command-defaults"]', !preferencesAreStandard, '作図の既定値を標準へ戻します', '作図の既定値は既に標準です')
     const opacity = K.clamp(finite(background.opacity, 1), 0.08, 1)
@@ -1564,6 +1759,16 @@
     const legacyValueLabelProperty = valueLabelProperty === 'tsuboLabel' ? 'tsuboLabelPosition' : 'areaLabelPosition'
     const valueLabelIsOffset = Boolean(ui.editDraft?.[valueLabelProperty]?.position || ui.editDraft?.[legacyValueLabelProperty])
     setActionAvailability('[data-action="reset-value-label-position"]', valueLabelIsOffset, '表示位置を自動配置へ戻します', '表示位置は既に自動配置です')
+    $$('[data-action="reset-text-role-position"]', dom.commandControls).forEach(button => {
+      const role = button.dataset.textPositionRole || ui.textRole
+      const offset = role === 'width'
+        ? Boolean(ui.editDraft?.road?.widthLabelPosition || ui.editDraft?.road?.widthLabelOffset)
+        : role === 'tsubo'
+          ? Boolean(ui.editDraft?.tsuboLabel?.position || ui.editDraft?.tsuboLabelPosition)
+          : Boolean(ui.editDraft?.areaLabel?.position || ui.editDraft?.areaLabelPosition)
+      button.disabled = !offset
+      button.title = offset ? '文字位置を自動配置へ戻します' : '文字位置は既に自動配置です'
+    })
     if (session.command === 'typography-settings') {
       const values = typographyValuesFromForm()
       $$('[data-typography-preset]', dom.commandControls).forEach(button => {
@@ -1593,13 +1798,13 @@
     if (command === 'split') return !session.targetIds.length ? '区画・道路・水路を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
     if (command === 'split-all') return session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
     if (command === 'division-guide') return session.points.length ? '終点を指定すると作成' : '始点を指定'
-    if (command === 'lot-division-guide') return !session.targetIds.length ? '区画を選択' : session.points.length < 2 ? `基準方向 ${session.points.length}/2` : 'Enterまたは「作成」で確定'
+    if (command === 'lot-division-guide') return !session.targetIds.length ? '区画を選択' : session.points.length < 2 ? `基準方向 ${session.points.length}/2（2点目で自動作成）` : '自動作成します'
     if (command === 'edge-hide') return '寸法を切り替える辺を選択'
     if (command === 'parallel-guide' && !store.document.calibration.mpp) return '先に縮尺を設定'
     if (command === 'parallel-guide') {
       return session.points.length < 2
         ? `基準線 ${session.points.length}/2`
-        : `${Number((Math.max(1, Math.round(finite(session.form.parallelCount, 0)) + 1) * Math.abs(finite(session.form['parallel-distance'], 3))).toFixed(3))}mを作成できます`
+        : `${Number(Math.abs(finite(session.form['parallel-distance'], 3)).toFixed(3))}m間隔・${K.clamp(Math.round(finite(session.form['parallel-count'], 1)), 1, 20)}本`
     }
     return session.points.length < 2 ? `線の点 ${session.points.length}/2` : '確定できます'
   }
@@ -1638,8 +1843,8 @@
       : (scaleDenominator ? `縮尺 1:${Math.round(scaleDenominator).toLocaleString('ja-JP')}` : '縮尺 2点校正済')
     dom.statusScale.dataset.state = scaleMissing ? 'missing' : 'ready'
     dom.statusZoom.textContent = `${Math.round(runtime.view.zoom * 100)}%`
-    const snap = documentModel.preferences.snap || {}
-    dom.statusSnap.textContent = `自動吸着 ${snap.vertex || snap.intersection || snap.edge || snap.grid ? 'ON' : 'OFF'}`
+    const snap = activeSnapSettings(documentModel)
+    dom.statusSnap.textContent = `自動吸着 ${snap.vertex || snap.intersection || snap.edge ? 'ON' : 'OFF'}`
     const lotCount = active?.shapes.filter(shape => shape.kind === 'lot').length || 0
     dom.statusCount.textContent = `区画 ${lotCount}`
     dom.dirty.hidden = !store.dirty
@@ -1731,8 +1936,8 @@
     const targets = (Array.isArray(target) ? target : [target]).filter(Boolean)
     let dx = destination.x - origin.x
     let dy = destination.y - origin.y
-    const snap = store.document.preferences.snap || {}
-    if (!(snap.vertex || snap.intersection || snap.edge || snap.grid)) return { dx, dy, snap: null }
+    const snap = activeSnapSettings()
+    if (!(snap.vertex || snap.intersection || snap.edge)) return { dx, dy, snap: null }
     const tolerance = 12 / runtime.view.zoom
     const originDistance = Math.hypot(dx, dy)
     // 移動中も元図形はプレビューの背後に残るため、開始位置へ戻したときは
@@ -1816,12 +2021,16 @@
     if (command === 'parallel-guide' && session.points.length >= 2) {
       const mpp = store.document.calibration.mpp
       if (!(mpp > 0)) return []
-      const repeat = Math.max(1, Math.round(finite(session.form.parallelCount, 0)) + 1)
-      const offsetM = Math.abs(finite(session.form['parallel-distance'], 3)) * repeat
+      const count = K.clamp(Math.round(finite(session.form['parallel-count'], 1)), 1, 20)
+      const baseDistanceM = Math.abs(finite(session.form['parallel-distance'], 3))
       const sign = finite(session.form.parallelSign, 1) >= 0 ? 1 : -1
-      const offsetWorld = offsetM / mpp * sign
-      const line = K.parallelLine(session.points[0], session.points[1], offsetWorld)
-      return line ? [{ id: '__parallel__', kind: 'parallel', points: line, text: '', style: { color: '#9b4c8d', lineStyle: 'dashed' } }] : []
+      const previews = []
+      for (let repeatIndex = 1; repeatIndex <= count; repeatIndex += 1) {
+        const offsetM = baseDistanceM * repeatIndex * sign
+        const line = K.parallelLine(session.points[0], session.points[1], offsetM / mpp)
+        if (line) previews.push({ id: `__parallel__${repeatIndex}`, kind: 'parallel', points: line, text: '', style: { color: '#9b4c8d', lineStyle: 'dashed' } })
+      }
+      return previews
     }
     if (command === 'division-guide' && session.points.length) {
       const previewPoints = session.points.length >= 2
@@ -1957,6 +2166,7 @@
       ui.segmentPanel = 'text'
       ui.specialPanel = 'primary'
       ui.valueLabelPanel = 'area'
+      ui.textRole = 'name'
     }
     const uniqueIds = [...new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String))]
       .filter(id => Boolean(K.objectById(store.document, id)?.object))
@@ -1972,7 +2182,15 @@
     } else if (objects.length > 1 && objects.every(object => object.kind === objects[0].kind)) {
       ui.batchOriginals = objects.map(deepClone)
       ui.batchDrafts = objects.map(deepClone)
-      if (options.openEditor) loadObjectForm(objects[0])
+      if (options.openEditor) {
+        const forms = objects.map(object => {
+          loadObjectForm(object)
+          return deepClone(session.form)
+        })
+        session.form = forms[0] || {}
+        const keys = new Set(forms.flatMap(form => Object.keys(form)))
+        ui.mixedFields = new Set([...keys].filter(key => forms.some(form => !sameStoredValue(form[key], forms[0]?.[key]))))
+      }
       const route = objectEditorRoute(objects[0].kind)
       if (!route.some(([pageId]) => pageId === ui.contextPage)) ui.contextPage = route[0]?.[0] || ''
     } else if (objects.length > 1) {
@@ -2064,6 +2282,7 @@
       'dimension-decimals': object.dimensionStyle?.decimals ?? object.dimensionStyle?.digits ?? 2,
       'dimension-rounding': object.dimensionStyle?.rounding || 'round',
       'dimension-adjustment': finite(object.dimensionStyle?.adjustment),
+      'dimension-font': fontToken(object.dimensionStyle?.fontFamily),
       'dimension-size': fontScale(object.dimensionStyle, DIMENSION_BASE_SIZE),
       'dimension-offset': finite(object.dimensionStyle?.offset, 14),
       dimensionColor: object.dimensionStyle?.color || '#334155',
@@ -2090,7 +2309,10 @@
       'road-width-font': fontToken(object.road?.widthLabelStyle?.fontFamily),
       'road-width-size': fontScale(object.road?.widthLabelStyle, ROAD_WIDTH_BASE_SIZE),
       'road-width-angle': finite(object.road?.widthLabelStyle?.rotation ?? object.road?.widthLabelStyle?.angle),
+      'road-width-vertical': Boolean(object.road?.widthLabelStyle?.vertical ?? object.road?.vertical ?? object.labelStyle?.vertical),
       'road-width-color': object.road?.widthLabelStyle?.color || object.labelStyle?.color || '#475569',
+      'road-width-frame': object.road?.widthLabelStyle?.frame === true || ['box', 'frame', 'border'].includes(String(object.road?.widthLabelStyle?.boxStyle || '').toLowerCase()),
+      'road-width-underline': object.road?.widthLabelStyle?.underline === true || String(object.road?.widthLabelStyle?.boxStyle || '').toLowerCase() === 'underline',
       'road-width-text': object.road?.widthText ?? '',
       'table-title': object.title === false ? '' : String(object.title || '区画一覧'),
       'table-show-price': object.showPrice !== false,
@@ -2126,13 +2348,25 @@
       'area-label-angle': finite(areaLabelStyle.rotation ?? areaLabelStyle.angle),
       'area-label-vertical': Boolean(areaLabelStyle.vertical),
       'area-label-color': areaLabelStyle.color || object.labelStyle?.color || '#172033',
+      'area-label-frame': areaLabelStyle.frame === true || ['box', 'frame', 'border'].includes(String(areaLabelStyle.boxStyle || '').toLowerCase()),
+      'area-label-underline': areaLabelStyle.underline === true || String(areaLabelStyle.boxStyle || '').toLowerCase() === 'underline',
+      'area-label-approximate': Boolean(areaLabelStyle.approximate ?? object.dimensionStyle?.approximate),
+      'area-label-decimals': areaLabelStyle.decimals ?? areaLabelStyle.digits ?? object.areaDigits ?? object.dimensionStyle?.decimals ?? 2,
+      'area-label-rounding': areaLabelStyle.rounding || object.dimensionStyle?.rounding || 'round',
+      'area-label-adjustment': finite(areaLabelStyle.adjustment),
       'tsubo-label-visible': metricLabelVisible(object, 'tsubo'),
       'tsubo-label-text': tsuboLabel.text ?? object.customTsuboLabel ?? '',
       'tsubo-label-font': fontToken(tsuboLabelStyle.fontFamily || object.labelStyle?.fontFamily),
       'tsubo-label-size': fontScale(tsuboLabelStyle, METRIC_BASE_SIZE),
       'tsubo-label-angle': finite(tsuboLabelStyle.rotation ?? tsuboLabelStyle.angle),
       'tsubo-label-vertical': Boolean(tsuboLabelStyle.vertical),
-      'tsubo-label-color': tsuboLabelStyle.color || object.labelStyle?.color || '#172033'
+      'tsubo-label-color': tsuboLabelStyle.color || object.labelStyle?.color || '#172033',
+      'tsubo-label-frame': tsuboLabelStyle.frame === true || ['box', 'frame', 'border'].includes(String(tsuboLabelStyle.boxStyle || '').toLowerCase()),
+      'tsubo-label-underline': tsuboLabelStyle.underline === true || String(tsuboLabelStyle.boxStyle || '').toLowerCase() === 'underline',
+      'tsubo-label-approximate': Boolean(tsuboLabelStyle.approximate ?? object.dimensionStyle?.approximate),
+      'tsubo-label-decimals': tsuboLabelStyle.decimals ?? tsuboLabelStyle.digits ?? object.tsuboDigits ?? object.dimensionStyle?.decimals ?? 2,
+      'tsubo-label-rounding': tsuboLabelStyle.rounding || object.dimensionStyle?.rounding || 'round',
+      'tsubo-label-adjustment': finite(tsuboLabelStyle.adjustment)
     }
   }
 
@@ -2370,14 +2604,22 @@
     }
   }
 
-  function applyBatchFormToDrafts() {
-    if (!ui.batchDrafts.length || !ui.batchTouched.size) return
+  function applyBatchFormToDrafts(objects = ui.batchDrafts) {
+    if (!objects.length || !ui.batchTouched.size) return
     const touched = key => ui.batchTouched.has(key)
     const anyTouched = (...keys) => keys.some(touched)
-    for (const object of ui.batchDrafts) {
+    for (const object of objects) {
       const shape = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
       const measurement = ['distance', 'polyline', 'area', 'dimension'].includes(object.kind)
       if (shape) {
+        if (touched('lot-number')) object.number = String(session.form['lot-number'] ?? '').trim() === '' ? null : parseNumeric(session.form['lot-number'], object.number)
+        if (touched('object-label')) {
+          object.label = String(session.form['object-label'] ?? '')
+          if (object.kind === 'road' || object.kind === 'water') object.road = { ...(object.road || {}), name: object.label }
+        }
+        if (touched('lot-top-label')) object.topLabel = String(session.form['lot-top-label'] ?? '')
+        if (touched('lot-price')) object.price = parseNumeric(session.form['lot-price'], null)
+        if (touched('object-memo')) object.memo = String(session.form['object-memo'] ?? '')
         object.style = { ...(object.style || {}) }
         if (touched('fill')) object.style.fill = session.form.fill
         if (touched('stroke')) object.style.stroke = session.form.stroke
@@ -2392,7 +2634,7 @@
         }
         if (['lot', 'road', 'water'].includes(object.kind)) {
           for (const [prefix, property] of [['area-label', 'areaLabel'], ['tsubo-label', 'tsuboLabel']]) {
-            const fields = [`${prefix}-visible`, `${prefix}-text`, `${prefix}-font`, `${prefix}-size`, `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-color`]
+            const fields = [`${prefix}-visible`, `${prefix}-text`, `${prefix}-font`, `${prefix}-size`, `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-color`, `${prefix}-frame`, `${prefix}-underline`, `${prefix}-approximate`, `${prefix}-decimals`, `${prefix}-rounding`, `${prefix}-adjustment`]
             if (!fields.some(touched)) continue
             const label = { ...(object[property] || {}), style: { ...(object[property]?.style || object.labelStyle || {}) } }
             if (touched(`${prefix}-visible`)) label.visible = Boolean(session.form[`${prefix}-visible`])
@@ -2405,6 +2647,16 @@
             if (touched(`${prefix}-angle`)) Object.assign(label.style, { rotation: finite(session.form[`${prefix}-angle`]), angle: finite(session.form[`${prefix}-angle`]) })
             if (touched(`${prefix}-vertical`)) label.style.vertical = Boolean(session.form[`${prefix}-vertical`])
             if (touched(`${prefix}-color`)) label.style.color = session.form[`${prefix}-color`] || '#172033'
+            if (touched(`${prefix}-frame`) || touched(`${prefix}-underline`)) {
+              label.style.background = 'transparent'
+              label.style.boxStyle = session.form[`${prefix}-frame`] ? 'box' : (session.form[`${prefix}-underline`] ? 'underline' : 'none')
+              label.style.frame = Boolean(session.form[`${prefix}-frame`])
+              label.style.underline = Boolean(session.form[`${prefix}-underline`])
+            }
+            if (touched(`${prefix}-approximate`)) label.style.approximate = Boolean(session.form[`${prefix}-approximate`])
+            if (touched(`${prefix}-decimals`)) label.style.decimals = label.style.digits = K.clamp(Math.round(finite(session.form[`${prefix}-decimals`], 2)), 0, 3)
+            if (touched(`${prefix}-rounding`)) label.style.rounding = session.form[`${prefix}-rounding`] || 'round'
+            if (touched(`${prefix}-adjustment`)) label.style.adjustment = finite(session.form[`${prefix}-adjustment`])
             object[property] = label
             const metric = prefix === 'area-label' ? 'area' : 'tsubo'
             object.visibility[metric] = label.visible !== false
@@ -2441,13 +2693,14 @@
             }
           }
         }
-        if (anyTouched('dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-size', 'dimension-offset', 'dimensionColor')) {
+        if (anyTouched('dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size', 'dimension-offset', 'dimensionColor')) {
           const style = { ...(object.dimensionStyle || {}) }
           if (touched('dimension-visible')) { style.visible = Boolean(session.form['dimension-visible']); object.visibility.dimensions = style.visible }
           if (touched('dimension-approximate')) style.approximate = Boolean(session.form['dimension-approximate'])
           if (touched('dimension-decimals')) style.decimals = style.digits = finite(session.form['dimension-decimals'], 2)
           if (touched('dimension-rounding')) style.rounding = session.form['dimension-rounding'] || 'round'
           if (touched('dimension-adjustment')) style.adjustment = finite(session.form['dimension-adjustment'])
+          if (touched('dimension-font')) style.fontFamily = fontToken(session.form['dimension-font'])
           if (touched('dimension-size')) {
             const scale = K.clamp(finite(session.form['dimension-size'], 1), 0.2, 5)
             Object.assign(style, { scale, size: DIMENSION_BASE_SIZE * scale, fontSize: DIMENSION_BASE_SIZE * scale })
@@ -2456,11 +2709,14 @@
           if (touched('dimensionColor')) style.color = session.form.dimensionColor || '#334155'
           object.dimensionStyle = style
         }
+        if (Number.isInteger(ui.editEdgeIndex) && object.edges?.[ui.editEdgeIndex] && anyTouched('edge-visible', 'edge-custom-text', 'edge-rotation-offset', 'part-offset-x', 'part-offset-y', 'part-approximate', 'part-decimals', 'part-rounding', 'part-adjustment', 'part-font', 'part-size', 'part-color')) {
+          applyDimensionPartForm(object, 'edge', ui.editEdgeIndex)
+        }
         if ((object.kind === 'road' || object.kind === 'water') && touched('road-category')) {
           const category = object.kind === 'water' ? 'water' : roadTypeCode(session.form['road-category'])
           object.road = { ...(object.road || {}), type: category }
         }
-        if ((object.kind === 'road' || object.kind === 'water') && anyTouched('road-width-visible', 'road-width', 'road-width-text', 'road-width-font', 'road-width-size', 'road-width-angle', 'road-width-color')) {
+        if ((object.kind === 'road' || object.kind === 'water') && anyTouched('road-width-visible', 'road-width', 'road-width-text', 'road-width-font', 'road-width-size', 'road-width-angle', 'road-width-vertical', 'road-width-color', 'road-width-frame', 'road-width-underline')) {
           object.road = { ...(object.road || {}), widthLabelStyle: { ...(object.road?.widthLabelStyle || {}) } }
           if (touched('road-width-visible')) object.visibility.width = Boolean(session.form['road-width-visible'])
           if (touched('road-width')) object.road.width = object.road.widthM = Math.max(0, finite(session.form['road-width'], object.road.widthM))
@@ -2471,9 +2727,24 @@
             Object.assign(object.road.widthLabelStyle, { scale, size: ROAD_WIDTH_BASE_SIZE * scale, fontSize: ROAD_WIDTH_BASE_SIZE * scale })
           }
           if (touched('road-width-angle')) Object.assign(object.road.widthLabelStyle, { rotation: finite(session.form['road-width-angle']), angle: finite(session.form['road-width-angle']) })
+          if (touched('road-width-vertical')) object.road.widthLabelStyle.vertical = Boolean(session.form['road-width-vertical'])
           if (touched('road-width-color')) object.road.widthLabelStyle.color = session.form['road-width-color'] || '#475569'
+          if (touched('road-width-frame') || touched('road-width-underline')) {
+            object.road.widthLabelStyle.background = 'transparent'
+            object.road.widthLabelStyle.boxStyle = session.form['road-width-frame'] ? 'box' : (session.form['road-width-underline'] ? 'underline' : 'none')
+            object.road.widthLabelStyle.frame = Boolean(session.form['road-width-frame'])
+            object.road.widthLabelStyle.underline = Boolean(session.form['road-width-underline'])
+          }
         }
       } else {
+        if (touched('object-label')) {
+          object.text = String(session.form['object-label'] ?? object.text ?? '')
+          if ('label' in object) object.label = object.text
+        }
+        if (touched('object-memo')) object.memo = String(session.form['object-memo'] ?? '')
+        if ((object.kind === 'house' || object.kind === 'parking') && touched('stamp-kind')) {
+          object.kind = session.form['stamp-kind'] === 'parking' ? 'parking' : 'house'
+        }
         if (anyTouched('font-family', 'text-size', 'text-angle', 'text-vertical', 'textColor', 'text-frame', 'text-underline')) {
           object.style = { ...(object.style || {}) }
           object.textStyle = { ...(object.textStyle || {}) }
@@ -2504,6 +2775,15 @@
           const divisions = K.clamp(Math.round(finite(session.form['guide-divisions'], object.options?.divisions || 2)), 2, 20)
           object.options = { ...(object.options || {}), divisions }
           if (Number.isFinite(Number(object.options.totalLengthM))) object.options.segmentLengthM = Number(object.options.totalLengthM) / divisions
+        }
+        if (object.kind === 'parallel' && Array.isArray(object.options?.baselinePoints) && object.options.baselinePoints.length >= 2 && touched('parallel-distance-edit')) {
+          const baseline = object.options.baselinePoints.slice(0, 2).map(K.point)
+          const currentSign = finite(object.options?.parallelSign ?? object.options?.distanceM, 1) >= 0 ? 1 : -1
+          const distanceM = Math.max(0.1, Math.abs(finite(session.form['parallel-distance-edit'], object.options?.distanceM || 3))) * currentSign
+          const mpp = Math.max(0, finite(store.document.calibration?.mpp))
+          const points = mpp > 0 ? K.parallelLine(baseline[0], baseline[1], distanceM / mpp) : null
+          if (points) object.points = points
+          object.options = { ...(object.options || {}), distanceM, parallelSign: currentSign }
         }
         if ((object.kind === 'house' || object.kind === 'parking') && anyTouched('stamp-width', 'stamp-depth', 'stamp-scale', 'stamp-text-scale', 'stamp-angle', 'stamp-dimensions', 'stamp-stroke', 'stamp-fill', 'stamp-hatch', 'stamp-hatch-spacing', 'stamp-hatch-angle', 'stamp-line-style', 'stamp-line-width', 'textColor')) {
           object.style = { ...(object.style || {}) }
@@ -2587,23 +2867,56 @@
           const visibilityFields = { 'measurement-total': 'total', 'measurement-segments': 'segments', 'measurement-area': 'area', 'measurement-tsubo': 'tsubo' }
           for (const [field, property] of Object.entries(visibilityFields)) if (touched(field)) object.measurementVisibility[property] = Boolean(session.form[field])
         }
+        if (Number.isInteger(ui.editSegmentIndex) && object.segments?.[ui.editSegmentIndex] && anyTouched('segment-visible', 'segment-custom-text', 'segment-rotation-offset', 'part-offset-x', 'part-offset-y', 'part-approximate', 'part-decimals', 'part-rounding', 'part-adjustment', 'part-font', 'part-size', 'part-color')) {
+          applyDimensionPartForm(object, 'segment', ui.editSegmentIndex)
+        }
       }
     }
+  }
+
+  function plainRecord(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+  }
+
+  function sameStoredValue(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right)
+  }
+
+  function applyDraftDelta(latest, original, draft) {
+    if (!plainRecord(latest) || !plainRecord(original) || !plainRecord(draft)) return draft
+    const keys = new Set([...Object.keys(original), ...Object.keys(draft)])
+    for (const key of keys) {
+      const before = original[key]
+      const after = draft[key]
+      if (sameStoredValue(before, after)) continue
+      if (!(key in draft)) {
+        delete latest[key]
+      } else if (plainRecord(before) && plainRecord(after) && plainRecord(latest[key])) {
+        applyDraftDelta(latest[key], before, after)
+      } else {
+        latest[key] = deepClone(after)
+      }
+    }
+    return latest
   }
 
   function commitBatchEdit() {
     if (!ui.batchDrafts.length || !ui.batchTouched.size) return [...ui.selectedIds]
     applyBatchFormToDrafts()
-    const replacements = new Map(ui.batchDrafts.map(object => [String(object.id), deepClone(object)]))
+    const changes = new Map(ui.batchDrafts.map((object, index) => [String(object.id), {
+      original: deepClone(ui.batchOriginals[index] || object),
+      draft: deepClone(object)
+    }]))
     store.commit('一括書式編集', documentModel => {
-      for (const [id, replacement] of replacements) {
+      for (const [id, change] of changes) {
         const found = K.objectById(documentModel, id)
         if (!found) continue
-        const index = found.collection.findIndex(object => String(object.id) === id)
-        if (index >= 0) found.collection[index] = replacement
+        applyDraftDelta(found.object, change.original, change.draft)
       }
     })
-    ui.batchOriginals = ui.batchDrafts.map(deepClone)
+    const current = ui.selectedIds.map(id => K.objectById(store.document, id)?.object).filter(Boolean)
+    ui.batchOriginals = current.map(deepClone)
+    ui.batchDrafts = current.map(deepClone)
     ui.batchTouched.clear()
     return [...ui.selectedIds]
   }
@@ -2617,31 +2930,20 @@
   function commitObjectEdit() {
     if (!ui.editDraft || !ui.selectedIds[0]) return
     if (!ui.batchTouched.size) return ui.selectedIds[0]
-    applyEditFormToDraft()
+    applyBatchFormToDrafts([ui.editDraft])
     const id = ui.selectedIds[0]
-    const replacement = deepClone(ui.editDraft)
+    const original = deepClone(ui.editOriginal || ui.editDraft)
+    const draft = deepClone(ui.editDraft)
     store.commit('図形編集', documentModel => {
       const found = K.objectById(documentModel, id)
       if (!found) return
-      const index = found.collection.findIndex(object => object.id === id)
-      if (index >= 0) found.collection[index] = replacement
+      applyDraftDelta(found.object, original, draft)
     })
-    ui.editOriginal = deepClone(replacement)
+    const current = K.objectById(store.document, id)?.object
+    ui.editOriginal = current ? deepClone(current) : null
+    ui.editDraft = current ? deepClone(current) : null
     ui.batchTouched.clear()
     return id
-  }
-
-  function saveObjectEdit() {
-    const id = commitObjectEdit()
-    if (!id) return
-    activateCommand('select', { focusCanvas: false })
-    setStatus('編集内容を確定しました', 1800)
-  }
-
-  function cancelObjectEdit() {
-    if (!ui.editDraft) return
-    activateCommand('select', { focusCanvas: false })
-    setStatus('編集前の状態へ戻しました', 1600)
   }
 
   function moveSelectedObject() {
@@ -2679,13 +2981,20 @@
       return
     }
     if (command === 'calibrate') {
+      if (session.form['scale-method'] !== 'two-point') {
+        setStatus('上部の縮尺候補または任意の分母を入力してください', 1800)
+        return
+      }
       if (session.points.length >= 2) {
         setStatus('2点は取得済みです。実距離を入力するか「2点を取り直す」を選んでください', 2200)
         return
       }
       if (addSessionPoint(world) && session.points.length === 2) {
-        setStatus('2点を取得しました。実距離を入力して縮尺を確定してください', 0)
-        focusCalibrationDistance()
+        if (parseNumeric(session.form['calibration-distance']) > 0) applyCalibration()
+        else {
+          setStatus('2点を取得しました。実距離を入力すると、このページへすぐ設定します', 0)
+          focusCalibrationDistance()
+        }
       }
       return
     }
@@ -2774,9 +3083,11 @@
         ui.segmentPanel = 'text'
       }
       else if (labelHit?.kind === 'shape-area-label' || labelHit?.kind === 'shape-tsubo-label') {
-        ui.contextPage = 'object-values'
-        ui.valueLabelPanel = labelHit.kind === 'shape-tsubo-label' ? 'tsubo' : 'area'
+        ui.contextPage = 'object-text'
+        ui.textRole = labelHit.kind === 'shape-tsubo-label' ? 'tsubo' : 'area'
       }
+      else if (labelHit?.kind === 'shape-road-width') { ui.contextPage = 'object-text'; ui.textRole = 'width' }
+      else if (labelHit?.kind === 'shape-road-name' || labelHit?.kind === 'shape-label') { ui.contextPage = 'object-text'; ui.textRole = 'name' }
       else ui.contextPage = 'object-basic'
       if (!keepGroup) selectObject(id, { openEditor: true, preserveSubselection: true })
       if (labelHit) {
@@ -2907,12 +3218,11 @@
       session.targetIds = [hit.id]
       session.vertexIndex = hit.index
       ui.selectedIds = [hit.id]
-      renderCommandSurface()
-      render()
+      finishCommand()
       return
     }
     if (command === 'division-guide') {
-      if (session.points.length >= 2) { setStatus('2点が揃っています。Enterまたは「確定」で作成してください', 1800); return }
+      if (session.points.length >= 2) { setStatus('2点は取得済みです', 1200); return }
       if (addSessionPoint(world) && session.points.length === 2) finishCommand()
       return
     }
@@ -2924,14 +3234,14 @@
         renderCommandSurface()
         render()
       } else if (session.points.length < 2) {
-        if (addSessionPoint(world) && session.points.length === 2) setStatus('等分線の向きを確認し、Enterまたは「作成」で確定してください', 0)
+        if (addSessionPoint(world) && session.points.length === 2) finishCommand()
       }
-      else setStatus('基準方向が揃っています。Enterまたは「確定」で作成してください', 1800)
+      else setStatus('基準方向は指定済みです', 1200)
       return
     }
     if (command === 'parallel-guide') {
-      if (session.points.length >= 2) { setStatus('基準線は保持中です。Enterまたは「確定」で次の平行線を作成します', 2000); return }
-      addSessionPoint(world)
+      if (session.points.length >= 2) return
+      if (addSessionPoint(world) && session.points.length === 2) finishCommand()
       return
     }
     if (command === 'edge-hide') {
@@ -2968,10 +3278,9 @@
   function finishCommand() {
     const command = session.command
     if (SCALE_REQUIRED_COMMANDS.has(command) && !hasScale()) {
-      ui.scaleFlow = { reason: 'required-command', returnCommand: command }
+      ui.scaleFlow = { reason: 'required-command', returnCommand: command, returnTargetIds: [...session.targetIds] }
       activateCommand('calibrate', { focusCanvas: false })
       setStatus(`現在のページは縮尺未設定です。縮尺を設定するまで「${COMMAND[command]?.name || command}」は確定できません`, 0)
-      showScaleRequiredDialog(command)
       return false
     }
     if (command === 'text' && !String(session.form['note-text'] || '').trim()) {
@@ -3035,16 +3344,35 @@
           const labelStyle = { ...preference.labelStyle, fontFamily: fontToken(form['font-family']), scale: labelScale, size: LABEL_BASE_SIZE * labelScale, fontSize: LABEL_BASE_SIZE * labelScale, vertical: Boolean(form['text-vertical']) }
           const widthScale = K.clamp(finite(form['road-width-size'], 1), 0.3, 5)
           const widthLabelStyle = { ...(preference.widthLabelStyle || {}), fontFamily: fontToken(form['road-width-font']), scale: widthScale, size: ROAD_WIDTH_BASE_SIZE * widthScale, fontSize: ROAD_WIDTH_BASE_SIZE * widthScale, vertical: Boolean(form['text-vertical']) }
+          const dimensionScale = K.clamp(finite(form['dimension-size'], 1), 0.2, 5)
+          const dimensionStyle = {
+            ...(preference.dimensionStyle || {}),
+            fontFamily: fontToken(form['dimension-font']), scale: dimensionScale,
+            size: DIMENSION_BASE_SIZE * dimensionScale, fontSize: DIMENSION_BASE_SIZE * dimensionScale,
+            approximate: Boolean(form.approximate),
+            decimals: finite(form['dimension-decimals'], 2), digits: finite(form['dimension-decimals'], 2),
+            rounding: form['dimension-rounding'] || 'round', adjustment: finite(form['dimension-adjustment'])
+          }
           preference.style = deepClone(style)
           preference.labelStyle = deepClone(labelStyle)
           preference.widthLabelStyle = deepClone(widthLabelStyle)
+          preference.dimensionStyle = deepClone(dimensionStyle)
           preference.vertical = Boolean(form['text-vertical'])
           preference.type = String(form['road-type'] || (isWater ? '水路' : '道路'))
           preference.name = name
           preference.widthM = widthM
+          preference.showArea = Boolean(form['show-area'])
+          preference.showTsubo = Boolean(form['show-tsubo'])
+          preference.showLengths = Boolean(form['show-lengths'])
           const shape = K.addShape(documentModel, kind, points, {
-            label: name, style, labelStyle, road: { type: typeCode, widthM, width: widthM, name, vertical: Boolean(form['text-vertical']), nameStyle: labelStyle, widthLabelStyle },
-            visibility: { label: true, number: false, area: false, tsubo: false, dimensions: false, width: true }
+            label: name, style, labelStyle, dimensionStyle,
+            road: { type: typeCode, widthM, width: widthM, name, vertical: Boolean(form['text-vertical']), nameStyle: labelStyle, widthLabelStyle },
+            visibility: {
+              label: Boolean(form['show-label']), number: false,
+              area: Boolean(form['show-area']), tsubo: Boolean(form['show-tsubo']),
+              dimensions: Boolean(form['show-lengths']), width: Boolean(form['road-width-visible']),
+              approximate: Boolean(form.approximate)
+            }
           })
           shape.road = { ...(shape.road || {}), name, width: widthM, widthM }
         })
@@ -3185,19 +3513,20 @@
       if (command === 'merge') {
         const firstObject = K.objectById(store.document, session.targetIds[0])?.object
         const secondObject = K.objectById(store.document, session.targetIds[1])?.object
+        let adoptedDifferentAttributes = false
         if (firstObject?.kind === secondObject?.kind && ['road', 'water'].includes(firstObject?.kind)) {
           const firstAttributes = JSON.stringify({ label: firstObject.label, road: firstObject.road, style: firstObject.style })
           const secondAttributes = JSON.stringify({ label: secondObject.label, road: secondObject.road, style: secondObject.style })
-          if (firstAttributes !== secondAttributes) {
-            let accepted = false
-            try { accepted = window.confirm(`名称・幅・色が異なります。最初に選んだ「${firstObject.label || (firstObject.kind === 'water' ? '水路' : '道路')}」の設定を残して合筆しますか？`) } catch (_) { accepted = false }
-            if (!accepted) { setStatus('合筆を取り消しました', 1400); return false }
-          }
+          adoptedDifferentAttributes = firstAttributes !== secondAttributes
         }
         let result = null
         store.commit('合筆', documentModel => { result = K.mergeLotShapes(documentModel, session.targetIds[0], session.targetIds[1], { primaryId: session.targetIds[0] }) })
         if (!result) throw new Error('同じ種類で共有辺のある図形、または区画と隅切りを選択してください')
-        restartCommand(command, `${result.kind === 'road' ? '道路' : result.kind === 'water' ? '水路' : '区画'}を合筆しました`)
+        const resultName = result.kind === 'road' ? '道路' : result.kind === 'water' ? '水路' : '区画'
+        const sourceName = firstObject?.label || resultName
+        restartCommand(command, adoptedDifferentAttributes
+          ? `${resultName}を合筆しました。名称・幅・色は先に選んだ「${sourceName}」を採用しました（Ctrl+Zで戻せます）`
+          : `${resultName}を合筆しました`)
         return true
       }
       if (command === 'corner-cut') {
@@ -3230,19 +3559,25 @@
         const mpp = store.document.calibration.mpp
         const baseDistanceM = Math.abs(finite(form['parallel-distance'], 3))
         if (!(baseDistanceM > 0)) throw new Error('平行線の間隔を入力してください')
-        const repeatIndex = Math.max(1, Math.round(finite(form.parallelCount, 0)) + 1)
+        const count = K.clamp(Math.round(finite(form['parallel-count'], 1)), 1, 20)
         const sign = finite(form.parallelSign, 1) >= 0 ? 1 : -1
-        const offsetM = baseDistanceM * repeatIndex * sign
-        const result = K.parallelLine(points[0], points[1], offsetM / mpp)
-        if (!result) throw new Error('基準線を指定してください')
-        store.commit('連続平行線', documentModel => K.addEntity(documentModel, 'parallel', {
-          points: result, text: `${Number(Math.abs(offsetM).toFixed(3))}m`, style: { color: '#9b4c8d', lineStyle: 'dashed' },
-          options: { distanceM: offsetM, baseDistanceM, repeatIndex, parallelSign: sign, baselinePoints: points.slice(0, 2).map(K.point) }
-        }))
-        session.form.parallelCount = repeatIndex
-        setStatus(`${Number(Math.abs(offsetM).toFixed(3))}mの平行線を作成。基準線は保持しています`, 2200)
-        renderCommandSurface()
-        render()
+        const results = []
+        for (let repeatIndex = 1; repeatIndex <= count; repeatIndex += 1) {
+          const offsetM = baseDistanceM * repeatIndex * sign
+          const result = K.parallelLine(points[0], points[1], offsetM / mpp)
+          if (result) results.push({ repeatIndex, offsetM, points: result })
+        }
+        if (!results.length) throw new Error('基準線を指定してください')
+        const created = []
+        store.commit('平行線', documentModel => {
+          for (const result of results) created.push(K.addEntity(documentModel, 'parallel', {
+            points: result.points, text: `${Number(Math.abs(result.offsetM).toFixed(3))}m`, style: { color: '#9b4c8d', lineStyle: 'dashed' },
+            options: { distanceM: result.offsetM, baseDistanceM, repeatIndex: result.repeatIndex, parallelSign: sign, baselinePoints: points.slice(0, 2).map(K.point) }
+          }))
+        })
+        activateCommand('select', { focusCanvas: false })
+        setObjectSelection(created.map(entity => entity.id), { openEditor: true })
+        setStatus(`${Number(baseDistanceM.toFixed(3))}m間隔の平行線を${created.length}本作成しました`, 2200)
         return true
       }
     } catch (error) {
@@ -3364,11 +3699,12 @@
     const pixelDistance = K.distance(session.points[0], session.points[1])
     if (!(pixelDistance > K.EPS)) { setStatus('異なる2点を指定してください', 1800); return false }
     const mpp = realDistance / pixelDistance
+    session.form['scale-method'] = 'two-point'
     const mapScale = mapScaleFromMpp(mpp)
     const pageNumber = Math.max(1, finite(store.document.background?.currentPage, 1))
-    store.commit(`${pageNumber}ページの縮尺設定`, documentModel => {
-      documentModel.calibration = {
-        ...documentModel.calibration, mpp, mapScale,
+      store.commit(`${pageNumber}ページの縮尺設定`, documentModel => {
+        documentModel.calibration = {
+          ...documentModel.calibration, method: 'two-point', mpp, mapScale,
         points: session.points.map(K.point), realDistanceM: realDistance
       }
     })
@@ -3377,13 +3713,28 @@
       : `${pageNumber}ページの縮尺を2点から設定しました`)
   }
 
+  function applyManualPageScale(value) {
+    const scale = parseNumeric(value)
+    if (!(scale > 0)) { setStatus('縮尺の分母を入力してください', 1800); return false }
+    const mpp = mppFromMapScale(scale)
+    if (!(mpp > 0)) { setStatus('画像のDPIが不明です。既知の2点から縮尺を設定してください', 2400); return false }
+    const pageNumber = Math.max(1, finite(store.document.background?.currentPage, 1))
+    session.form['scale-method'] = 'scale'
+    const current = store.document.calibration || {}
+    if (Math.abs(finite(current.mpp) - mpp) > 1e-12 || Math.abs(finite(current.mapScale) - scale) > 1e-9 || current.points || current.realDistanceM) {
+      store.commit(`${pageNumber}ページの縮尺設定`, documentModel => {
+        documentModel.calibration = { ...documentModel.calibration, method: 'scale', mpp, mapScale: scale, points: null, realDistanceM: null }
+      })
+    }
+    return completeScaleFlow(`${pageNumber}ページの縮尺を 1:${Math.round(scale).toLocaleString('ja-JP')} に設定しました`)
+  }
+
   function backCurrentDraftPoint(message = '作図点を1点戻しました') {
     const removed = session.back()
     if (!removed) {
       setStatus('戻す作図点がありません', 1200)
       return false
     }
-    if (session.command === 'parallel-guide') session.form.parallelCount = 0
     setStatus(message, 1200)
     renderCommandSurface()
     render()
@@ -3394,7 +3745,6 @@
     if (session.points.length) {
       session.points = []
       session.step = 0
-      if (session.command === 'parallel-guide') session.form.parallelCount = 0
       setStatus('未確定の作図を取り消しました', 1400)
       renderCommandSurface()
       render()
@@ -3517,8 +3867,8 @@
         runtime.hoverSnap = drag.translation.snap
         dom.canvas.dataset.cursor = 'move'
       } else if (drag.moved) {
-        const snap = store.document.preferences.snap || {}
-        const snapping = snap.vertex || snap.intersection || snap.edge || snap.grid
+        const snap = activeSnapSettings()
+        const snapping = snap.vertex || snap.intersection || snap.edge
         const candidate = snapping
           ? K.snapPoint(store.document, freeWorld, { ...snap, excludeObjectIds: [drag.id] }, 10 / runtime.view.zoom)
           : { point: freeWorld, type: 'free' }
@@ -3625,8 +3975,9 @@
       dom.canvas.dataset.cursor = ''
       try { dom.canvas.releasePointerCapture?.(event.pointerId) } catch (_) { /* capture may already be gone */ }
       if (event.type === 'pointercancel' || !drag.moved) {
+        if (event.type !== 'pointercancel') setObjectSelection([], { openEditor: false })
         render()
-        setStatus(drag.previousIds.length ? '選択は保持中です。Escまたは「選択解除」で解除できます' : '図形をクリックまたは囲んで選択します', 1600)
+        setStatus(event.type === 'pointercancel' && drag.previousIds.length ? '囲い選択を取り消し、元の選択を保持しました' : '選択を解除しました', 1400)
         return
       }
       const enclosed = idsInsideSelectionBounds(drag.start, drag.current)
@@ -3707,36 +4058,147 @@
     zoomAt(screen, Math.exp(-event.deltaY * 0.0015))
   }
 
-  async function destroyBackgroundRuntime() {
+  function underlayVisualState(background = store.document.background) {
+    return {
+      type: background?.type || null,
+      source: typeof background?.source === 'string' ? background.source : null,
+      currentPage: Math.max(1, Math.trunc(finite(background?.currentPage, 1))),
+      imageRotation: ((Math.trunc(finite(background?.imageRotation)) % 360) + 360) % 360
+    }
+  }
+
+  function sameUnderlayVisualState(left, right) {
+    return Boolean(left) && Boolean(right) &&
+      left.type === right.type && left.source === right.source &&
+      left.currentPage === right.currentPage && left.imageRotation === right.imageRotation
+  }
+
+  function underlayRuntimeModel(background = store.document.background) {
+    return {
+      ...background,
+      metadata: deepClone(background?.metadata || {}),
+      pages: Array.isArray(background?.pages) ? background.pages.map(item => deepClone(item)) : []
+    }
+  }
+
+  function updateUnderlayPageWithoutHistory(nextPage, renderedBackground) {
+    // Page navigation is view state. It must not create an Undo entry or turn a
+    // clean project dirty, while K.setActivePage still restores page-local
+    // calibration and drawings.
+    const dirty = store.dirty
+    K.setActivePage(store.document, nextPage)
+    if (renderedBackground?.width > 0 && renderedBackground?.height > 0) {
+      store.document.background.width = renderedBackground.width
+      store.document.background.height = renderedBackground.height
+    }
+    store.dirty = dirty
+    store.emit({ type: 'view', label: '下絵ページ' })
+  }
+
+  async function destroyBackgroundRuntime(options = {}) {
+    if (options.invalidate !== false) {
+      runtime.backgroundTaskToken += 1
+      runtime.backgroundSyncRequest += 1
+    }
     const previous = runtime.backgroundRuntime
     runtime.backgroundRuntime = null
     runtime.backgroundSource = null
+    runtime.backgroundVisualState = null
     renderer.clearBackgroundSources()
     try { await previous?.destroy?.() } catch (_) { /* release best effort */ }
+  }
+
+  async function synchronizeBackgroundRuntime(options = {}) {
+    runtime.backgroundSyncRequest += 1
+    const targetState = underlayVisualState()
+    const ready = targetState.type
+      ? Boolean(runtime.backgroundRuntime && runtime.backgroundSource)
+      : !runtime.backgroundRuntime && !runtime.backgroundSource
+    if (!options.force && ready && sameUnderlayVisualState(runtime.backgroundVisualState, targetState)) return true
+
+    const token = ++runtime.backgroundTaskToken
+    const previous = runtime.backgroundRuntime
+    runtime.backgroundRuntime = null
+    runtime.backgroundSource = null
+    runtime.backgroundVisualState = null
+    renderer.clearBackgroundSources()
+    try { await previous?.destroy?.() } catch (_) { /* release best effort */ }
+    if (token !== runtime.backgroundTaskToken) return false
+
+    const background = underlayRuntimeModel()
+    if (!background.type) {
+      runtime.backgroundVisualState = targetState
+      render()
+      return true
+    }
+    if (typeof IO.createUnderlayRuntime !== 'function' || typeof IO.renderUnderlayPage !== 'function') {
+      setStatus('下絵の復元機能を初期化できませんでした', 2600)
+      return false
+    }
+
+    let nextRuntime = null
+    try {
+      nextRuntime = await IO.createUnderlayRuntime(background)
+      if (token !== runtime.backgroundTaskToken) {
+        try { await nextRuntime?.destroy?.() } catch (_) { /* stale runtime */ }
+        return false
+      }
+      const pageNumber = Math.max(1, finite(targetState.currentPage, 1))
+      const result = await IO.renderUnderlayPage(nextRuntime, background, pageNumber, { scale: background.type === 'pdf' ? 4.2 : 1, maxPixels: 80_000_000 })
+      if (token !== runtime.backgroundTaskToken || result?.cancelled) {
+        try { await nextRuntime?.destroy?.() } catch (_) { /* stale runtime */ }
+        return false
+      }
+      runtime.backgroundRuntime = nextRuntime
+      runtime.backgroundSource = result?.canvas || null
+      runtime.backgroundVisualState = targetState
+      if (runtime.backgroundSource) renderer.setBackgroundSource(runtime.backgroundSource, 'default')
+      renderCommandSurface()
+      render()
+      return true
+    } catch (error) {
+      try { await nextRuntime?.destroy?.() } catch (_) { /* release failed runtime */ }
+      if (token === runtime.backgroundTaskToken) setStatus(`下絵の復元に失敗: ${error?.message || error}`, 3000)
+      return false
+    }
+  }
+
+  function scheduleBackgroundSynchronization() {
+    const targetState = underlayVisualState()
+    const ready = targetState.type
+      ? Boolean(runtime.backgroundRuntime && runtime.backgroundSource)
+      : !runtime.backgroundRuntime && !runtime.backgroundSource
+    if (ready && sameUnderlayVisualState(runtime.backgroundVisualState, targetState)) return
+    const request = ++runtime.backgroundSyncRequest
+    runtime.backgroundTaskToken += 1
+    runtime.backgroundSource = null
+    renderer.clearBackgroundSources()
+    Promise.resolve().then(() => {
+      if (request !== runtime.backgroundSyncRequest) return
+      void synchronizeBackgroundRuntime()
+    })
   }
 
   async function showUnderlayPage(pageNumber = store.document.background.currentPage || 1) {
     const background = store.document.background
     if (!runtime.backgroundRuntime || !background.type || typeof IO.renderUnderlayPage !== 'function') return false
+    const taskRuntime = runtime.backgroundRuntime
+    const token = ++runtime.backgroundTaskToken
     const count = Math.max(1, background.pages?.length || background.pageCount || runtime.backgroundRuntime.pageCount || 1)
     const nextPage = K.clamp(Math.round(finite(pageNumber, 1)), 1, count)
     const previousPage = Math.max(1, finite(background.currentPage, 1))
+    if (nextPage !== previousPage) flushActiveEditor()
     setStatus(`下絵 ${nextPage}ページを描画中…`)
     try {
       // IO mutates currentPage and page dimensions while rendering. Delay those
       // changes until the requested PDF page completed successfully.
-      const renderedBackground = { ...background }
-      const result = await IO.renderUnderlayPage(runtime.backgroundRuntime, renderedBackground, nextPage, { scale: background.type === 'pdf' ? 4.2 : 1, maxPixels: 80_000_000 })
-      if (result?.cancelled) return false
+      const renderedBackground = underlayRuntimeModel(background)
+      const result = await IO.renderUnderlayPage(taskRuntime, renderedBackground, nextPage, { scale: background.type === 'pdf' ? 4.2 : 1, maxPixels: 80_000_000 })
+      if (token !== runtime.backgroundTaskToken || taskRuntime !== runtime.backgroundRuntime || result?.cancelled) return false
       runtime.backgroundSource = result?.canvas || null
       if (runtime.backgroundSource) renderer.setBackgroundSource(runtime.backgroundSource, 'default')
-      store.commit('下絵ページ', documentModel => {
-        K.setActivePage(documentModel, nextPage)
-        if (renderedBackground.width > 0 && renderedBackground.height > 0) {
-          documentModel.background.width = renderedBackground.width
-          documentModel.background.height = renderedBackground.height
-        }
-      })
+      updateUnderlayPageWithoutHistory(nextPage, renderedBackground)
+      runtime.backgroundVisualState = underlayVisualState()
       // Selection, edit drafts and command points belong to the old page.
       let currentCommand = session.command
       cancelTransient(false)
@@ -3744,7 +4206,7 @@
       ui.registryIds.clear()
       if (!hasScale() && store.document.background?.type) {
         currentCommand = 'calibrate'
-        if (nextPage !== previousPage) ui.scaleFlow = { reason: 'page-changed', returnCommand: null }
+        if (nextPage !== previousPage) ui.scaleFlow = { reason: 'page-changed', returnCommand: null, returnTargetIds: [] }
       }
       if (COMMAND[currentCommand]) {
         session.activate(currentCommand, defaultForm(currentCommand))
@@ -3762,7 +4224,7 @@
       render()
       return true
     } catch (error) {
-      setStatus(error?.message || '下絵を描画できませんでした', 2600)
+      if (token === runtime.backgroundTaskToken) setStatus(error?.message || '下絵を描画できませんでした', 2600)
       return false
     }
   }
@@ -3778,6 +4240,7 @@
       const previousTransform = replace ? deepClone(store.document.background) : null
       const loaded = await IO.loadUnderlayFile(file, { page: 1 })
       await destroyBackgroundRuntime()
+      if (!replace) prepareForDocumentReplacement()
       runtime.backgroundRuntime = loaded.runtime
       store.commit(replace ? '下絵差替' : '下絵読込', documentModel => {
         if (!replace) {
@@ -3794,15 +4257,12 @@
         K.setActivePage(documentModel, background.currentPage || 1)
       })
       if (!replace) {
-        store.clearHistory()
-        ui.selectedIds = []
-        ui.registryIds.clear()
-        ui.clipboard = []
+        resetDocumentScopedUiState({ resetViews: true })
         runtime.currentProjectPath = null
       }
       ui.documentName = file.name || ui.documentName
       await showUnderlayPage(store.document.background.currentPage || 1)
-      ui.scaleFlow = { reason: 'underlay-loaded', returnCommand: null }
+      ui.scaleFlow = { reason: 'underlay-loaded', returnCommand: null, returnTargetIds: [] }
       activateCommand('calibrate', { focusCanvas: false })
       setStatus(`${file.name || '下絵'} を読み込みました。現在のページの縮尺を候補から選ぶか、既知寸法の2点で設定してください`, 0)
       return true
@@ -3812,25 +4272,14 @@
     }
   }
 
-  async function hydrateBackground(background = store.document.background) {
-    await destroyBackgroundRuntime()
-    if (!background?.type || typeof IO.createUnderlayRuntime !== 'function') return
-    try {
-      runtime.backgroundRuntime = await IO.createUnderlayRuntime(background)
-      await showUnderlayPage(background.currentPage || 1)
-    } catch (error) {
-      setStatus(`下絵の復元に失敗: ${error?.message || error}`, 3000)
-    }
-  }
-
   function serializeCurrentProject() {
     if (typeof IO.serializeProject === 'function') return IO.serializeProject(store.document, { view: runtime.view, name: ui.documentName, appVersion: K.APP_VERSION })
-    return JSON.stringify({ format: 'kozu-measure', version: 6, appVersion: K.APP_VERSION, document: store.document, view: runtime.view, meta: { name: ui.documentName } }, null, 2)
+    return JSON.stringify({ format: 'kozu-measure', version: K.SCHEMA_VERSION, appVersion: K.APP_VERSION, document: store.document, view: runtime.view, meta: { name: ui.documentName } }, null, 2)
   }
 
   async function saveProject(options = {}) {
     try {
-      commitPendingEdit()
+      flushActiveEditor()
       const contents = serializeCurrentProject()
       const fileName = safeFileName(ui.documentName.replace(/\.(pdf|png|jpe?g|webp)$/i, '') || 'kozu-project', '.kozu.json')
       const payload = { fileName, contents }
@@ -3880,6 +4329,7 @@
   }
 
   function confirmBeforeReplacingDocument(actionLabel) {
+    flushActiveEditor()
     if (!store.dirty || !documentHasWork()) return Promise.resolve(true)
     if (runtime.pendingDestructiveResolve) return Promise.resolve(false)
     runtime.pendingClose = false
@@ -3904,16 +4354,16 @@
     try {
       setStatus(`${file.name} を開いています…`)
       const loaded = typeof IO.openProjectFile === 'function'
-        ? await IO.openProjectFile(file, { hydrateBackground: true })
+        ? await IO.openProjectFile(file, { hydrateBackground: false })
         : { document: K.normalizeDocument(JSON.parse(await file.text())), view: runtime.view, runtime: null }
       await destroyBackgroundRuntime()
+      prepareForDocumentReplacement()
       store.replace(loaded.document, { clean: true })
+      resetDocumentScopedUiState({ resetViews: true })
       runtime.view = loaded.view ? { ...runtime.view, ...loaded.view } : runtime.view
-      runtime.backgroundRuntime = loaded.runtime || null
       ui.documentName = loaded.meta?.name || file.name || '無題'
       runtime.currentProjectPath = typeof options.projectPath === 'string' ? options.projectPath : null
-      ui.selectedIds = []
-      if (runtime.backgroundRuntime) await showUnderlayPage(store.document.background.currentPage || 1)
+      await synchronizeBackgroundRuntime({ force: true })
       activateCommand('select', { focusCanvas: false })
       store.markSaved()
       setStatus(loaded.migratedFrom
@@ -4127,11 +4577,19 @@
     return paper.orientation === 'portrait' ? { width: landscape.height, height: landscape.width } : landscape
   }
 
+  function outputFrameMetricsMm(paper = outputPaperModel(store.document)) {
+    const frameVisible = paper.showFrame !== false
+    return {
+      inset: 5,
+      titleHeight: frameVisible && paper.showTitleFrame !== false ? (paper.size === 'A3' ? 15 : 12) : 0
+    }
+  }
+
   function printableRectMm(paper = outputPaperModel(store.document)) {
-    const safeMargin = 5
+    const frameMetrics = outputFrameMetricsMm(paper)
     const innerGap = paper.showFrame !== false ? 2 : 0
-    const inset = safeMargin + innerGap
-    const titleHeight = paper.showFrame !== false && paper.showTitleFrame !== false ? (paper.size === 'A3' ? 15 : 12) : 0
+    const inset = frameMetrics.inset + innerGap
+    const titleHeight = frameMetrics.titleHeight
     const width = Math.max(1, finite(paper.widthMm) - inset * 2)
     const height = Math.max(1, finite(paper.heightMm) - inset * 2 - titleHeight)
     return {
@@ -4268,7 +4726,7 @@
         ? 'このページは縮尺未設定です。下絵のページ・縮尺を設定してください。'
         : !(denominator > 0)
           ? '印刷縮尺を選択してください。'
-          : `このページを 1:${Math.round(denominator).toLocaleString('ja-JP')} で出力します。配置 X ${finite(layout.offsetMmX).toFixed(1)}mm / Y ${finite(layout.offsetMmY).toFixed(1)}mm`
+          : `このページを 1:${Math.round(denominator).toLocaleString('ja-JP')} で出力します。配置 X ${finite(layout.offsetMmX).toFixed(1)}mm / Y ${finite(layout.offsetMmY).toFixed(1)}mm。プレビューをドラッグして配置を調整できます。`
       readiness.dataset.state = mpp > 0 && denominator > 0 ? 'ready' : 'blocked'
     }
     const fit = mpp > 0 && denominator > 0 ? outputFitStatus(store.document, layout, paper) : null
@@ -4300,12 +4758,6 @@
             : `候補 1:${Math.round(suggestion).toLocaleString('ja-JP')} で大きくする`)
         : ''
     }
-    $$('[data-action="toggle-output-placement"]').forEach(button => {
-      button.classList.toggle('active', ui.output.placing)
-      button.setAttribute('aria-pressed', String(ui.output.placing))
-      button.textContent = ui.output.placing ? '配置調整中' : '配置を調整'
-    })
-    dom.outputPreview?.classList.toggle('placement-enabled', ui.output.placing)
   }
 
   function renderOutputCanvas(targetCanvas = dom.outputPreview, options = {}) {
@@ -4356,25 +4808,32 @@
     if (!context) return
     const width = canvas.width
     const height = canvas.height
-    const fullPaperSize = paperPixelSize(paper)
-    const outputScale = Math.min(width / fullPaperSize.width, height / fullPaperSize.height)
-    const margin = Math.max(4, Math.round(15 * outputScale))
-    const innerWidth = width - margin * 2
-    const innerHeight = height - margin * 2
+    const millimeters = paper.size === 'A3' ? { short: 297, long: 420 } : { short: 210, long: 297 }
+    const portrait = paper.orientation === 'portrait'
+    const paperWidthMm = Math.max(1, finite(paper.widthMm, portrait ? millimeters.short : millimeters.long))
+    const paperHeightMm = Math.max(1, finite(paper.heightMm, portrait ? millimeters.long : millimeters.short))
+    const pixelsPerMmX = width / paperWidthMm
+    const pixelsPerMmY = height / paperHeightMm
+    const pixelsPerMm = Math.min(pixelsPerMmX, pixelsPerMmY)
+    const frameMetrics = outputFrameMetricsMm(paper)
+    const frameInsetX = frameMetrics.inset * pixelsPerMmX
+    const frameInsetY = frameMetrics.inset * pixelsPerMmY
+    const innerWidth = width - frameInsetX * 2
+    const innerHeight = height - frameInsetY * 2
     context.save()
     context.strokeStyle = '#111827'
     context.fillStyle = '#111827'
-    context.lineWidth = Math.max(1, 1.35 * outputScale)
-    if (paper.showFrame !== false) context.strokeRect(margin, margin, innerWidth, innerHeight)
+    context.lineWidth = Math.max(1, 0.35 * pixelsPerMm)
+    if (paper.showFrame !== false) context.strokeRect(frameInsetX, frameInsetY, innerWidth, innerHeight)
     const scaleDenominator = Number(paper.printScale) > 0 ? Number(paper.printScale) : null
     const scaleText = scaleDenominator
       ? `縮尺 1:${Math.round(scaleDenominator).toLocaleString('ja-JP')}`
       : (Number(calibration.mpp) > 0 ? '縮尺 2点校正済' : '縮尺 未設定')
     if (paper.showFrame !== false && paper.showTitleFrame !== false && (paper.title || paper.date || paper.author || paper.note || scaleText)) {
       // 一般的な図面枠に合わせ、タイトル欄は右下の大箱ではなく下端の細い帯にする。
-      const boxHeight = Math.max(22, Math.round(56 * outputScale))
-      const x = margin
-      const y = height - margin - boxHeight
+      const boxHeight = frameMetrics.titleHeight * pixelsPerMmY
+      const x = frameInsetX
+      const y = height - frameInsetY - boxHeight
       const x1 = x + innerWidth * 0.27
       const x2 = x + innerWidth * 0.41
       const x3 = x + innerWidth * 0.69
@@ -4392,9 +4851,9 @@
         context.beginPath(); context.moveTo(startX, middleY); context.lineTo(finishX, middleY); context.stroke()
       }
 
-      const pad = Math.max(2, 4 * outputScale)
-      const labelSize = Math.max(5, 6.5 * outputScale)
-      const valueSize = Math.max(7, 9.5 * outputScale)
+      const pad = Math.max(2, pixelsPerMm)
+      const labelSize = Math.max(5, 1.7 * pixelsPerMm)
+      const valueSize = Math.max(7, 2.5 * pixelsPerMm)
       const drawCell = (left, top, cellWidth, cellHeight, label, value, centered = false) => {
         context.textBaseline = 'top'
         context.textAlign = centered ? 'center' : 'left'
@@ -4452,6 +4911,7 @@
 
   async function exportPng() {
     try {
+      flushActiveEditor()
       const canvas = createExportCanvas()
       const name = safeFileName((store.document.paper.title || '区画図'), '.png')
       let result = null
@@ -4470,6 +4930,7 @@
 
   async function printOrPdf(asPdf = false) {
     try {
+      flushActiveEditor()
       const canvas = createExportCanvas()
       const paper = outputPaperModel(store.document)
       const html = typeof IO.canvasToPrintHTML === 'function'
@@ -4608,7 +5069,7 @@
   }
 
   function handleOutputPointerDown(event) {
-    if (!ui.output.placing || event.button !== 0) return
+    if (runtime.outputDrag || event.button !== 0) return
     try { ensurePhysicalOutputReady() } catch (error) { setStatus(error.message, 2600); return }
     const rect = dom.outputPreview?.getBoundingClientRect()
     if (!rect || !(rect.width > 0) || !(rect.height > 0)) return
@@ -4620,7 +5081,8 @@
       rectWidth: rect.width,
       rectHeight: rect.height,
       startOffset: { x: finite(layout.offsetMmX), y: finite(layout.offsetMmY) },
-      previewOffset: { x: finite(layout.offsetMmX), y: finite(layout.offsetMmY) }
+      previewOffset: { x: finite(layout.offsetMmX), y: finite(layout.offsetMmY) },
+      moved: false
     }
     dom.outputPreview.setPointerCapture?.(event.pointerId)
     dom.outputPreview.classList.add('is-dragging')
@@ -4630,10 +5092,14 @@
   function handleOutputPointerMove(event) {
     const drag = runtime.outputDrag
     if (!drag || event.pointerId !== drag.pointerId) return
+    const deltaX = event.clientX - drag.startClientX
+    const deltaY = event.clientY - drag.startClientY
+    if (!drag.moved && Math.hypot(deltaX, deltaY) < 2) return
+    drag.moved = true
     const paper = outputPaperModel(store.document)
     drag.previewOffset = {
-      x: drag.startOffset.x + (event.clientX - drag.startClientX) * paper.widthMm / drag.rectWidth,
-      y: drag.startOffset.y + (event.clientY - drag.startClientY) * paper.heightMm / drag.rectHeight
+      x: drag.startOffset.x + deltaX * paper.widthMm / drag.rectWidth,
+      y: drag.startOffset.y + deltaY * paper.heightMm / drag.rectHeight
     }
     refreshOutputPreview()
     event.preventDefault()
@@ -4642,6 +5108,11 @@
   function handleOutputPointerUp(event) {
     const drag = runtime.outputDrag
     if (!drag || event.pointerId !== drag.pointerId) return
+    if (!drag.moved) {
+      cancelOutputDrag()
+      event.preventDefault()
+      return
+    }
     const offset = { ...drag.previewOffset }
     runtime.outputDrag = null
     dom.outputPreview?.classList.remove('is-dragging')
@@ -4685,7 +5156,8 @@
     const changed = key => changedKey == null || changedKey === key
     store.commit('表示設定', documentModel => {
       if (changed('global-show-underlay')) documentModel.background.visible = Boolean(session.form['global-show-underlay'])
-      for (const [field, property] of [['snap-grid', 'grid'], ['snap-vertex', 'vertex'], ['snap-intersection', 'intersection'], ['snap-edge', 'edge']]) {
+      documentModel.preferences.snap.grid = false
+      for (const [field, property] of [['snap-vertex', 'vertex'], ['snap-intersection', 'intersection'], ['snap-edge', 'edge']]) {
         if (changed(field)) documentModel.preferences.snap[property] = Boolean(session.form[field])
       }
       for (const shape of page(documentModel).shapes) {
@@ -4742,6 +5214,8 @@
             for (const edge of shape.edges || []) edge.style = sizedStyle(edge.style, values.dimension)
           } else if (shape.kind === 'road' || shape.kind === 'water') {
             shape.labelStyle = sizedStyle(shape.labelStyle, values.road)
+            shape.areaLabel = { ...(shape.areaLabel || {}), style: sizedStyle(shape.areaLabel?.style, values.metric) }
+            shape.tsuboLabel = { ...(shape.tsuboLabel || {}), style: sizedStyle(shape.tsuboLabel?.style, values.metric) }
             shape.road = {
               ...(shape.road || {}),
               nameStyle: sizedStyle(shape.road?.nameStyle, values.road),
@@ -4822,22 +5296,59 @@
     setStatus('左クリック=作図（近くは自動吸着）、ダブルクリック/Enter=確定、右クリック/Backspace=1点戻す、Esc=取消', 9000)
   }
 
+  function convertSelectedShapeKind(targetKind) {
+    const id = ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
+    const current = id ? K.objectById(store.document, id)?.object : null
+    const nextKind = ['lot', 'road', 'water'].includes(targetKind) ? targetKind : null
+    if (!current || !['lot', 'road', 'water'].includes(current.kind) || !nextKind) {
+      setStatus('種類を変更する区画・道路・水路を1件選んでください', 1800)
+      return false
+    }
+    if (current.kind === nextKind) return true
+    const previousKind = current.kind
+    commitPendingEdit()
+    let converted = null
+    store.commit('図形種類変更', documentModel => { converted = K.convertShapeKind(documentModel, id, nextKind) })
+    if (!converted) {
+      setStatus('種類を変更できませんでした', 1800)
+      return false
+    }
+    ui.contextPage = 'object-basic'
+    selectObject(id, { openEditor: true })
+    const label = kind => kind === 'lot' ? '区画' : kind === 'water' ? '水路' : '道路'
+    setStatus(`${label(previousKind)}から${label(nextKind)}へ変更しました。Ctrl+Zで元へ戻せます`, 2600)
+    return true
+  }
+
+  function performHistoryNavigation(direction) {
+    flushActiveEditor()
+    const selectedBefore = [...ui.selectedIds]
+    const contextBefore = ui.contextPage
+    const changed = direction === 'redo' ? store.redo() : store.undo()
+    if (!changed) return false
+    const remaining = selectedBefore.filter(id => Boolean(K.objectById(store.document, id)?.object))
+    ui.contextPage = contextBefore
+    setObjectSelection(remaining, { openEditor: remaining.length > 0, preserveSubselection: true })
+    // DocumentStore restores serializable data. The PDF/image runtime is not
+    // part of that snapshot, so rebuild it when the visual source/page changed.
+    void synchronizeBackgroundRuntime()
+    return true
+  }
+
   async function handleAction(action, source) {
     switch (action) {
       case 'show-category-launcher': showLauncher(source?.closest('[data-category]')?.dataset.category || ui.category); break
-      case 'finish-command': finishCommand(); break
       case 'cancel-command':
         if (!session.points.length && !session.targetIds.length && session.vertexIndex == null) {
           activateCommand('select', { focusCanvas: false })
           setStatus('選択へ戻りました', 1200)
         } else {
-          if (session.command === 'parallel-guide') session.form.parallelCount = 0
           restartCommand(session.command, '操作を取り消しました')
         }
         break
       case 'pop-point': backCurrentDraftPoint(); break
-      case 'undo': commitPendingEdit(); store.undo(); setObjectSelection([], { openEditor: false }); break
-      case 'redo': commitPendingEdit(); store.redo(); setObjectSelection([], { openEditor: false }); break
+      case 'undo': performHistoryNavigation('undo'); break
+      case 'redo': performHistoryNavigation('redo'); break
       case 'fit': fitView(); break
       case 'actual-size': actualSize(); break
       case 'open-underlay': dom.underlayInput?.click(); break
@@ -4851,10 +5362,13 @@
           break
         }
         await destroyBackgroundRuntime()
+        prepareForDocumentReplacement()
         store.replace(K.createDocument(), { clean: true })
+        resetDocumentScopedUiState({ resetViews: true })
         runtime.view = { x: 36, y: 32, zoom: 1 }
         runtime.currentProjectPath = null
-        ui.documentName = '無題'; ui.selectedIds = []; activateCommand('underlay-open', { focusCanvas: false }); setStatus('新しい図面を作成しました', 1600)
+        await synchronizeBackgroundRuntime()
+        ui.documentName = '無題'; activateCommand('underlay-open', { focusCanvas: false }); setStatus('新しい図面を作成しました', 1600)
         break
       case 'clear-document':
         store.commit('全図形削除', documentModel => { const active = page(documentModel); active.shapes = []; active.entities = [] })
@@ -4864,7 +5378,7 @@
         await destroyBackgroundRuntime(); store.commit('下絵削除', documentModel => {
           documentModel.background = K.createDocument().background
           resetAllCalibrations(documentModel)
-        }); renderCommandSurface(); render(); setStatus('下絵を削除しました', 1500); break
+        }); await synchronizeBackgroundRuntime(); renderCommandSurface(); render(); setStatus('下絵を削除しました', 1500); break
       case 'previous-page': await showUnderlayPage(finite(store.document.background.currentPage, 1) - 1); break
       case 'next-page': await showUnderlayPage(finite(store.document.background.currentPage, 1) + 1); break
       case 'underlay-opacity-down': store.commit('下絵濃さ', documentModel => { documentModel.background.opacity = K.clamp(finite(documentModel.background.opacity, 1) - 0.08, 0.08, 1) }); render(); break
@@ -4884,7 +5398,11 @@
       }
       case 'reset-underlay-transform':
         Object.assign(session.form, { 'underlay-scale': 100, 'underlay-x': 0, 'underlay-y': 0, 'underlay-angle': 0 }); applyUnderlayTransform(); renderCommandSurface(); break
-      case 'apply-calibration': applyCalibration(); break
+      case 'return-from-scale':
+        ui.scaleFlow = { reason: null, returnCommand: null, returnTargetIds: [] }
+        activateCommand('select', { focusCanvas: false })
+        setStatus('選択へ戻りました', 1200)
+        break
       case 'reset-calibration-points':
         session.points = []
         session.step = 0
@@ -4894,17 +5412,6 @@
         dom.canvas.focus({ preventScroll: true })
         setStatus('縮尺の始点を指定してください', 1600)
         break
-      case 'apply-manual-scale': {
-        const scale = parseNumeric(session.form['manual-scale'])
-        if (!(scale > 0)) { setStatus('縮尺の分母を入力してください', 1800); break }
-        const mpp = mppFromMapScale(scale)
-        if (!(mpp > 0)) { setStatus('画像のDPIが不明です。既知の2点から縮尺を設定してください', 2400); break }
-        const pageNumber = Math.max(1, finite(store.document.background?.currentPage, 1))
-        store.commit(`${pageNumber}ページの縮尺設定`, documentModel => {
-          documentModel.calibration = { ...documentModel.calibration, mpp, mapScale: scale, points: null, realDistanceM: null }
-        })
-        completeScaleFlow(`${pageNumber}ページの縮尺を 1:${Math.round(scale).toLocaleString('ja-JP')} に設定しました`); break
-      }
       case 'apply-legacy-approx': {
         const scope = source?.dataset.approxScope === 'part' ? 'part' : 'global'
         const enable = !legacyApproxIsActive(scope)
@@ -4918,7 +5425,7 @@
           }
         })
         if (ui.batchDrafts.length) applyBatchFormToDrafts()
-        else if (ui.editDraft) applyEditFormToDraft()
+        else if (ui.editDraft) applyBatchFormToDrafts([ui.editDraft])
         initializeFieldControls()
         syncControlState()
         render()
@@ -4929,19 +5436,16 @@
       case 'toggle-snap':
         store.commit('吸着切替', documentModel => {
           const snap = documentModel.preferences.snap
-          const enabled = !(snap.grid || snap.vertex || snap.intersection || snap.edge)
-          Object.assign(snap, { grid: enabled, vertex: enabled, intersection: enabled, edge: enabled })
+          const enabled = !(snap.vertex || snap.intersection || snap.edge)
+          Object.assign(snap, { grid: false, vertex: enabled, intersection: enabled, edge: enabled })
         }); render(); break
       case 'reset-command-defaults':
         store.commit('作図既定値初期化', documentModel => { documentModel.preferences = K.createDocument().preferences })
         activateCommand(session.command, { focusCanvas: false })
         setStatus('この図面の作図既定値を標準へ戻しました。表示中の設定にも反映しました', 2200)
         break
-      case 'save-typography-defaults': applyTypographySettings(false); break
-      case 'apply-typography-existing': applyTypographySettings(true); break
       case 'flip-parallel':
         session.form.parallelSign = -finite(session.form.parallelSign, 1)
-        session.form.parallelCount = 0
         renderCommandSurface()
         render()
         setStatus('作成方向を反転しました', 1600)
@@ -4949,7 +5453,6 @@
       case 'reset-parallel-baseline':
         session.points = []
         session.step = 0
-        session.form.parallelCount = 0
         runtime.moveSnap = null
         renderCommandSurface()
         render()
@@ -4963,7 +5466,7 @@
           setStatus('この平行線は反転できません', 1600)
           break
         }
-        applyEditFormToDraft()
+        applyBatchFormToDrafts([ui.editDraft])
         const distanceM = -finite(object.options?.distanceM, 0)
         const points = K.parallelLine(baseline[0], baseline[1], distanceM / mpp)
         if (!points) { setStatus('平行線を反転できませんでした', 1600); break }
@@ -4977,8 +5480,6 @@
         setStatus('平行線を基準線の反対側へ反転しました', 1500)
         break
       }
-      case 'save-edit': saveObjectEdit(); break
-      case 'cancel-edit': cancelObjectEdit(); break
       case 'move-selected': moveSelectedObject(); break
       case 'copy-place-selected': {
         const ids = [...ui.selectedIds]
@@ -5005,7 +5506,7 @@
           ? object?.edges?.[ui.editEdgeIndex]
           : (Number.isInteger(ui.editSegmentIndex) ? object?.segments?.[ui.editSegmentIndex] : null)
         if (!object || !part) { setStatus('位置を戻す辺寸法を選んでください', 1600); break }
-        applyEditFormToDraft()
+        applyBatchFormToDrafts([ui.editDraft])
         part.labelOffset = { x: 0, y: 0 }
         session.form['part-offset-x'] = 0
         session.form['part-offset-y'] = 0
@@ -5014,30 +5515,6 @@
         initializeFieldControls()
         render()
         setStatus(Number.isInteger(ui.editSegmentIndex) ? '区間寸法を線の上側へ戻しました' : '辺寸法の位置を自動位置へ戻しました', 1500)
-        break
-      }
-      case 'convert-shape-kind': {
-        const id = ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
-        const current = id ? K.objectById(store.document, id)?.object : null
-        const targetKind = ['lot', 'road', 'water'].includes(session.form['object-type']) ? session.form['object-type'] : null
-        if (!current || !['lot', 'road', 'water'].includes(current.kind) || !targetKind) {
-          setStatus('種類を変更する区画・道路・水路を1件選んでください', 1800)
-          break
-        }
-        if (current.kind === targetKind) {
-          setStatus('現在と同じ種類です', 1200)
-          break
-        }
-        commitPendingEdit()
-        let converted = null
-        store.commit('図形種類変更', documentModel => { converted = K.convertShapeKind(documentModel, id, targetKind) })
-        if (!converted) {
-          setStatus('種類を変更できませんでした', 1800)
-          break
-        }
-        ui.contextPage = 'object-basic'
-        selectObject(id, { openEditor: true })
-        setStatus(`${current.kind === 'lot' ? '区画' : current.kind === 'water' ? '水路' : '道路'}から${targetKind === 'lot' ? '区画' : targetKind === 'water' ? '水路' : '道路'}へ変更しました`, 2200)
         break
       }
       case 'restore-cutout': {
@@ -5053,7 +5530,7 @@
         setStatus('隅切り前の区画へ戻しました', 1800)
         break
       }
-      case 'edit-vertices': activateCommand('vertex-edit'); break
+      case 'edit-vertices': requestUserCommand('vertex-edit'); break
       case 'delete-selected': {
         const ids = [...ui.selectedIds]
         commitPendingEdit()
@@ -5067,8 +5544,6 @@
             draft.labelPosition = null
             if (draft.road) {
               draft.road.namePosition = null
-              draft.road.widthLabelPosition = null
-              draft.road.widthLabelOffset = null
             }
             if (draft.labelStyle) { delete draft.labelStyle.x; delete draft.labelStyle.y; delete draft.labelStyle.offsetX; delete draft.labelStyle.offsetY }
           })
@@ -5083,7 +5558,7 @@
         break
       case 'reset-value-label-position':
         if (ui.editDraft) {
-          applyEditFormToDraft()
+          applyBatchFormToDrafts([ui.editDraft])
           const property = ui.valueLabelPanel === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
           const legacyProperty = property === 'tsuboLabel' ? 'tsuboLabelPosition' : 'areaLabelPosition'
           ui.editDraft[property] = { ...(ui.editDraft[property] || {}), position: null }
@@ -5092,6 +5567,24 @@
           commitPendingEdit()
           render()
           setStatus('表示位置を自動へ戻しました', 1400)
+        }
+        break
+      case 'reset-text-role-position':
+        if (ui.editDraft) {
+          applyBatchFormToDrafts([ui.editDraft])
+          const role = source?.dataset.textPositionRole || ui.textRole
+          if (role === 'width') {
+            ui.editDraft.road = { ...(ui.editDraft.road || {}), widthLabelPosition: null, widthLabelOffset: null }
+          } else if (role === 'area' || role === 'tsubo') {
+            const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
+            const legacy = role === 'tsubo' ? 'tsuboLabelPosition' : 'areaLabelPosition'
+            ui.editDraft[property] = { ...(ui.editDraft[property] || {}), position: null }
+            ui.editDraft[legacy] = null
+          }
+          ui.batchTouched.add('__text-role-position')
+          commitPendingEdit()
+          render()
+          setStatus('文字位置を自動へ戻しました', 1400)
         }
         break
       case 'clear-guides': {
@@ -5121,12 +5614,6 @@
       case 'refresh-output-preview': await refreshOutputPreview(); break
       case 'center-drawing-on-paper': centerDrawingOnPaper(); break
       case 'apply-output-scale-suggestion': applySuggestedOutputScale(source); break
-      case 'toggle-output-placement':
-        if (runtime.outputDrag) cancelOutputDrag()
-        ui.output.placing = !ui.output.placing
-        syncPaperControls()
-        setStatus(ui.output.placing ? 'プレビュー上をドラッグして図形全体の出力位置を調整します' : '出力配置の調整を終了しました', 1800)
-        break
       case 'set-today': if (byId('paper-date')) byId('paper-date').value = new Date().toISOString().slice(0, 10); updatePaperFromControls(); break
       case 'export-png': await exportPng(); break
       case 'export-pdf': await printOrPdf(true); break
@@ -5142,22 +5629,119 @@
     return field.value
   }
 
+  function beginInputTransaction(target) {
+    const field = target?.closest?.('#command-controls [data-field],[data-registry-field],#paper-size,#paper-orientation,#paper-print-scale-preset,#paper-print-scale-custom,#paper-frame-visible,#paper-underlay-visible,#paper-guides-visible,#paper-title,#paper-date,#paper-author,#paper-note,#title-frame-visible')
+    if (!field) return
+    if (runtime.inputTransaction?.field && runtime.inputTransaction.field !== field) {
+      const previous = runtime.inputTransaction.field
+      runtime.inputTransaction = null
+      commitInputElement(previous)
+    }
+    runtime.inputTransaction = {
+      field,
+      value: fieldValue(field),
+      sessionForm: deepClone(session.form),
+      editDraft: ui.editDraft ? deepClone(ui.editDraft) : null,
+      batchDrafts: ui.batchDrafts.map(deepClone),
+      batchTouched: [...ui.batchTouched]
+    }
+  }
+
+  function restoreInputTransaction() {
+    const transaction = runtime.inputTransaction
+    runtime.inputTransaction = null
+    if (!transaction) return false
+    session.form = deepClone(transaction.sessionForm)
+    ui.editDraft = transaction.editDraft ? deepClone(transaction.editDraft) : null
+    ui.batchDrafts = transaction.batchDrafts.map(deepClone)
+    ui.batchTouched = new Set(transaction.batchTouched)
+    const field = transaction.field
+    if (field?.isConnected) {
+      if (field.type === 'checkbox') field.checked = Boolean(transaction.value)
+      else field.value = transaction.value ?? ''
+    }
+    if (field?.closest?.('#command-controls')) {
+      renderCommandSurface()
+      render()
+    }
+    return true
+  }
+
+  function commitInputElement(field) {
+    if (!field) return false
+    const commandField = field.closest?.('#command-controls [data-field]')
+    if (commandField) {
+      handleCommandFieldInput(commandField, true)
+      return true
+    }
+    const registryField = field.closest?.('[data-registry-field]')
+    if (registryField) {
+      updateRegistryObject(
+        registryField.dataset.objectId,
+        registryField.dataset.registryField,
+        registryField.type === 'checkbox' ? registryField.checked : registryField.value
+      )
+      return true
+    }
+    if (field.matches?.(PAPER_INPUT_SELECTOR)) {
+      updatePaperFromControls()
+      return true
+    }
+    return false
+  }
+
+  function flushActiveEditor() {
+    const active = document.activeElement
+    runtime.inputTransaction = null
+    commitInputElement(active)
+    commitPendingEdit()
+    return true
+  }
+
   function handleCommandFieldInput(field, commit = false) {
     const key = field.dataset.field
     if (!key) return
+    ui.mixedFields.delete(key)
+    field.removeAttribute('data-mixed')
+    if (field.type === 'checkbox') field.indeterminate = false
     session.form[key] = fieldValue(field)
+    if (key === 'scale-method') {
+      session.form[key] = session.form[key] === 'two-point' ? 'two-point' : 'scale'
+      session.points = []
+      session.step = 0
+      runtime.hoverSnap = null
+      renderCommandSurface()
+      render()
+      requestAnimationFrame(() => {
+        const target = session.form[key] === 'two-point'
+          ? dom.canvas
+          : ($('[data-field="scale-preset"]', dom.commandControls) || $('[data-field="manual-scale"]', dom.commandControls))
+        target?.focus({ preventScroll: true })
+      })
+      setStatus(session.form[key] === 'two-point' ? '図面上の既知の2点を指定してください' : '縮尺候補または任意の分母を入力してください', 1800)
+      return
+    }
     if (key === 'scale-preset') {
       const preset = parseNumeric(session.form[key])
       if (preset > 0) {
         session.form['manual-scale'] = String(preset)
         const manualField = $('[data-field="manual-scale"]', dom.commandControls)
         if (manualField) manualField.value = session.form['manual-scale']
+        applyManualPageScale(preset)
+        return
       }
     } else if (key === 'manual-scale') {
       const manual = parseNumeric(session.form[key])
       session.form['scale-preset'] = DRAWING_SCALE_PRESETS.has(manual) ? String(manual) : ''
       const presetField = $('[data-field="scale-preset"]', dom.commandControls)
       if (presetField) presetField.value = session.form['scale-preset']
+      if (commit && manual > 0) {
+        applyManualPageScale(manual)
+        return
+      }
+    } else if (key === 'calibration-distance' && commit && session.command === 'calibrate' && session.points.length === 2) {
+      applyCalibration()
+      return
     }
     if (key === 'area-label-text' || key === 'tsubo-label-text') {
       const normalized = commit
@@ -5168,7 +5752,6 @@
     }
     const editingObjects = Boolean(ui.editDraft || ui.batchDrafts.length)
     if (editingObjects) ui.batchTouched.add(key)
-    if (key === 'parallel-distance') session.form.parallelCount = 0
     if (key === 'show-area') { session.form['area-label-visible'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('area-label-visible') }
     if (key === 'area-label-visible') { session.form['show-area'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('show-area') }
     if (key === 'show-tsubo') { session.form['tsubo-label-visible'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('tsubo-label-visible') }
@@ -5187,6 +5770,10 @@
       }
     }
     const editingKind = ui.editDraft?.kind || selectedKind()
+    if (key === 'text-size' && ['house', 'parking', 'north'].includes(editingKind)) {
+      session.form['stamp-text-scale'] = session.form[key]
+      if (editingObjects) ui.batchTouched.add('stamp-text-scale')
+    }
     if (key === 'textColor' && ['distance', 'polyline', 'area', 'dimension'].includes(editingKind)) { session.form.dimensionColor = session.form[key]; if (editingObjects) ui.batchTouched.add('dimensionColor') }
     if (key === 'dimensionColor' && ['distance', 'polyline', 'area', 'dimension'].includes(editingKind)) { session.form.textColor = session.form[key]; if (editingObjects) ui.batchTouched.add('textColor') }
     if (key === 'road-type') {
@@ -5198,25 +5785,41 @@
       session.form.fill = preference.style?.fill || fallbackStyle.fill
       session.form.stroke = preference.style?.stroke || fallbackStyle.stroke
       session.form['fill-opacity'] = Math.round(finite(preference.style?.opacity, fallbackStyle.opacity) * 100)
-      const nameField = $('[data-field="road-name"]', dom.commandControls)
-      const widthField = $('[data-field="road-width"]', dom.commandControls)
-      if (nameField && document.activeElement !== nameField) nameField.value = session.form['road-name']
-      if (widthField && document.activeElement !== widthField) widthField.value = session.form['road-width']
+      session.form['font-family'] = fontToken(preference.labelStyle?.fontFamily)
+      session.form['text-size'] = fontScale(preference.labelStyle, LABEL_BASE_SIZE)
+      session.form['road-width-font'] = fontToken(preference.widthLabelStyle?.fontFamily)
+      session.form['road-width-size'] = fontScale(preference.widthLabelStyle, ROAD_WIDTH_BASE_SIZE)
+      session.form['text-vertical'] = Boolean(preference.vertical)
+      session.form['show-label'] = true
+      session.form['road-width-visible'] = true
+      session.form['show-area'] = preference.showArea === true
+      session.form['show-tsubo'] = preference.showTsubo === true
+      session.form['show-lengths'] = preference.showLengths === true
+      session.form['dimension-font'] = fontToken(preference.dimensionStyle?.fontFamily)
+      session.form['dimension-size'] = fontScale(preference.dimensionStyle, DIMENSION_BASE_SIZE)
+      session.form.approximate = Boolean(preference.dimensionStyle?.approximate)
+      session.form['dimension-decimals'] = preference.dimensionStyle?.decimals ?? preference.dimensionStyle?.digits ?? 2
+      session.form['dimension-rounding'] = preference.dimensionStyle?.rounding || 'round'
+      session.form['dimension-adjustment'] = finite(preference.dimensionStyle?.adjustment)
+      for (const fieldName of ['road-name', 'road-width', 'fill-opacity', 'font-family', 'text-size', 'road-width-font', 'road-width-size', 'text-vertical', 'show-label', 'road-width-visible', 'show-area', 'show-tsubo', 'show-lengths', 'dimension-font', 'dimension-size', 'approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment']) {
+        const target = $(`[data-field="${fieldName}"]`, dom.commandControls)
+        if (!target || document.activeElement === target) continue
+        if (target.type === 'checkbox') target.checked = Boolean(session.form[fieldName])
+        else target.value = session.form[fieldName] ?? ''
+      }
     }
     if (key === 'object-type' && ui.editDraft) {
       const kind = ['lot', 'road', 'water'].includes(field.value) ? field.value : ui.editDraft.kind
-      const preference = store.document.preferences[kind] || {}
-      const fallbackStyle = kind === 'water' ? K.DEFAULTS.waterStyle : kind === 'road' ? K.DEFAULTS.roadStyle : K.DEFAULTS.lotStyle
-      session.form.fill = preference.style?.fill || fallbackStyle.fill
-      session.form.stroke = preference.style?.stroke || fallbackStyle.stroke
-      session.form['fill-opacity'] = Math.round(finite(preference.style?.opacity, fallbackStyle.opacity) * 100)
       ui.batchTouched.delete(key)
-      syncControlState()
-      render()
+      convertSelectedShapeKind(kind)
+      return
+    }
+    if (session.command === 'typography-settings' && commit && key.startsWith('typography-') && key !== 'typography-apply-target') {
+      applyTypographySettings(session.form['typography-apply-target'] === 'all')
       return
     }
     if (ui.batchDrafts.length) applyBatchFormToDrafts()
-    else if (ui.editDraft) applyEditFormToDraft()
+    else if (ui.editDraft) applyBatchFormToDrafts([ui.editDraft])
     if (commit && session.command === 'underlay-transform') applyUnderlayTransform()
     if (commit && session.command === 'display-settings') applyDisplaySettings(key)
     if (commit && editingObjects) {
@@ -5228,44 +5831,6 @@
   }
 
   function handleDocumentClick(event) {
-    const scaleDialogChoice = event.target.closest('[data-scale-dialog-choice]')
-    if (scaleDialogChoice) {
-      event.preventDefault()
-      const choice = scaleDialogChoice.dataset.scaleDialogChoice
-      closeScaleRequiredDialog()
-      if (choice === 'cancel') {
-        ui.scaleFlow = { reason: null, returnCommand: null }
-        activateCommand('select', { focusCanvas: false })
-        setStatus('作図を開始しませんでした。縮尺は下絵の「ページ・縮尺」から設定できます', 2200)
-      } else {
-        requestAnimationFrame(() => {
-          const target = $('[data-field="scale-preset"]', dom.commandControls) || $('[data-field="calibration-distance"]', dom.commandControls)
-          target?.focus({ preventScroll: true })
-        })
-      }
-      return
-    }
-    const colorChoice = event.target.closest('[data-color-choice]')
-    if (colorChoice) {
-      const picker = colorChoice.closest('.color-picker')
-      const field = picker ? $(`select[data-field="${picker.dataset.colorField}"]`, dom.commandControls) : null
-      if (field) {
-        field.value = colorChoice.dataset.colorChoice
-        handleCommandFieldInput(field, true)
-        syncColorSelects()
-      }
-      if (picker) picker.querySelector('.color-picker-panel').hidden = true
-      return
-    }
-    const colorToggle = event.target.closest('[data-color-picker-toggle]')
-    if (colorToggle) {
-      const picker = colorToggle.closest('.color-picker')
-      const panel = picker?.querySelector('.color-picker-panel')
-      $$('.color-picker-panel', dom.commandControls).forEach(value => { if (value !== panel) value.hidden = true })
-      if (panel) panel.hidden = !panel.hidden
-      return
-    }
-    $$('.color-picker-panel', dom.commandControls).forEach(panel => { panel.hidden = true })
     const typographyPresetButton = event.target.closest('[data-typography-preset]')
     if (typographyPresetButton) {
       const preset = TYPOGRAPHY_PRESETS[typographyPresetButton.dataset.typographyPreset]
@@ -5279,14 +5844,10 @@
         })
         $$('[data-typography-preset]', dom.commandControls).forEach(button => button.classList.toggle('primary', button === typographyPresetButton))
         initializeFieldControls()
-        setStatus(`${typographyPresetButton.textContent.trim()}の文字サイズを選びました。適用先を選んでください`, 1800)
+        applyTypographySettings(session.form['typography-apply-target'] === 'all')
       }
       return
     }
-    const clickedToolbarDropdown = event.target.closest('details.toolbar-dropdown')
-    $$('details.toolbar-dropdown[open]').forEach(dropdown => {
-      if (dropdown !== clickedToolbarDropdown) dropdown.open = false
-    })
     const menuButton = event.target.closest('[data-menu]')
     if (menuButton) {
       event.preventDefault()
@@ -5314,6 +5875,7 @@
 
     const registryTab = event.target.closest('[data-registry-tab]')
     if (registryTab) {
+      ui.registryIds.clear()
       ui.registryTab = registryTab.dataset.registryTab
       const filter = byId('registry-filter')
       if (filter) filter.value = 'all'
@@ -5323,6 +5885,7 @@
 
     const registryAreaFilter = event.target.closest('[data-registry-area-filter]')
     if (registryAreaFilter) {
+      ui.registryIds.clear()
       const filter = byId('registry-filter')
       if (filter) filter.value = registryAreaFilter.dataset.registryAreaFilter || 'all'
       renderRegistry()
@@ -5349,6 +5912,16 @@
 
     const valueLabelPanel = event.target.closest('[data-value-label-panel]')
     if (valueLabelPanel) { event.preventDefault(); ui.valueLabelPanel = valueLabelPanel.dataset.valueLabelPanel; renderCommandSurface(); return }
+
+    const createCommandPage = event.target.closest('[data-create-command-page]')
+    if (createCommandPage) {
+      event.preventDefault()
+      commitPendingEdit()
+      ui.createPage = createCommandPage.dataset.createCommandPage || ''
+      renderCommandSurface()
+      render()
+      return
+    }
 
     const contextPage = event.target.closest('[data-context-page]')
     if (contextPage) {
@@ -5384,14 +5957,19 @@
   function handleDocumentInput(event) {
     const field = event.target.closest('#command-controls [data-field]')
     if (field) { handleCommandFieldInput(field, false); return }
-    if (event.target.matches('#registry-search,#registry-filter,#registry-sort')) { renderRegistry(); return }
+    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry(); return }
+    if (event.target.matches('#registry-sort')) { renderRegistry(); return }
   }
 
   function handleDocumentChange(event) {
+    const textRole = event.target.closest('#command-controls [data-text-role]')
+    if (textRole) { commitPendingEdit(); ui.textRole = textRole.value || 'name'; renderCommandSurface(); render(); return }
     const dimensionTarget = event.target.closest('#command-controls [data-dimension-target]')
     if (dimensionTarget) { selectDimensionTarget(dimensionTarget.value); return }
     const field = event.target.closest('#command-controls [data-field]')
     if (field) { handleCommandFieldInput(field, true); return }
+    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry(); return }
+    if (event.target.matches('#registry-sort')) { renderRegistry(); return }
     const registrySelect = event.target.closest('[data-registry-select]')
     if (registrySelect) {
       commitPendingEdit()
@@ -5407,9 +5985,26 @@
       ids.forEach(id => event.target.checked ? ui.registryIds.add(id) : ui.registryIds.delete(id))
       setObjectSelection([...ui.registryIds], { openEditor: true, syncRegistry: false }); return
     }
-    if (event.target.matches('#paper-size,#paper-orientation,#paper-print-scale-preset,#paper-print-scale-custom,#paper-frame-visible,#paper-underlay-visible,#paper-guides-visible,#paper-title,#paper-date,#paper-author,#paper-note,#title-frame-visible')) {
+    if (event.target.matches(PAPER_INPUT_SELECTOR)) {
       updatePaperFromControls(); return
     }
+  }
+
+  function handleDocumentFocusOut(event) {
+    const transaction = runtime.inputTransaction
+    if (!transaction || transaction.field !== event.target || runtime.composing) return
+    setTimeout(() => {
+      if (runtime.inputTransaction !== transaction) return
+      runtime.inputTransaction = null
+      commitInputElement(transaction.field)
+    }, 0)
+  }
+
+  function flushInputBeforeCanvasPointer() {
+    const transaction = runtime.inputTransaction
+    if (!transaction) return
+    runtime.inputTransaction = null
+    commitInputElement(transaction.field)
   }
 
   function isTypingTarget(target) {
@@ -5432,13 +6027,14 @@
       if (key === 'o') { event.preventDefault(); dom.underlayInput?.click(); return }
       if (key === 'n') { event.preventDefault(); void handleAction('new-project'); return }
       if (key === 'p') { event.preventDefault(); void printOrPdf(false); return }
-      if (!typing && key === 'z' && !event.shiftKey) { event.preventDefault(); commitPendingEdit(); store.undo(); setObjectSelection([], { openEditor: false }); return }
-      if (!typing && (key === 'y' || (key === 'z' && event.shiftKey))) { event.preventDefault(); commitPendingEdit(); store.redo(); setObjectSelection([], { openEditor: false }); return }
+      if (!typing && key === 'z' && !event.shiftKey) { event.preventDefault(); performHistoryNavigation('undo'); return }
+      if (!typing && (key === 'y' || (key === 'z' && event.shiftKey))) { event.preventDefault(); performHistoryNavigation('redo'); return }
       if (!typing && key === 'c') { event.preventDefault(); copySelection(); return }
       if (!typing && key === 'v') { event.preventDefault(); pasteClipboard(); return }
     }
     if (typing && event.key === 'Escape') {
       event.preventDefault()
+      restoreInputTransaction()
       dom.canvas.focus({ preventScroll: true })
       closeMenus()
       return
@@ -5447,10 +6043,19 @@
     if (event.key === ' ') { if (!typing) { runtime.spaceDown = true; event.preventDefault() }; return }
     if (event.key === 'Enter') {
       if (runtime.composing || event.isComposing || Date.now() - runtime.compositionEndedAt < 90) return
-      if (!typing || event.target.matches('[data-field="calibration-distance"],[data-field="manual-scale"]')) {
+      if (typing && !event.target.matches('textarea,[contenteditable="true"]')) {
         event.preventDefault()
-        if (event.target.matches('[data-field="manual-scale"]')) void handleAction('apply-manual-scale')
-        else finishCommand()
+        runtime.inputTransaction = null
+        if (event.target.matches('[data-field="manual-scale"]')) applyManualPageScale(event.target.value)
+        else if (event.target.matches('[data-field="calibration-distance"]')) {
+          commitInputElement(event.target)
+          if (session.points.length === 2) applyCalibration()
+          else { dom.canvas.focus({ preventScroll: true }); setStatus('図面上の既知の2点を指定してください', 1800) }
+        }
+        else commitInputElement(event.target)
+      } else if (!typing) {
+        event.preventDefault()
+        finishCommand()
       }
       return
     }
@@ -5519,6 +6124,7 @@
   }
 
   function handleCloseRequested() {
+    flushActiveEditor()
     if (!store.dirty) { desktop.respondClose?.('discard'); return }
     if (runtime.pendingDestructiveResolve) resolveDestructiveChoice(false)
     runtime.pendingClose = true
@@ -5561,6 +6167,8 @@
 
   function bindEvents() {
     document.addEventListener('click', handleDocumentClick)
+    document.addEventListener('focusin', event => beginInputTransaction(event.target), true)
+    document.addEventListener('focusout', handleDocumentFocusOut, true)
     document.addEventListener('input', handleDocumentInput)
     document.addEventListener('change', handleDocumentChange)
     document.addEventListener('keydown', handleKeyDown)
@@ -5573,13 +6181,7 @@
       if (field) handleCommandFieldInput(field, false)
     }, true)
     document.addEventListener('paste', event => { void handlePaste(event) })
-    dom.scaleRequiredDialog?.addEventListener('cancel', event => {
-      event.preventDefault()
-      closeScaleRequiredDialog()
-      ui.scaleFlow = { reason: null, returnCommand: null }
-      activateCommand('select', { focusCanvas: false })
-      setStatus('作図を開始しませんでした。縮尺は下絵の「ページ・縮尺」から設定できます', 2200)
-    })
+    dom.canvas.addEventListener('pointerdown', flushInputBeforeCanvasPointer, true)
     dom.canvas.addEventListener('pointerdown', handlePointerDown)
     dom.canvas.addEventListener('pointermove', handlePointerMove)
     dom.canvas.addEventListener('pointerup', handlePointerUp)
@@ -5587,6 +6189,7 @@
     dom.canvas.addEventListener('dblclick', handleDoubleClick)
     dom.canvas.addEventListener('contextmenu', handleContextMenu)
     dom.canvas.addEventListener('wheel', handleWheel, { passive: false })
+    dom.outputPreview?.addEventListener('pointerdown', flushInputBeforeCanvasPointer, true)
     dom.outputPreview?.addEventListener('pointerdown', handleOutputPointerDown)
     dom.outputPreview?.addEventListener('pointermove', handleOutputPointerMove)
     dom.outputPreview?.addEventListener('pointerup', handleOutputPointerUp)
@@ -5611,11 +6214,12 @@
     syncWorkspaceLabels()
     installRegistryDock()
     bindEvents()
-    store.subscribe(() => {
+    store.subscribe(event => {
       renderer.setDocument(store.document)
       updateStatus()
       renderRegistry()
       if (ui.workspace === 'output') refreshOutputPreview()
+      if (['undo', 'redo', 'replace'].includes(event?.type)) scheduleBackgroundSynchronization()
     })
     renderer.setBackgroundResolver(() => runtime.backgroundSource)
     session.activate('underlay-open', defaultForm('underlay-open'))
@@ -5667,8 +6271,9 @@
     outputPixelsPerWorldUnit,
     handleAction,
     confirmBeforeReplacingDocument,
-    undo: () => { const result = store.undo(); render(); return result },
-    redo: () => { const result = store.redo(); render(); return result },
+    synchronizeBackgroundRuntime,
+    undo: () => { const result = performHistoryNavigation('undo'); render(); return result },
+    redo: () => { const result = performHistoryNavigation('redo'); render(); return result },
     screenToWorld: value => renderer.screenToWorld(value, runtime.view),
     worldToScreen: value => renderer.worldToScreen(value, runtime.view),
     addPoint: value => { session.addPoint(value); render() },

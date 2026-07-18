@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: pdfres:; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data: pdfres:; worker-src 'self' blob:; connect-src 'self' data: blob: pdfres:">
-  <title>土地区画作成工房 v2.1.0-alpha.9</title>
+  <title>土地区画作成工房</title>
   <link rel="stylesheet" href="jww-v210.css">
   <script src="vendor/pdf.min.js"></script>
 </head>
@@ -156,7 +156,7 @@
       <div id="document-strip">
         <span id="dirty-mark" aria-label="未保存" hidden>●</span>
         <span id="document-name">無題</span>
-        <span class="version-label">v2.1.0-alpha.9</span>
+        <span class="version-label" data-app-version aria-label="アプリバージョン"></span>
       </div>
     </header>
 
@@ -239,11 +239,13 @@
               <label class="workspace-field search-field"><span>検索</span><input id="registry-search" type="search" placeholder="番号・名称・メモ"></label>
               <label class="workspace-field compact-field"><span>種類</span><select id="registry-filter"><option value="all">すべて</option><option value="lot">区画</option><option value="road">道路</option><option value="water">水路</option></select></label>
               <label class="workspace-field compact-field"><span>並び</span><select id="registry-sort"><option value="number">番号</option><option value="area">面積</option><option value="name">名称</option></select></label>
+              <label class="workspace-check registry-select-all"><input id="registry-check-all" type="checkbox" aria-label="一覧の表示項目をすべて選択">全選択</label>
               <button class="sheet-button" type="button" data-action="registry-focus">図面で確認</button>
             </div>
             <div class="registry-table-wrap">
-              <table id="registry-table">
-                <thead><tr><th class="col-check"><input id="registry-check-all" type="checkbox" aria-label="すべて選択"></th><th>番号</th><th>種類</th><th>名称</th><th>面積</th><th>坪</th><th>価格</th><th>メモ</th><th>表示</th></tr></thead>
+              <table id="registry-table" aria-label="図面項目一覧。各行の価格、メモ、表示状態を編集できます">
+                <caption class="visually-hidden">図面項目の選択、価格、メモ、表示状態</caption>
+                <thead><tr><th class="col-check" scope="col">選択</th><th scope="col">番号</th><th scope="col">種類</th><th scope="col">名称</th><th scope="col">面積</th><th scope="col">坪</th><th scope="col">価格</th><th scope="col">メモ</th><th scope="col">表示</th></tr></thead>
                 <tbody id="registry-rows"><tr class="empty-row"><td colspan="9">図面上の区画・道路がここに表示されます</td></tr></tbody>
               </table>
             </div>
@@ -262,12 +264,12 @@
             <span class="workspace-title"><svg class="panel-icon"><use href="#i-output"/></svg><strong>出力</strong><small>編集図面の表示倍率とは独立</small></span>
           </header>
           <nav class="workspace-tabs" aria-label="出力設定">
-            <button type="button" data-output-tab="paper">用紙</button>
+            <button type="button" class="active" data-output-tab="paper">用紙</button>
             <button type="button" data-output-tab="title">タイトル枠</button>
-            <button type="button" class="active" data-output-tab="export">書き出し</button>
+            <button type="button" data-output-tab="export">書き出し</button>
           </nav>
           <div class="output-main">
-            <section class="output-panel" data-output-panel="paper" hidden>
+            <section class="output-panel is-active" data-output-panel="paper">
               <div class="form-card">
                 <h2><svg class="panel-icon"><use href="#i-paper"/></svg>作業用紙</h2>
                 <div class="form-grid">
@@ -282,9 +284,9 @@
                   <p id="paper-output-readiness" class="paper-output-readiness span-two" data-state="blocked">このページの縮尺と印刷縮尺を設定してください。</p>
                   <p id="paper-fit-status" class="paper-fit-status span-two" data-state="idle">図形を作成すると、用紙への収まりを確認できます。</p>
                 </div>
-                <div class="form-actions"><button class="sheet-button" type="button" data-action="toggle-output-placement" aria-pressed="false">配置を調整</button><button class="sheet-button" type="button" data-action="center-drawing-on-paper">中央配置へ戻す</button><button id="paper-fit-suggestion" class="sheet-button primary" type="button" data-action="apply-output-scale-suggestion" hidden></button></div>
+                <div class="form-actions"><button class="sheet-button" type="button" data-action="center-drawing-on-paper">中央配置へ戻す</button><button id="paper-fit-suggestion" class="sheet-button primary" type="button" data-action="apply-output-scale-suggestion" hidden></button></div>
               </div>
-              <div class="preview-card"><canvas id="output-preview-canvas" aria-label="出力プレビュー"></canvas></div>
+              <div class="preview-card"><canvas id="output-preview-canvas" class="placement-enabled" aria-label="出力プレビュー。ドラッグで図形全体の配置を調整"></canvas></div>
             </section>
 
             <section class="output-panel" data-output-panel="title" hidden>
@@ -301,7 +303,7 @@
               </div>
             </section>
 
-            <section class="output-panel is-active" data-output-panel="export">
+            <section class="output-panel" data-output-panel="export" hidden>
               <div class="export-grid">
                 <button class="export-card" type="button" data-action="export-png"><svg><use href="#i-image"/></svg><strong>PNG画像</strong><span>300dpi・用紙設定どおり</span></button>
                 <button class="export-card" type="button" data-action="export-pdf"><svg><use href="#i-pdf"/></svg><strong>PDF</strong><span>300dpi・印刷縮尺を保持</span></button>
@@ -349,21 +351,6 @@
     <button type="button" data-close-choice="discard">保存せず終了</button>
     <button type="button" data-close-choice="save" class="primary">保存して終了</button>
   </div>
-
-  <dialog id="scale-required-dialog" class="app-dialog scale-required-dialog" aria-labelledby="scale-required-title">
-    <div class="app-dialog-body">
-      <div class="dialog-warning-icon" aria-hidden="true">!</div>
-      <div>
-        <h2 id="scale-required-title">このページの縮尺が未設定です</h2>
-        <p><strong data-scale-required-command>作図</strong>を正しい寸法で行うには、先に現在のページの縮尺を設定してください。</p>
-        <p class="dialog-subtext"><span data-scale-required-page>1ページ</span>だけに設定され、ほかのページへは自動で引き継ぎません。</p>
-      </div>
-    </div>
-    <div class="app-dialog-actions">
-      <button type="button" data-scale-dialog-choice="cancel">作図をやめる</button>
-      <button type="button" class="primary" data-scale-dialog-choice="setup">縮尺を設定する</button>
-    </div>
-  </dialog>
 
   <template id="launcher-underlay">
     <div class="command-launcher" role="group" aria-label="下絵コマンド">
@@ -432,9 +419,12 @@
       <span class="underlay-step-number">2</span><span class="underlay-step-label">ページ</span>
       <button class="ctrl-btn compact" type="button" data-action="previous-page">◀</button><output data-output="page">1 / 1</output><button class="ctrl-btn compact" type="button" data-action="next-page">▶</button>
     </div>
-    <div class="control-group underlay-flow-step underlay-scale-controls" data-underlay-step="scale" data-direct-scale>
+    <div class="control-group underlay-flow-step underlay-scale-controls" data-underlay-step="scale">
       <span class="underlay-step-number">3</span><span class="underlay-step-label">このページの縮尺</span>
       <output class="page-scale-state" data-output="page-scale-state" data-state="missing">未設定</output>
+      <label class="field-inline"><span>設定方法</span><select class="ctrl-select" data-field="scale-method"><option value="scale">図面縮尺を入力</option><option value="two-point">2点の実距離で校正</option></select></label>
+    </div>
+    <div class="control-group underlay-scale-controls" data-scale-method-panel="scale" data-direct-scale>
       <select class="ctrl-select scale-preset-select" data-field="scale-preset" aria-label="よく使う図面縮尺">
         <option value="">縮尺候補</option>
         <optgroup label="詳細図">
@@ -448,17 +438,18 @@
         </optgroup>
       </select>
       <label class="field-inline compact-scale-input"><span>1:</span><input class="ctrl-input number-small" data-field="manual-scale" inputmode="numeric" type="text" placeholder="任意"></label>
-      <button class="ctrl-btn primary" type="button" data-action="apply-manual-scale">このページに設定</button>
+      <span class="control-label context-optional">候補選択・数値入力で、このページへすぐ設定</span>
     </div>
-    <div class="control-group underlay-calibration-controls">
-      <span class="control-label">または 2点校正</span>
+    <div class="control-group underlay-calibration-controls" data-scale-method-panel="two-point">
+      <span class="control-label">2点校正</span>
       <label class="field-inline"><span>実距離</span><input class="ctrl-input" data-field="calibration-distance" inputmode="decimal" type="text"><em>m</em></label>
-      <button class="ctrl-btn" type="button" data-action="apply-calibration" disabled>2点で確定</button>
+      <span class="control-label context-optional">実距離を入力して2点目を指定すると自動設定</span>
       <button class="ctrl-btn" type="button" data-action="reset-calibration-points" hidden>2点を取り直す</button>
     </div>
-    <div class="control-group underlay-opacity-controls context-optional">
+    <div class="control-group underlay-opacity-controls">
       <span class="control-label">濃さ</span><button class="ctrl-btn compact" type="button" data-action="underlay-opacity-down">−</button><output data-output="underlay-opacity">68%</output><button class="ctrl-btn compact" type="button" data-action="underlay-opacity-up">＋</button>
     </div>
+    <button class="ctrl-btn" type="button" data-action="return-from-scale">選択へ戻る</button>
   </template>
 
   <template id="controls-underlay">
@@ -479,7 +470,7 @@
   </template>
 
   <template id="controls-underlay-adjust">
-    <div class="control-group action-strip"><button class="ctrl-btn active" type="button" data-action="toggle-underlay-lock" title="下絵のマウスドラッグを固定"><svg class="mini-icon"><use href="#i-lock"/></svg>ドラッグ固定</button><button class="ctrl-btn" type="button" data-action="finish-command">調整を終了</button></div>
+    <div class="control-group action-strip"><button class="ctrl-btn active" type="button" data-action="toggle-underlay-lock" title="下絵のマウスドラッグを固定"><svg class="mini-icon"><use href="#i-lock"/></svg>ドラッグ固定</button></div>
     <label class="field-inline"><span>倍率</span><input class="ctrl-input number-small" data-field="underlay-scale" type="number" min="1" step="1" value="100"><em>%</em></label>
     <label class="field-inline"><span>X</span><input class="ctrl-input number-small" data-field="underlay-x" type="number" step="1" value="0"><em>px</em></label>
     <label class="field-inline"><span>Y</span><input class="ctrl-input number-small" data-field="underlay-y" type="number" step="1" value="0"><em>px</em></label>
@@ -490,21 +481,24 @@
 
   <template id="controls-parcel">
     <div class="control-group"><span class="control-label">作図点</span><strong data-output="draft-count">0</strong></div>
-    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button><button class="ctrl-btn primary" type="button" data-action="finish-command" disabled>確定</button></div>
-    <label class="field-inline"><span>塗り</span><select class="ctrl-select color-select" data-field="fill" data-color-select="lot"><option value="#f4dfa1">淡い黄（標準）</option><option value="#cfe5f5">淡い青</option><option value="#d8edcf">淡い緑</option><option value="#f6d3b2">淡い橙</option><option value="#f2cbd2">淡い赤</option><option value="#ddd3f2">淡い紫</option><option value="#cce9df">淡い青緑</option><option value="#e7edc5">淡い黄緑</option><option value="#f6ddd0">淡い桃</option><option value="#e8dccb">淡い茶</option><option value="#f1f3f5">ごく薄い灰</option><option value="#d8dde5">薄灰</option><option value="#c3c9d1">灰</option><option value="#adb5bd">中灰</option><option value="#8d99a6">濃灰</option><option value="#cbd5e1">青灰</option><option value="#ffffff">白</option></select></label>
-    <label class="field-inline"><span>外枠</span><select class="ctrl-select color-select" data-field="stroke" data-color-select="border"><option value="#987722">黄土</option><option value="#427aa1">青</option><option value="#477b52">緑</option><option value="#b36b31">橙</option><option value="#a34f5d">赤</option><option value="#6b5a9a">紫</option><option value="#8d99a6">中灰</option><option value="#596579">道路灰</option><option value="#3f4a59">濃い道路灰</option><option value="#172033">濃紺</option></select></label>
-    <label class="field-inline"><span>濃さ</span><input class="ctrl-input number-small" data-field="fill-opacity" type="number" min="0" max="100" step="1"><em>%</em></label>
-    <label class="check-control"><input data-field="show-area" type="checkbox" checked>面積</label>
-    <label class="check-control"><input data-field="show-tsubo" type="checkbox" checked>坪</label>
-    <label class="check-control"><input data-field="show-lengths" type="checkbox" checked>辺長</label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">寸法値</summary><div class="toolbar-dropdown-panel">
+    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
+    <span class="control-label" data-create-page="create-basic">番号・面積は確定時に自動計算します</span>
+    <label class="field-inline" data-create-page="create-appearance"><span>塗り</span><select class="ctrl-select color-select" data-field="fill" data-color-select="lot"><option value="#f4dfa1">淡い黄（標準）</option><option value="#cfe5f5">淡い青</option><option value="#d8edcf">淡い緑</option><option value="#f6d3b2">淡い橙</option><option value="#f2cbd2">淡い赤</option><option value="#ddd3f2">淡い紫</option><option value="#cce9df">淡い青緑</option><option value="#e7edc5">淡い黄緑</option><option value="#f6ddd0">淡い桃</option><option value="#e8dccb">淡い茶</option><option value="#f1f3f5">ごく薄い灰</option><option value="#d8dde5">薄灰</option><option value="#c3c9d1">灰</option><option value="#adb5bd">中灰</option><option value="#8d99a6">濃灰</option><option value="#cbd5e1">青灰</option><option value="#ffffff">白</option></select></label>
+    <label class="field-inline" data-create-page="create-appearance"><span>外枠</span><select class="ctrl-select color-select" data-field="stroke" data-color-select="border"><option value="#987722">黄土</option><option value="#427aa1">青</option><option value="#477b52">緑</option><option value="#b36b31">橙</option><option value="#a34f5d">赤</option><option value="#6b5a9a">紫</option><option value="#8d99a6">中灰</option><option value="#596579">道路灰</option><option value="#3f4a59">濃い道路灰</option><option value="#172033">濃紺</option></select></label>
+    <label class="field-inline" data-create-page="create-appearance"><span>濃さ</span><input class="ctrl-input number-small" data-field="fill-opacity" type="number" min="0" max="100" step="1"><em>%</em></label>
+    <label class="check-control" data-create-page="create-appearance"><input data-field="show-area" type="checkbox" checked>面積</label>
+    <label class="check-control" data-create-page="create-appearance"><input data-field="show-tsubo" type="checkbox" checked>坪</label>
+    <label class="check-control" data-create-page="create-appearance"><input data-field="show-lengths" type="checkbox" checked>辺寸法</label>
+    <span class="control-section" data-create-page="create-dimension" aria-label="辺寸法"><span class="control-section-title">辺寸法</span>
       <button class="ctrl-btn preset-button" type="button" data-action="apply-legacy-approx">約・切捨て</button>
       <label class="check-control"><input data-field="approximate" type="checkbox">約を付ける</label>
       <label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="dimension-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2" selected>2桁</option></select></label>
       <label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="dimension-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label>
       <label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="dimension-adjustment" type="number" step="0.01" value="0" placeholder="-0.1"><em>m</em></label>
-    </div></details>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">文字</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>区画名</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>辺寸法</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="dimension-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label></div></details>
+      <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
+      <label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="dimension-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label>
+    </span>
+    <span class="control-section" data-create-page="create-text" aria-label="文字"><span class="control-section-title">文字</span><label class="field-inline"><span>区画名</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label></span>
   </template>
 
   <template id="controls-move-all">
@@ -515,24 +509,27 @@
   </template>
 
   <template id="controls-road">
-    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button><button class="ctrl-btn primary" type="button" data-action="finish-command" disabled>確定</button></div>
-    <label class="field-inline"><span>種類</span><select class="ctrl-select" data-field="road-type"><option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option><option>水路</option></select></label>
-    <label class="field-inline"><span>幅員</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1" value="4"><em>m</em></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">色</summary><div class="toolbar-dropdown-panel">
+    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
+    <label class="field-inline" data-create-page="create-basic"><span>種類</span><select class="ctrl-select" data-field="road-type"><option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option><option>水路</option></select></label>
+    <label class="field-inline" data-create-page="create-basic"><span>幅員</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1" value="4"><em>m</em></label>
+    <span class="control-section" data-create-page="create-appearance" aria-label="色"><span class="control-section-title">色</span>
       <label class="field-inline"><span>塗り</span><select class="ctrl-select color-select" data-field="fill" data-color-select="road"><option value="#f4dfa1">淡い黄</option><option value="#cfe5f5">淡い青</option><option value="#d8edcf">淡い緑</option><option value="#f6d3b2">淡い橙</option><option value="#f2cbd2">淡い赤</option><option value="#ddd3f2">淡い紫</option><option value="#cce9df">淡い青緑</option><option value="#e7edc5">淡い黄緑</option><option value="#f6ddd0">淡い桃</option><option value="#e8dccb">淡い茶</option><option value="#f1f3f5">ごく薄い灰</option><option value="#e3e5e8">明るい灰</option><option value="#d8dde5">薄灰（標準）</option><option value="#c3c9d1">灰</option><option value="#adb5bd">中灰</option><option value="#8d99a6">濃灰</option><option value="#d6d3d1">暖灰</option><option value="#cbd5e1">青灰</option><option value="#bfe7f8">水路青</option><option value="#ffffff">白</option></select></label>
       <label class="field-inline"><span>外枠</span><select class="ctrl-select color-select" data-field="stroke" data-color-select="border"><option value="#987722">黄土</option><option value="#427aa1">青</option><option value="#477b52">緑</option><option value="#b36b31">橙</option><option value="#a34f5d">赤</option><option value="#6b5a9a">紫</option><option value="#8d99a6">中灰</option><option value="#596579">道路灰（標準）</option><option value="#3f4a59">濃い道路灰</option><option value="#172033">濃紺</option></select></label>
       <label class="field-inline"><span>濃さ</span><input class="ctrl-input number-small" data-field="fill-opacity" type="number" min="0" max="100" step="1"><em>%</em></label>
-    </div></details>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">文字</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>名称</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>幅員</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き（名称・幅員）</label></div></details>
+    </span>
+    <span class="control-section" data-create-page="create-appearance" aria-label="表示項目"><span class="control-section-title">表示項目</span><label class="check-control"><input data-field="show-label" type="checkbox" checked>名称</label><label class="check-control"><input data-field="road-width-visible" type="checkbox" checked>幅員</label><label class="check-control"><input data-field="show-area" type="checkbox">面積</label><label class="check-control"><input data-field="show-tsubo" type="checkbox">坪</label><label class="check-control"><input data-field="show-lengths" type="checkbox">辺寸法</label></span>
+    <span class="control-section" data-create-page="create-text" aria-label="文字"><span class="control-section-title">文字</span><label class="field-inline"><span>名称</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>幅員</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き（名称・幅員）</label></span>
+    <span class="control-section" data-create-page="create-dimension" aria-label="辺寸法"><span class="control-section-title">辺寸法</span><button class="ctrl-btn preset-button" type="button" data-action="apply-legacy-approx">約・切捨て</button><label class="check-control"><input data-field="approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="dimension-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2" selected>2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="dimension-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="dimension-adjustment" type="number" step="0.01" value="0"><em>m</em></label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="dimension-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label></span>
   </template>
 
   <template id="controls-process">
     <div class="control-group process-guide"><span class="control-label">手順</span><strong data-output="process-step">対象を選択</strong></div>
-    <div class="control-group action-strip process-actions"><button class="ctrl-btn" type="button" data-action="cancel-command">選択へ戻る</button><button class="ctrl-btn step-action" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn primary step-action" type="button" data-action="finish-command" disabled>確定</button></div>
+    <div class="control-group action-strip process-actions"><button class="ctrl-btn" type="button" data-action="cancel-command">選択へ戻る</button><button class="ctrl-btn step-action" type="button" data-action="pop-point" disabled>1点戻す</button></div>
     <label class="field-inline" data-for-command="division-guide,lot-division-guide"><span>分割数</span><input class="ctrl-input number-small" data-field="division-count" type="number" min="2" max="20" step="1" value="2"><em>等分</em></label>
     <div class="control-group" data-for-command="split-all" aria-label="一括分割の対象"><span class="control-label">対象</span><label class="check-control"><input data-field="split-lot" type="checkbox" checked>区画</label><label class="check-control"><input data-field="split-road" type="checkbox">道路</label><label class="check-control"><input data-field="split-water" type="checkbox">水路</label></div>
     <label class="field-inline" data-for-command="parallel"><span>間隔</span><input class="ctrl-input number-small" data-field="parallel-distance" type="number" min="0.1" step="0.1" value="3"><em>m</em></label>
-    <output class="control-label" data-for-command="parallel" data-output="parallel-next">次 3m</output>
+    <label class="field-inline" data-for-command="parallel"><span>本数</span><input class="ctrl-input number-small" data-field="parallel-count" type="number" min="1" max="20" step="1" value="1"><em>本</em></label>
+    <output class="control-label" data-for-command="parallel" data-output="parallel-next">3m間隔・1本</output>
     <button class="ctrl-btn" type="button" data-for-command="parallel" data-action="flip-parallel">反転</button>
     <button class="ctrl-btn" type="button" data-for-command="parallel" data-action="reset-parallel-baseline">基準線を取り直す</button>
     <label class="field-inline" data-for-command="corner-cut"><span>底辺</span><input class="ctrl-input number-small" data-field="corner-length" type="number" min="0.1" step="0.1" value="2"><em>m</em></label>
@@ -540,54 +537,53 @@
 
   <template id="controls-measure">
     <div class="control-group"><strong data-output="measure-step">1点目</strong></div>
-    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button><button class="ctrl-btn primary" type="button" data-action="finish-command" disabled>確定</button></div>
+    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="pop-point" disabled>1点戻す</button><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
     <label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label>
     <label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="line-width" type="number" min="0.5" max="10" step="0.5" value="2"></label>
     <label class="field-inline"><span>線色</span><select class="ctrl-select color-select" data-field="color" data-color-select="line"><option value="#253858">濃紺</option><option value="#111827">黒</option><option value="#1d4ed8">青</option><option value="#b4232d">赤</option><option value="#08735c">緑</option><option value="#7c3aed">紫</option></select></label>
-    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label>
+    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
     <label class="field-inline"><span>文字</span><input class="ctrl-input number-small" data-field="dimension-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">数値表示</summary><div class="toolbar-dropdown-panel">
+    <span class="control-section" aria-label="数値表示"><span class="control-section-title">数値表示</span>
       <button class="ctrl-btn preset-button" type="button" data-action="apply-legacy-approx">約・切捨て</button>
       <label class="check-control"><input data-field="dimension-approximate" type="checkbox">約を付ける</label>
       <label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="dimension-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2" selected>2桁</option></select></label>
       <label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="dimension-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label>
       <label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="dimension-adjustment" type="number" step="0.01" value="0" placeholder="-0.1"><em>m</em></label>
-    </div></details>
+    </span>
   </template>
 
   <template id="controls-note">
-    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button><button class="ctrl-btn primary" type="button" data-action="finish-command">配置</button></div>
+    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
     <label class="field-inline note-text-field"><span>文字</span><input class="ctrl-input wide" data-field="note-text" type="text" placeholder="文字・注記"></label>
     <label class="field-inline"><span>文字高</span><input class="ctrl-input number-small" data-field="note-size" type="number" min="6" max="72" step="1" value="14"></label>
     <label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="note-angle" type="number" min="-360" max="360" step="1" value="0"><em>°</em></label>
     <label class="field-inline"><span>文字色</span><select class="ctrl-select color-select" data-field="color" data-color-select="ink"><option value="#172033">濃紺</option><option value="#0f172a">黒</option><option value="#334155">灰</option><option value="#1d4ed8">青</option><option value="#b4232d">赤</option><option value="#08735c">緑</option><option value="#7c3aed">紫</option></select></label>
-    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="note-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label>
+    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="note-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
     <label class="check-control"><input data-field="note-vertical" type="checkbox">縦書き</label>
   </template>
 
   <template id="controls-stamp">
-    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button><button class="ctrl-btn primary" type="button" data-action="finish-command">配置</button></div>
-    <label class="field-inline stamp-metric-only"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1" value="10"><em>m</em></label>
-    <label class="field-inline stamp-metric-only"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1" value="8"><em>m</em></label>
-    <label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1" value="1"><em>倍</em></label>
-    <label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1" value="1"><em>倍</em></label>
-    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="stamp-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel">
+    <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
+    <label class="field-inline stamp-metric-only" data-create-page="create-basic"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1" value="10"><em>m</em></label>
+    <label class="field-inline stamp-metric-only" data-create-page="create-basic"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1" value="8"><em>m</em></label>
+    <label class="field-inline" data-create-page="create-basic"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1" value="1"><em>倍</em></label>
+    <label class="field-inline" data-create-page="create-text"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1" value="1"><em>倍</em></label>
+    <label class="field-inline" data-create-page="create-text"><span>書体</span><select class="ctrl-select compact-select" data-field="stamp-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
+    <span class="control-section" aria-label="配置詳細" data-create-page="create-basic"><span class="control-section-title">配置詳細</span>
       <label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1" value="0"><em>°</em></label>
       <label class="check-control stamp-dimension-only"><input data-field="stamp-dimensions" type="checkbox" checked>寸法</label>
-    </div></details>
+    </span>
   </template>
 
   <template id="controls-object-edit">
     <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="clear-selection" title="選択を解除 (Esc)">選択解除</button><button class="ctrl-btn" type="button" data-action="move-selected" title="選択した図形をまとめて移動">移動</button><button class="ctrl-btn" type="button" data-action="copy-place-selected" title="基準点と配置先を指定して複写">複写</button><button class="ctrl-btn" type="button" data-action="copy-selection" title="選択をコピー (Ctrl+C)">コピー</button><button class="ctrl-btn" type="button" data-action="paste" title="コピーした図形を貼り付け (Ctrl+V)">貼付</button></div>
     <div class="control-group context-pages"><button class="ctrl-tab active" type="button" data-context-page="object-basic">基本</button><button class="ctrl-tab shape-page" type="button" data-context-page="object-appearance">表示</button><button class="ctrl-tab lot-value-page value-page-tab" type="button" data-context-page="object-values">面積・坪</button><button class="ctrl-tab text-page" type="button" data-context-page="object-text">文字</button><button class="ctrl-tab dimension-page" type="button" data-context-page="object-dimension">寸法</button><button class="ctrl-tab special-page" type="button" data-context-page="object-special">個別</button></div>
     <button class="ctrl-btn" type="button" data-action="edit-vertices" title="選択した図形の頂点を編集">頂点を編集</button>
-    <button class="ctrl-btn danger context-optional" type="button" data-action="delete-selected">削除</button>
+    <button class="ctrl-btn danger" type="button" data-action="delete-selected">削除</button>
   </template>
 
   <template id="controls-object-basic">
-    <label class="field-inline shape-kind-convert"><span>変更先</span><select class="ctrl-select compact-select" data-field="object-type"><option value="lot">区画</option><option value="road">道路</option><option value="water">水路</option></select></label>
-    <button class="ctrl-btn shape-kind-convert" type="button" data-action="convert-shape-kind">種類を変更</button>
+    <label class="field-inline shape-kind-convert"><span>種類</span><select class="ctrl-select compact-select" data-field="object-type" aria-label="図形の種類を変更"><option value="lot">区画</option><option value="road">道路</option><option value="water">水路</option></select></label>
     <label class="field-inline lot-only"><span>番号</span><input class="ctrl-input number-small" data-field="lot-number" type="number" min="0" step="1"></label>
     <label class="field-inline editable-text-only"><span>名称</span><input class="ctrl-input wide" data-field="object-label" type="text"></label>
   </template>
@@ -602,7 +598,7 @@
     <label class="field-inline"><span>塗り</span><select class="ctrl-select color-select" data-field="fill" data-color-select="fill"><option value="#f4dfa1">淡い黄（標準）</option><option value="#cfe5f5">淡い青</option><option value="#d8edcf">淡い緑</option><option value="#f6d3b2">淡い橙</option><option value="#f2cbd2">淡い赤</option><option value="#ddd3f2">淡い紫</option><option value="#cce9df">淡い青緑</option><option value="#e7edc5">淡い黄緑</option><option value="#f6ddd0">淡い桃</option><option value="#e8dccb">淡い茶</option><option value="#f1f3f5">ごく薄い灰</option><option value="#e3e5e8">明るい灰</option><option value="#d8dde5">薄灰</option><option value="#c3c9d1">灰</option><option value="#adb5bd">中灰</option><option value="#8d99a6">濃灰</option><option value="#d6d3d1">暖灰</option><option value="#cbd5e1">青灰</option><option value="#bfe7f8">水路青</option><option value="#ffffff">白</option></select></label>
     <label class="field-inline"><span>外枠</span><select class="ctrl-select color-select" data-field="stroke" data-color-select="border"><option value="#987722">黄土</option><option value="#427aa1">青</option><option value="#477b52">緑</option><option value="#b36b31">橙</option><option value="#a34f5d">赤</option><option value="#6b5a9a">紫</option><option value="#8d99a6">中灰</option><option value="#596579">道路灰</option><option value="#3f4a59">濃い道路灰</option><option value="#172033">濃紺</option></select></label>
     <label class="field-inline"><span>濃さ</span><input class="ctrl-input number-small" data-field="fill-opacity" type="number" min="0" max="100" step="1" value="58"><em>%</em></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">表示項目</summary><div class="toolbar-dropdown-panel">
+    <span class="control-section" aria-label="表示項目"><span class="control-section-title">表示項目</span>
       <label class="check-control lot-only"><input data-field="show-top-label" type="checkbox" checked>上部ラベル</label>
       <label class="check-control lot-only"><input data-field="show-number" type="checkbox" checked>番号</label>
       <label class="check-control"><input data-field="show-label" type="checkbox" checked>名称</label>
@@ -610,28 +606,29 @@
       <label class="check-control"><input data-field="show-tsubo" type="checkbox" checked>坪</label>
       <label class="check-control lot-only"><input data-field="show-price" type="checkbox" checked>価格</label>
       <label class="check-control lot-only"><input data-field="show-memo" type="checkbox" checked>メモ</label>
-    </div></details>
+    </span>
   </template>
 
   <template id="controls-object-text">
-    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label>
+    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
     <label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1" value="1.4"><em>倍</em></label>
     <label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="text-angle" type="number" step="1" value="0"><em>°</em></label>
     <label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き</label>
     <label class="field-inline"><span>文字色</span><select class="ctrl-select color-select" data-field="textColor" data-color-select="ink"><option value="#172033">濃紺</option><option value="#0f172a">黒</option><option value="#334155">灰</option><option value="#1d4ed8">青</option><option value="#b4232d">赤</option><option value="#08735c">緑</option><option value="#7c3aed">紫</option></select></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">文字装飾</summary><div class="toolbar-dropdown-panel">
+    <span class="control-section" aria-label="文字装飾"><span class="control-section-title">文字装飾</span>
       <label class="check-control"><input data-field="text-frame" type="checkbox">枠</label>
       <label class="check-control"><input data-field="text-underline" type="checkbox">下線</label>
-      <button class="ctrl-btn" type="button" data-action="center-label">中央へ戻す</button>
-    </div></details>
+      <button class="ctrl-btn" type="button" data-action="center-label">位置を自動へ戻す</button>
+    </span>
   </template>
 
   <template id="controls-object-dimension">
     <label class="check-control"><input data-field="dimension-visible" type="checkbox" checked>寸法表示</label>
+    <label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="dimension-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label>
     <label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="dimension-size" type="number" min="0.2" max="5" step="0.1" value="1"><em>倍</em></label>
     <label class="field-inline"><span>余白</span><input class="ctrl-input number-small" data-field="dimension-offset" type="number" step="1" value="14"></label>
     <label class="field-inline"><span>寸法色</span><select class="ctrl-select color-select" data-field="dimensionColor" data-color-select="dimension"><option value="#334155">灰</option><option value="#172033">濃紺</option><option value="#1d4ed8">青</option><option value="#b4232d">赤</option><option value="#08735c">緑</option><option value="#7c3aed">紫</option></select></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">数値設定</summary><div class="toolbar-dropdown-panel">
+    <span class="control-section" aria-label="数値設定"><span class="control-section-title">数値設定</span>
       <button class="ctrl-btn preset-button" type="button" data-action="apply-legacy-approx">約・切捨て</button>
       <label class="check-control"><input data-field="dimension-approximate" type="checkbox">約を付ける</label>
       <label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="dimension-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label>
@@ -641,7 +638,7 @@
       <label class="check-control measurement-only"><input data-field="measurement-segments" type="checkbox" checked>区間</label>
       <label class="check-control area-only"><input data-field="measurement-area" type="checkbox" checked>㎡</label>
       <label class="check-control area-only"><input data-field="measurement-tsubo" type="checkbox" checked>坪</label>
-    </div></details>
+    </span>
   </template>
 
   <template id="controls-object-values"></template>
@@ -655,7 +652,6 @@
     <label class="check-control"><input data-field="global-show-tsubo" type="checkbox" checked>坪</label>
     <label class="check-control"><input data-field="global-show-lengths" type="checkbox" checked>辺寸法</label>
     <span class="control-label">自動吸着</span>
-    <label class="check-control"><input data-field="snap-grid" type="checkbox" checked>方眼点へ吸着</label>
     <label class="check-control"><input data-field="snap-vertex" type="checkbox" checked>端点</label>
     <label class="check-control"><input data-field="snap-intersection" type="checkbox" checked>交点</label>
     <label class="check-control"><input data-field="snap-edge" type="checkbox" checked>辺上</label>
@@ -667,18 +663,15 @@
       <button class="ctrl-btn primary" type="button" data-typography-preset="standard">標準</button>
       <button class="ctrl-btn" type="button" data-typography-preset="large">大きめ</button>
     </div>
-    <div class="control-group action-strip">
-      <button class="ctrl-btn primary" type="button" data-action="save-typography-defaults">新規の標準に設定</button>
-      <button class="ctrl-btn" type="button" data-action="apply-typography-existing">既存にも一括反映</button>
-    </div>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">個別調整</summary><div class="toolbar-dropdown-panel typography-grid">
+    <label class="field-inline"><span>反映先</span><select class="ctrl-select" data-field="typography-apply-target"><option value="new">新規の標準</option><option value="all">現在の図面全体</option></select></label>
+    <span class="control-section typography-grid" aria-label="個別調整"><span class="control-section-title">個別調整</span>
       <label class="field-inline"><span>区画名</span><input class="ctrl-input number-small" data-field="typography-lot" type="number" min="6" max="48" step="1"></label>
       <label class="field-inline"><span>面積・坪</span><input class="ctrl-input number-small" data-field="typography-metric" type="number" min="6" max="48" step="1"></label>
       <label class="field-inline"><span>辺・寸法</span><input class="ctrl-input number-small" data-field="typography-dimension" type="number" min="6" max="48" step="1"></label>
       <label class="field-inline"><span>道路名</span><input class="ctrl-input number-small" data-field="typography-road" type="number" min="6" max="48" step="1"></label>
       <label class="field-inline"><span>注記・スタンプ</span><input class="ctrl-input number-small" data-field="typography-text" type="number" min="6" max="48" step="1"></label>
-    </div></details>
-    <span class="control-label context-optional">新規だけ／現在の図面全体を分けて適用できます</span>
+    </span>
+    <span class="control-label context-optional">反映先を選び、プリセット選択または数値入力終了で保存</span>
   </template>
 
   <template id="controls-place-table">
@@ -686,8 +679,8 @@
     <div class="control-group action-strip"><button class="ctrl-btn" type="button" data-action="cancel-command">取消</button></div>
     <label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1" value="1"><em>倍</em></label>
     <label class="field-inline"><span>題名</span><input class="ctrl-input" data-field="table-title" type="text" value="区画一覧"></label>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="table-show-price" type="checkbox" checked>価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>文字</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1" value="1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25" value="0.75"></label></div></details>
-    <details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1" value="0"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label></div></details>
+    <span class="control-section" aria-label="表示"><span class="control-section-title">表示</span><label class="check-control"><input data-field="table-show-price" type="checkbox" checked>価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="even">均等</option></select></label><label class="field-inline"><span>文字</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1" value="1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25" value="0.75"></label></span>
+    <span class="control-section" aria-label="配置詳細"><span class="control-section-title">配置詳細</span><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1" value="0"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label></span>
     <span class="control-label">図面上で配置位置を指定</span>
   </template>
 

@@ -1,7 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
+const { version } = require('./package.json')
 
 contextBridge.exposeInMainWorld('kozuDesktop', {
-  version: '2.1.0-alpha.8',
+  version,
   onCloseRequested(callback) {
     const listener = () => callback()
     ipcRenderer.on('app-close-requested', listener)

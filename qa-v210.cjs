@@ -92,7 +92,7 @@ async function runElectronSuite() {
     await waitForReady(win)
 
     const physicalPdf = await verifyPhysicalPdfMediaBoxes(BrowserWindow)
-    add('electron-pdf-mediabox-matches-a4-and-a3-landscape', physicalPdf.pass, physicalPdf)
+    add('electron-pdf-mediabox-matches-a4-and-a3-in-both-orientations', physicalPdf.pass, physicalPdf)
 
     dynamic = await win.webContents.executeJavaScript(`(${rendererSuite.toString()})()`, true)
     for (const check of dynamic.checks || []) add(check.name, check.pass, check.details)
@@ -214,9 +214,8 @@ async function runElectronSuite() {
       }
       return rows;
     })()`, true)
-    // Fixed-2-row toolbar keeps overflow:visible so color-picker/toolbar-dropdown popups
-    // are never clipped; a couple of field-heavy panels can overrun by a small, known
-    // amount at the 900px minimum window width as a result. Tolerate only that.
+    // 固定メニューバーはポップアップを使わず、上段＋設定2段の範囲へ収める。
+    // 最小幅で本当に収まらないパネルだけを実装不具合として報告する。
     const KNOWN_TIGHT_PANELS = new Set(['callout'])
     for (const row of compactCommands) {
       const tolerance = KNOWN_TIGHT_PANELS.has(row.name) ? 60 : 1
@@ -259,12 +258,12 @@ async function runElectronSuite() {
     const compactObjectPages = await win.webContents.executeJavaScript(`(async()=>{
       const api=window.__KOZU_V210_TEST__; const page=api.document.pages.find(p=>p.id===api.document.activePageId)||api.document.pages[0];
       const objects=[
-        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-values','object-dimension','object-appearance','object-text','object-record']},
-        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-special','object-dimension','object-appearance','object-text','object-record']},
+        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-appearance','object-text','object-values','object-dimension','object-record']},
+        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-appearance','object-text','object-values','object-dimension']},
         {name:'polyline',object:page.entities.find(o=>o.kind==='polyline'),pages:['object-basic','object-text','object-dimension','object-special'],segment:0},
         {name:'line',object:page.entities.find(o=>o.kind==='line'),pages:['object-special']},
-        {name:'house',object:page.entities.find(o=>o.kind==='house'),pages:['object-basic','object-special','object-text','object-dimension']},
-        {name:'north',object:page.entities.find(o=>o.kind==='north'),pages:['object-special','object-text']}
+        {name:'house',object:page.entities.find(o=>o.kind==='house'),pages:['object-basic','object-appearance','object-text','object-special']},
+        {name:'north',object:page.entities.find(o=>o.kind==='north'),pages:['object-basic','object-appearance','object-text','object-special']}
       ]; const rows=[];
       const visible=n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return !n.hidden&&s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
       api.activateCommand('select',{focusCanvas:false});
@@ -282,7 +281,6 @@ async function runElectronSuite() {
     const compactNestedPanels = await win.webContents.executeJavaScript(`(async()=>{
       const api=window.__KOZU_V210_TEST__; const page=api.document.pages.find(p=>p.id===api.document.activePageId)||api.document.pages[0];
       const definitions=[
-        {name:'road-width',object:page.shapes.find(o=>o.kind==='road'),context:'object-special',kind:'special',panels:['primary','angle','style']},
         {name:'lot-edge',object:page.shapes.find(o=>o.kind==='lot'),context:'object-dimension',kind:'edge',panels:['flat']},
         {name:'polyline-segment',object:page.entities.find(o=>o.kind==='polyline'),context:'object-dimension',kind:'segment',panels:['flat']}
       ];
@@ -291,21 +289,18 @@ async function runElectronSuite() {
       for(const entry of definitions){if(!entry.object){rows.push({name:entry.name,error:'fixture missing'});continue}
         api.ui.editEdgeIndex=entry.kind==='edge'?0:null; api.ui.editSegmentIndex=entry.kind==='segment'?0:null; api.ui.contextPage=entry.context;
         api.selectObject(entry.object.id,{openEditor:true,preserveSubselection:true});
-        for(const panel of entry.panels){if(entry.kind==='special')api.ui.specialPanel=panel;else api.ui.segmentPanel=panel;api.renderCommandSurface();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        for(const panel of entry.panels){api.ui.segmentPanel=panel;api.renderCommandSurface();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
           const bar=document.getElementById('control-bar'),b=bar.getBoundingClientRect();
           const clipped=[...bar.querySelectorAll('button,input,select,textarea,label')].filter(visible).filter(n=>{const r=n.getBoundingClientRect();return r.top<b.top-1||r.bottom>b.bottom+1}).map(n=>n.dataset.field||n.textContent.trim());
-          const approxButton=bar.querySelector('[data-action="apply-legacy-approx"][data-approx-scope="part"]');
-          const approxRect=approxButton&&visible(approxButton)?(()=>{const r=approxButton.getBoundingClientRect();return{width:r.width,height:r.height}})():null;
-          rows.push({name:entry.name+'-'+panel,clipped,scrollWidth:bar.scrollWidth,clientWidth:bar.clientWidth,approxRect});
+          rows.push({name:entry.name+'-'+panel,clipped,scrollWidth:bar.scrollWidth,clientWidth:bar.clientWidth});
         }
       }
       return rows;
     })()`, true)
     const KNOWN_TIGHT_NESTED_PANELS = new Set(['lot-edge-flat', 'polyline-segment-flat'])
     for (const row of compactNestedPanels) {
-      const compactApprox = !/(?:lot-edge|polyline-segment)-flat$/.test(row.name) || Boolean(row.approxRect && row.approxRect.width <= 92 && row.approxRect.height <= 24)
       const tolerance = KNOWN_TIGHT_NESTED_PANELS.has(row.name) ? 30 : 1
-      add(`compact-nested-${row.name}-fits`, !row.error && row.clipped.length === 0 && row.scrollWidth <= row.clientWidth + tolerance && compactApprox, row)
+      add(`compact-nested-${row.name}-fits`, !row.error && row.clipped.length === 0 && row.scrollWidth <= row.clientWidth + tolerance, row)
     }
 
     const compactPageScale = await win.webContents.executeJavaScript(`(async()=>{
@@ -316,9 +311,9 @@ async function runElectronSuite() {
       const bar=document.getElementById('control-bar'),b=bar.getBoundingClientRect();
       const visible=n=>{if(!n)return false;const s=getComputedStyle(n),r=n.getBoundingClientRect();return !n.hidden&&s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
       const clipped=[...bar.querySelectorAll('button,input,select,textarea,label')].filter(visible).filter(n=>{const r=n.getBoundingClientRect();return r.top<b.top-1||r.bottom>b.bottom+1}).map(n=>n.dataset.field||n.textContent.trim());
-      return{clipped,scrollWidth:bar.scrollWidth,clientWidth:bar.clientWidth,button:bar.querySelector('[data-action="apply-manual-scale"]')?.textContent,preset:bar.querySelector('[data-field="scale-preset"]')?.value,state:bar.querySelector('[data-output="page-scale-state"]')?.textContent};
+      return{clipped,scrollWidth:bar.scrollWidth,clientWidth:bar.clientWidth,preset:Boolean(bar.querySelector('[data-field="scale-preset"]')),manual:Boolean(bar.querySelector('[data-field="manual-scale"]')),confirmationCount:bar.querySelectorAll('[data-action="apply-manual-scale"],[data-action="apply-calibration"]').length,state:bar.querySelector('[data-output="page-scale-state"]')?.textContent};
     })()`, true)
-    add('compact-page-scale-workflow-fits-fixed-bar', compactPageScale.clipped.length === 0 && compactPageScale.scrollWidth <= compactPageScale.clientWidth + 1 && /このページに設定/.test(compactPageScale.button || '') && /未設定/.test(compactPageScale.state || ''), compactPageScale)
+    add('compact-page-scale-immediate-workflow-fits-fixed-bar', compactPageScale.clipped.length === 0 && compactPageScale.scrollWidth <= compactPageScale.clientWidth + 1 && compactPageScale.preset && compactPageScale.manual && compactPageScale.confirmationCount === 0 && /未設定/.test(compactPageScale.state || ''), compactPageScale)
 
     add('runtime-window-errors', (dynamic.runtimeErrors || []).length === 0, dynamic.runtimeErrors || [])
     add('electron-console-errors', consoleErrors.length === 0, consoleErrors)
@@ -329,7 +324,7 @@ async function runElectronSuite() {
     const report = {
       generatedAt: new Date().toISOString(),
       target: {
-        version: '2.1.0-alpha.9',
+        version: '2.1.0-alpha.10',
         entry: 'index-v210.html',
         installerBuilt: false
       },
@@ -373,22 +368,41 @@ async function verifyPhysicalPdfMediaBoxes(BrowserWindow) {
     if (!match) return null
     return { width: Number(match[3]) - Number(match[1]), height: Number(match[4]) - Number(match[2]) }
   }
-  const makePdf = async size => {
-    const html = `<!doctype html><meta charset="utf-8"><style>@page{size:${size} landscape;margin:0}html,body{margin:0;width:100%;height:100%}body{background:#fff}</style>`
+  const portraitMm = { A4: { width: 210, height: 297 }, A3: { width: 297, height: 420 } }
+  const makePdf = async (size, orientation) => {
+    const portrait = portraitMm[size]
+    const landscape = orientation === 'landscape'
+    const widthMm = landscape ? portrait.height : portrait.width
+    const heightMm = landscape ? portrait.width : portrait.height
+    const html = `<!doctype html><meta charset="utf-8"><style>@page{size:${widthMm}mm ${heightMm}mm;margin:0}html,body{margin:0;width:100%;height:100%}body{background:#fff}</style>`
     await output.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
     const buffer = await output.webContents.printToPDF({
-      printBackground: true, landscape: true, pageSize: size,
+      printBackground: true,
+      landscape,
+      pageSize: { width: portrait.width / 25.4, height: portrait.height / 25.4 },
       margins: { top: 0, bottom: 0, left: 0, right: 0 }, preferCSSPageSize: true
     })
-    return readBox(buffer)
+    return { box: readBox(buffer), expected: { width: widthMm / 25.4 * 72, height: heightMm / 25.4 * 72 } }
   }
   try {
-    const a4 = await makePdf('A4')
-    const a3 = await makePdf('A3')
-    const near = (actual, expected) => Number.isFinite(actual) && Math.abs(actual - expected) < 1
+    const results = {}
+    for (const size of ['A4', 'A3']) {
+      for (const orientation of ['portrait', 'landscape']) results[`${size}-${orientation}`] = await makePdf(size, orientation)
+    }
+    const errorMm = (actual, expected) => Math.abs(actual - expected) / 72 * 25.4
+    // ChromiumのMediaBoxは内部単位へ丸められるため、実測誤差0.25mm未満を厳格条件とする。
+    const pass = Object.values(results).every(result => result.box &&
+      errorMm(result.box.width, result.expected.width) < 0.25 &&
+      errorMm(result.box.height, result.expected.height) < 0.25)
     return {
-      pass: Boolean(a4 && a3) && near(a4.width, 841.89) && near(a4.height, 595.28) && near(a3.width, 1190.55) && near(a3.height, 841.89),
-      a4, a3
+      pass,
+      results: Object.fromEntries(Object.entries(results).map(([key, result]) => [key, {
+        ...result,
+        errorMm: result.box && {
+          width: errorMm(result.box.width, result.expected.width),
+          height: errorMm(result.box.height, result.expected.height)
+        }
+      }]))
     }
   } catch (error) {
     return { pass: false, error: error?.stack || String(error) }
@@ -458,11 +472,11 @@ function staticChecks(add) {
   ].sort()
   const allowedScripts = ['vendor/pdf.min.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js']
 
-  add('package-version-v210-alpha9', packageJson.version === '2.1.0-alpha.9', packageJson.version)
+  add('package-version-v210-alpha10', packageJson.version === '2.1.0-alpha.10', packageJson.version)
   add('package-main-v210-only', packageJson.main === 'main-v210.js', packageJson.main)
   add('main-loads-v210-entry', /loadFile\(['"]index-v210\.html['"]\)/.test(main) && !/loadFile\(['"]index\.html['"]\)/.test(main))
-  add('main-title-has-version', /2\.1\.0-alpha\.9/.test(main) && /TITLE/.test(main))
-  add('html-version-visible', /v2\.1\.0-alpha\.9/.test(html))
+  add('main-title-uses-package-version', /const VERSION = app\.getVersion\(\)/.test(main) && /TITLE = `土地区画作成工房 v\$\{VERSION\}`/.test(main))
+  add('html-version-visible-from-runtime', /data-app-version/.test(html) && /querySelectorAll\?\.\('\[data-app-version\]'\)/.test(coreSource))
   add('current-command-name-is-display-only', /<div\s+id=["']command-name["'][^>]*aria-label=["']現在のコマンド["']/.test(html) && !/<(?:button|div)\s+id=["']command-name["'][^>]*data-action/.test(html))
   add('calibration-has-no-defer-and-has-explicit-retry', !/data-action=["']defer-scale["']|case\s+["']defer-scale["']|>後で</.test(`${html}\n${appSource}`) && /data-action=["']reset-calibration-points["']/.test(html) && /case\s+["']reset-calibration-points["']/.test(appSource))
   add('calibration-second-point-stops-rubber-band', /command === ["']calibrate["'] && session\.points\.length >= 2/.test(appSource) && /pointer:[\s\S]{0,220}command === ["']calibrate["'][\s\S]{0,100}session\.points\.length >= 2/.test(appSource))
@@ -496,7 +510,7 @@ function staticChecks(add) {
     /function normalizeFontToken\(/.test(coreSource) && /fontFamily:\s*['"]gothic['"]/.test(coreSource) &&
     !/fontFamily:\s*['"]Yu Gothic UI['"]/.test(coreSource) &&
     /value=["']gothic["']>ゴシック/.test(`${html}\n${appSource}`) && /value=["']mincho["']>明朝/.test(`${html}\n${appSource}`) &&
-    /value=["']mono["']>均等（等幅）/.test(`${html}\n${appSource}`) && !/value=["']mono["']>等幅</.test(`${html}\n${appSource}`))
+    /value=["']even["']>均等/.test(`${html}\n${appSource}`) && !/value=["']mono["']/.test(`${html}\n${appSource}`))
   add('usability-review-safety-and-shortcuts-are-wired',
     /function confirmBeforeReplacingDocument/.test(appSource) &&
     /loadUnderlay[\s\S]{0,420}confirmBeforeReplacingDocument/.test(appSource) &&
@@ -512,9 +526,15 @@ function staticChecks(add) {
       zoomButton: /id=["']status-zoom["'][^>]*data-action=["']actual-size["']/.test(html),
       dropHint: /id=["']empty-canvas-hint["']/.test(html)
     })
-  add('manual-page-scale-workflow-and-draft-meter-dimensions-are-explicit',
-    /data-field=["']scale-preset["']/.test(html) && /このページに設定/.test(html) &&
+  add('immediate-page-scale-workflow-and-draft-meter-dimensions-are-explicit',
+    /data-field=["']scale-preset["']/.test(html) && /data-field=["']manual-scale["']/.test(html) &&
+    /候補選択・数値入力で、このページへすぐ設定/.test(html) && /実距離を入力して2点目を指定すると自動設定/.test(html) &&
+    !/data-action=["']apply-manual-scale["']|data-action=["']apply-calibration["']|id=["']scale-required-dialog["']/.test(html) &&
     !/PDF記載|data-scale-candidate|detectScaleCandidates/.test(`${html}\n${appSource}\n${ioSource}`) &&
+    /key === ['"]scale-preset['"][\s\S]{0,360}applyManualPageScale\(preset\)/.test(appSource) &&
+    /key === ['"]manual-scale['"][\s\S]{0,420}commit && manual > 0[\s\S]{0,120}applyManualPageScale\(manual\)/.test(appSource) &&
+    /key === ['"]calibration-distance['"][\s\S]{0,180}session\.points\.length === 2[\s\S]{0,100}applyCalibration\(\)/.test(appSource) &&
+    /key === ['"]object-type['"] && ui\.editDraft[\s\S]{0,220}convertSelectedShapeKind\(kind\)/.test(appSource) &&
     /SCALE_REQUIRED_COMMANDS = new Set\(\[['"]lot-draw['"], ['"]road-draw['"]/.test(appSource) &&
     /_drawDraftSegmentDimensions/.test(renderSource) &&
     /draftKind === ['"]road['"] \|\| draftKind === ['"]water['"][\s\S]{0,700}_drawDraftSegmentDimensions/.test(renderSource) &&
@@ -529,7 +549,9 @@ function staticChecks(add) {
     /const outputScale = Math\.min\(size\.width \/ fullPaperSize\.width, size\.height \/ fullPaperSize\.height\)/.test(appSource) &&
     /view,[\s\S]{0,80}includeBackground: true, includePaper: false/.test(appSource) &&
     /const a3Reference[\s\S]{0,350}maxWidth \/ a3Reference\.width/.test(appSource) &&
-    /const boxHeight = Math\.max\(22, Math\.round\(56 \* outputScale\)\)/.test(appSource) &&
+    /function paperPixelSize\([\s\S]{0,360}paper\.size === ['"]A3['"][\s\S]{0,120}297, long: 420/.test(appSource) &&
+    /function outputFrameMetricsMm\([\s\S]{0,240}inset: 5[\s\S]{0,160}paper\.size === ['"]A3['"] \? 15 : 12/.test(appSource) &&
+    /const boxHeight = frameMetrics\.titleHeight \* pixelsPerMmY/.test(appSource) &&
     !/<button[^>]*data-workspace-target=["']registry["'][^>]*title=["']右側の一覧・台帳へ/.test(html))
   add('all-output-paths-use-high-resolution-physical-scale-and-save-dialogs',
     /const OUTPUT_DPI = 300/.test(appSource) && /const PREVIEW_MIN_DPR = 2/.test(appSource) &&
@@ -537,8 +559,13 @@ function staticChecks(add) {
     /paperPixelSize\(outputPaperModel\(store\.document\), OUTPUT_DPI\)/.test(appSource) &&
     /scale: background\.type === ['"]pdf['"] \? 4\.2 : 1/.test(appSource) &&
     /const PDF_RENDER_SCALE = 4\.2/.test(ioSource) &&
+    /function printPaperDimensions\([\s\S]{0,520}widthMm: orientation === ['"]landscape['"]/.test(ioSource) &&
+    /@page \{ size: \$\{paper\.widthMm\}mm \$\{paper\.heightMm\}mm;/.test(ioSource) &&
+    /function physicalPaperOptions\([\s\S]{0,620}printPageSize:[\s\S]{0,120}\* 1000[\s\S]{0,180}pdfPageSize:[\s\S]{0,120}\/ 25\.4/.test(main) &&
+    /pageSize: paper\.printPageSize/.test(main) && /pageSize: paper\.pdfPageSize/.test(main) &&
     /paper\.showFrame !== false && paper\.showTitleFrame !== false/.test(appSource) &&
-    /id=["']paper-print-scale-preset["']/.test(html) && /data-action=["']toggle-output-placement["']/.test(html) &&
+    /id=["']paper-print-scale-preset["']/.test(html) && !/data-action=["']toggle-output-placement["']/.test(html) &&
+    /function handleOutputPointerDown\(/.test(appSource) && /addEventListener\(['"]pointerdown['"], handleOutputPointerDown\)/.test(appSource) &&
     /function outputFitStatus\(/.test(appSource) && !/outputLayout\.printScale\s*=\s*(?:mapScale|scale)/.test(appSource) &&
     /fixedScale: outputScale/.test(appSource) && /_screenWorld\(Math\.max\(0\.4/.test(renderSource) &&
     /ipcMain\.handle\(['"]export-png-v210['"]/.test(main) && /ipcMain\.handle\(['"]export-pdf-v210['"]/.test(main) &&
@@ -573,9 +600,11 @@ function staticChecks(add) {
     /stamp-stroke/.test(appSource) && /stamp-fill/.test(appSource) && /stamp-hatch/.test(appSource) &&
     /normalizeMetricLabelText/.test(appSource) && /button\.textContent = ['"]反転['"]/.test(appSource))
   add('stamp-placement-and-selection-share-size-and-text-size-controls',
-    /controls-stamp[\s\S]{0,1800}data-field=["']stamp-scale["'][\s\S]{0,500}data-field=["']stamp-text-scale["']/.test(html) &&
-    (appSource.match(/data-field=\\?['"]stamp-scale/g) || []).length >= 2 &&
-    (appSource.match(/data-field=\\?['"]stamp-text-scale/g) || []).length >= 2 &&
+    /controls-stamp[\s\S]{0,1800}data-create-page=["']create-basic["'][\s\S]{0,500}data-field=["']stamp-scale["'][\s\S]{0,500}data-create-page=["']create-text["'][\s\S]{0,500}data-field=["']stamp-text-scale["']/.test(html) &&
+    /const CREATE_COMMAND_ROUTES[\s\S]{0,500}north:[\s\S]{0,180}create-basic[\s\S]{0,120}create-appearance[\s\S]{0,120}create-text/.test(appSource) &&
+    /house: Object\.freeze\(\[\['object-basic', '基本'\], \['object-appearance', '表示'\], \['object-text', '文字'\], \['object-special', '大きさ・寸法'\]\]\)/.test(appSource) &&
+    /north: Object\.freeze\(\[\['object-basic', '基本'\], \['object-appearance', '表示'\], \['object-text', '文字'\], \['object-special', '大きさ・配置'\]\]\)/.test(appSource) &&
+    /data-field=\\?["']stamp-scale/.test(appSource) && /touched\(['"]stamp-text-scale['"]\)/.test(appSource) &&
     /stampScale/.test(coreSource) && /stampTextScale/.test(coreSource) &&
     /entity\.stampScale\s*\?\?\s*entity\.options\?\.scale/.test(renderSource))
   add('annotation-text-default-and-ime-click-sync-are-wired',
@@ -584,8 +613,8 @@ function staticChecks(add) {
     /compositionend[\s\S]{0,260}handleCommandFieldInput\(field, false\)/.test(appSource))
   add('road-and-water-have-separate-width-and-optional-edge-dimension-controls',
     /road-width-visible/.test(appSource) && /水路幅/.test(appSource) &&
-    /road:[\s\S]{0,360}\['object-dimension', '辺寸法'\][\s\S]{0,120}\['object-values', '面積・坪'\]/.test(appSource) &&
-    /water:[\s\S]{0,360}\['object-dimension', '辺寸法'\][\s\S]{0,120}\['object-values', '面積・坪'\]/.test(appSource) &&
+    /road:[\s\S]{0,360}\['object-values', '面積・坪'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
+    /water:[\s\S]{0,360}\['object-values', '面積・坪'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
     /_shapeShowsDimensions[\s\S]{0,180}visibility\.dimensions === true/.test(renderSource) &&
     !/_shapeShowsDimensions[\s\S]{0,160}(?:road|water)[\s\S]{0,80}return false/.test(renderSource))
   add('copy-number-allocation-uses-document-max-plus-one',
@@ -603,15 +632,15 @@ function staticChecks(add) {
     mainSavingState: /action === ['"]save['"][^\n]*closeState = ['"]saving['"]/.test(main),
     mainAcceptsWaitingOrSaving: /\[['"]waiting['"],\s*['"]saving['"]\]\.includes\(closeState\)/.test(main)
   })
-  add('project-save-open-keeps-native-path-and-commits-pending-edit',
-    /async function saveProject[\s\S]{0,180}commitPendingEdit\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource) &&
+  add('project-save-open-keeps-native-path-and-flushes-pending-input',
+    /async function saveProject[\s\S]{0,180}flushActiveEditor\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource) &&
     /currentProjectPath/.test(appSource) && /payload\.outputPath\s*=\s*runtime\.currentProjectPath/.test(appSource) &&
     /save-project-as/.test(`${html}\n${appSource}`) &&
     /ipcMain\.handle\(['"]open-project-v210['"]/.test(main) && /showOpenDialog/.test(main) &&
     /openProject\(\)\s*\{\s*return ipcRenderer\.invoke\(['"]open-project-v210['"]\)/.test(preload) &&
     /key === ['"]o['"] && event\.shiftKey[\s\S]{0,100}open-project/.test(appSource) &&
     !/uniqueDownloadPath|app\.getPath\(['"]downloads['"]\)/.test(main), {
-      commitBeforeSerialize: /commitPendingEdit\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource),
+      flushBeforeSerialize: /flushActiveEditor\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource),
       nativeOpen: /ipcMain\.handle\(['"]open-project-v210['"]/.test(main),
       nativePathReuse: /payload\.outputPath\s*=\s*runtime\.currentProjectPath/.test(appSource),
       saveAs: /save-project-as/.test(`${html}\n${appSource}`),
@@ -694,7 +723,7 @@ async function inspectLayout(win, label) {
 function layoutChecks(layout, add) {
   const { menu, control, left, stage, canvas, registry, right, status } = layout.rects
   const approx = (actual, expected, tolerance = 1.5) => Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance
-  add(`${layout.label}-two-fixed-top-rows`, menu && control && approx(menu.y, 0) && approx(menu.height, 30) && approx(control.y, 30) && approx(control.height, 84), { menu, control, position: layout.fixed })
+  add(`${layout.label}-fixed-top-toolbar`, menu && control && approx(menu.y, 0) && approx(menu.height, 30) && approx(control.y, 30) && approx(control.height, 116), { menu, control, position: layout.fixed })
   add(`${layout.label}-left-right-rails`, left && right && approx(left.x, 0) && approx(left.width, 54) && approx(right.right, layout.innerWidth) && approx(right.width, 54), { left, right })
   add(`${layout.label}-bottom-status`, status && approx(status.bottom, layout.innerHeight) && approx(status.height, 27), status)
   add(`${layout.label}-workspace-not-covered`, stage && left && registry && right && control && status && approx(stage.x, left.right) && approx(stage.right, registry.x) && approx(registry.right, right.x) && approx(stage.y, control.bottom) && approx(stage.bottom, status.y), { stage, left, registry, right, control, status })
@@ -778,7 +807,7 @@ async function rendererSuite() {
   window.addEventListener('error', event => runtimeErrors.push(event.error?.stack || event.message))
   window.addEventListener('unhandledrejection', event => runtimeErrors.push(event.reason?.stack || String(event.reason)))
 
-  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.9', document.title)
+  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.10', document.title)
   add('core-api-loaded', Boolean(K?.createDocument && K?.DocumentStore && K?.CommandSession && K?.Renderer), Object.keys(K || {}))
   add('io-api-loaded', Boolean(IO?.serializeProject && IO?.deserializeProject && IO?.migrateLegacyV3 && IO?.loadUnderlayFile), Object.keys(IO || {}))
   add('application-debug-api-loaded', Boolean(api?.store && api?.session && api?.runtime && api?.renderer && api?.activateCommand && api?.setWorkspace), api ? Object.keys(api) : null)
@@ -787,9 +816,9 @@ async function rendererSuite() {
   add('retired-dom-absent', !document.querySelector('[data-field*=setback],[data-command*=setback],[data-action*=estimate],[data-output-tab=estimate],[data-action*=kaitori]'))
   add('pdf-image-file-input-accepts-both', [...document.querySelectorAll('input[type=file]')].some(input => /application\/pdf/.test(input.accept || '') && /image\//.test(input.accept || '')), [...document.querySelectorAll('input[type=file]')].map(input => ({ id: input.id, accept: input.accept })))
 
-  await run('core-clean-document-v6', () => {
+  await run('core-clean-document-v7', () => {
     const doc = K.createDocument()
-    return { pass: doc.schemaVersion === 6 && doc.format === 'kozu-measure' && doc.pages.length === 1 && doc.outputDefaults?.paperSize === 'A4' && doc.pages[0].outputLayout?.paperSize === 'A4' && doc.pages[0].outputLayout?.printScale === null && !banned(doc), details: doc }
+    return { pass: doc.schemaVersion === 7 && doc.format === 'kozu-measure' && doc.pages.length === 1 && doc.outputDefaults?.paperSize === 'A4' && doc.pages[0].outputLayout?.paperSize === 'A4' && doc.pages[0].outputLayout?.printScale === null && !banned(doc), details: doc }
   })
 
   await run('core-new-page-copies-output-defaults-without-changing-existing-page', () => {
@@ -1166,7 +1195,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('io-v6-save-roundtrip-all-content', () => {
+  await run('io-v7-save-roundtrip-all-content', () => {
     const doc = K.createDocument(); doc.title = 'QA'; doc.calibration.mpp = 0.125; doc.paper = { ...doc.paper, enabled: true, note: '出力備考', showTitleFrame: false, includeUnderlay: false }
     doc.pages[0].calibration = clone(doc.calibration)
     doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, paperSize: 'A3', orientation: 'portrait', printScale: 250, offsetMmX: 12.5, offsetMmY: -4.25, showTitleFrame: false, includeUnderlay: false, initialized: true }
@@ -1179,10 +1208,10 @@ async function rendererSuite() {
     const restored = IO.deserializeProject(serialized)
     const page = pageOf(restored.document)
     const road = page.shapes.find(shape => shape.kind === 'road'); const text = page.entities.find(entity => entity.kind === 'text'); const table = page.entities.find(entity => entity.kind === 'lot-table')
-    return { pass: raw.format === 'kozu-measure' && raw.version === 6 && raw.document.schemaVersion === 6 && restored.view.x === 12.5 && restored.view.zoom === 1.75 && page.shapes.length === 2 && page.entities.length === 2 && page.shapes[0].price === 3500 && text.style.vertical === true && text.memo === '注記メモ' && road.road.widthM === 4 && (table.scale ?? table.options?.scale) === 1.25 && table.rotation === 19 && page.outputLayout.paperSize === 'A3' && page.outputLayout.orientation === 'portrait' && page.outputLayout.printScale === 250 && page.outputLayout.offsetMmX === 12.5 && page.outputLayout.offsetMmY === -4.25 && page.outputLayout.initialized === true && restored.document.paper.note === '出力備考' && restored.document.paper.showTitleFrame === false && restored.document.paper.includeUnderlay === false && !banned(raw), details: { keys: Object.keys(raw), restored } }
+    return { pass: raw.format === 'kozu-measure' && raw.version === 7 && raw.document.schemaVersion === 7 && restored.view.x === 12.5 && restored.view.zoom === 1.75 && page.shapes.length === 2 && page.entities.length === 2 && page.shapes[0].price === 3500 && text.style.vertical === true && text.memo === '注記メモ' && road.road.widthM === 4 && (table.scale ?? table.options?.scale) === 1.25 && table.rotation === 19 && page.outputLayout.paperSize === 'A3' && page.outputLayout.orientation === 'portrait' && page.outputLayout.printScale === 250 && page.outputLayout.offsetMmX === 12.5 && page.outputLayout.offsetMmY === -4.25 && page.outputLayout.initialized === true && restored.document.paper.note === '出力備考' && restored.document.paper.showTitleFrame === false && restored.document.paper.includeUnderlay === false && !banned(raw), details: { keys: Object.keys(raw), restored } }
   })
 
-  await run('io-v5-output-settings-migrate-to-page-layout-v6', () => {
+  await run('io-v5-output-settings-migrate-to-page-layout-v7', () => {
     const doc = K.createDocument()
     doc.schemaVersion = 5
     doc.paper = { ...doc.paper, size: 'A3', orientation: 'portrait', showFrame: false, showTitleFrame: false, includeUnderlay: false }
@@ -1192,7 +1221,7 @@ async function rendererSuite() {
     const legacy = { format: 'kozu-measure', version: 5, document: doc, view: { x: 3, y: 4, zoom: 1.2 }, meta: { name: 'v5' } }
     const migrated = IO.deserializeProject(JSON.stringify(legacy))
     const layout = pageOf(migrated.document).outputLayout
-    return { pass: migrated.migratedFrom === 5 && migrated.document.schemaVersion === 6 && layout.paperSize === 'A3' && layout.orientation === 'portrait' && layout.printScale === 250 && layout.showFrame === false && layout.showTitleFrame === false && layout.includeUnderlay === false && layout.initialized === false && migrated.view.x === 3 && /自動復元できません/.test(migrated.warnings?.[0] || ''), details: migrated }
+    return { pass: migrated.migratedFrom === 5 && migrated.document.schemaVersion === 7 && layout.paperSize === 'A3' && layout.orientation === 'portrait' && layout.printScale === 250 && layout.showFrame === false && layout.showTitleFrame === false && layout.includeUnderlay === false && layout.initialized === false && migrated.view.x === 3 && /自動復元できません/.test(migrated.warnings?.[0] || ''), details: migrated }
   })
 
   await run('io-legacy-v3-clean-migration', () => {
@@ -1211,7 +1240,7 @@ async function rendererSuite() {
     const migrated = IO.migrateLegacyV3(legacy)
     const page = pageOf(migrated.document)
     const serialized = IO.serializeProject(migrated.document, { view: migrated.view })
-    return { pass: migrated.migratedFrom === 3 && migrated.document.schemaVersion === 6 && page.outputLayout?.paperSize === 'A4' && page.shapes.some(shape => shape.kind === 'lot') && page.shapes.some(shape => shape.kind === 'road') && page.entities.some(entity => entity.kind === 'distance') && page.entities.some(entity => entity.kind === 'text') && page.shapes.find(shape => shape.kind === 'lot')?.price === 3500 && migrated.document.preferences.lot.style.fill === K.DEFAULTS.lotStyle.fill && !banned(JSON.parse(serialized)), details: migrated }
+    return { pass: migrated.migratedFrom === 3 && migrated.document.schemaVersion === 7 && page.outputLayout?.paperSize === 'A4' && page.shapes.some(shape => shape.kind === 'lot') && page.shapes.some(shape => shape.kind === 'road') && page.entities.some(entity => entity.kind === 'distance') && page.entities.some(entity => entity.kind === 'text') && page.shapes.find(shape => shape.kind === 'lot')?.price === 3500 && migrated.document.preferences.lot.style.fill === K.DEFAULTS.lotStyle.fill && !banned(JSON.parse(serialized)), details: migrated }
   })
 
   await run('io-pdf-and-image-underlay-load', async () => {
@@ -1474,7 +1503,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-variable-point-commands-show-finish-only-after-minimum-points', () => {
+  await run('app-variable-point-commands-use-enter-or-double-click-without-finish-button', () => {
     if (!api?.activateCommand || !api?.renderCommandSurface) return { pass: false, details: 'command UI API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
     api.store.replace(doc, { clean: true })
@@ -1496,12 +1525,201 @@ async function rendererSuite() {
       rows.push({ ...definition, states })
     }
     return {
-      pass: rows.every(row => row.states[0].finishHidden && row.states[0].popHidden && row.states.slice(0, row.minimum).every(state => state.finishHidden) && row.states[row.minimum].finishHidden === false && row.states[row.minimum].finishDisabled === false),
+      pass: rows.every(row => row.states.every(state => state.finishHidden && state.finishDisabled) && row.states[0].popHidden) &&
+        rows.filter(row => row.command !== 'line').every(row => row.states[1]?.popHidden === false),
       details: rows
     }
   })
 
-  await run('app-corner-cut-progresses-target-vertex-ready-and-only-then-shows-finish', () => {
+  await run('app-lot-road-create-editors-use-clickable-fixed-tabs-with-page-specific-fields', async () => {
+    if (!api?.activateCommand) return { pass: false, details: 'command UI API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    api.store.replace(doc, { clean: true })
+    const visible = element => {
+      if (!element || element.hidden) return false
+      let current = element
+      while (current && current !== document.body) {
+        if (current.hidden) return false
+        current = current.parentElement
+      }
+      return true
+    }
+    const definitions = [{
+      command: 'parcel',
+      fields: {
+        'create-basic': [],
+        'create-appearance': ['fill', 'stroke', 'fill-opacity', 'show-area', 'show-tsubo', 'show-lengths'],
+        'create-text': ['font-family', 'text-size'],
+        'create-dimension': ['approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
+      }
+    }, {
+      command: 'road',
+      fields: {
+        'create-basic': ['road-type', 'road-name', 'road-width'],
+        'create-appearance': ['fill', 'stroke', 'fill-opacity', 'show-label', 'road-width-visible', 'show-area', 'show-tsubo', 'show-lengths'],
+        'create-text': ['font-family', 'text-size', 'road-width-font', 'road-width-size', 'text-vertical'],
+        'create-dimension': ['approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
+      }
+    }]
+    const expectedLabels = ['基本', '表示', '文字', '辺寸法']
+    const rows = []
+    for (const definition of definitions) {
+      api.activateCommand(definition.command, { focusCanvas: false }); await sleep(25)
+      const buttons = [...document.querySelectorAll('#command-pages [data-create-command-page]')]
+      const labels = buttons.map(button => button.textContent.trim())
+      const pages = []
+      for (const [pageId, expectedFields] of Object.entries(definition.fields)) {
+        const button = document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)
+        button?.click(); await sleep(25)
+        const activeButton = document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)
+        const pageElements = [...document.querySelectorAll('#command-controls [data-create-page]')]
+        const visiblePages = [...new Set(pageElements.filter(visible).map(element => element.dataset.createPage))]
+        const fieldStates = expectedFields.map(name => {
+          const field = document.querySelector(`#command-controls [data-field="${name}"]`)
+          return { name, present: Boolean(field), visible: visible(field) }
+        })
+        pages.push({
+          pageId,
+          buttonPresent: Boolean(button),
+          active: Boolean(activeButton?.classList.contains('active')),
+          uiPage: api.ui.createPage,
+          visiblePages,
+          fieldStates,
+          pageHasVisibleContent: pageElements.some(element => element.dataset.createPage === pageId && visible(element))
+        })
+      }
+      rows.push({ command: definition.command, labels, pages })
+    }
+    return {
+      pass: rows.every(row => JSON.stringify(row.labels) === JSON.stringify(expectedLabels) && row.pages.every(page =>
+        page.buttonPresent && page.active && page.uiPage === page.pageId && page.pageHasVisibleContent &&
+        JSON.stringify(page.visiblePages) === JSON.stringify([page.pageId]) && page.fieldStates.every(field => field.present && field.visible)
+      )),
+      details: rows
+    }
+  })
+
+  await run('app-lot-water-create-select-save-roundtrip-keeps-metrics-rounding-and-fonts', async () => {
+    if (!api?.activateCommand || !api?.finishCommand || !api?.selectObject) return { pass: false, details: 'command API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    doc.preferences.water = {
+      ...doc.preferences.water,
+      type: '水路', name: '側溝', widthM: 1.25,
+      style: { ...doc.preferences.water.style, fill: '#bfe7f8', stroke: '#427aa1', opacity: 0.42 },
+      labelStyle: { ...doc.preferences.water.labelStyle, fontFamily: 'mincho', size: 18, fontSize: 18 },
+      widthLabelStyle: { ...(doc.preferences.water.widthLabelStyle || {}), fontFamily: 'even', size: 13, fontSize: 13 },
+      dimensionStyle: { ...doc.preferences.water.dimensionStyle, fontFamily: 'gothic', approximate: false, decimals: 2, digits: 2, rounding: 'round', adjustment: 0 },
+      showArea: false, showTsubo: false, showLengths: false
+    }
+    api.store.replace(doc, { clean: true })
+    const clickCreatePage = async pageId => {
+      const button = document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)
+      button?.click(); await sleep(25)
+      const activeButton = document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)
+      return Boolean(activeButton?.classList.contains('active') && api.ui.createPage === pageId)
+    }
+    const clickObjectPage = async pageId => {
+      const button = document.querySelector(`#command-pages [data-context-page="${pageId}"]`)
+      button?.click(); await sleep(25)
+      const activeButton = document.querySelector(`#command-pages [data-context-page="${pageId}"]`)
+      return Boolean(activeButton?.classList.contains('active') && api.ui.contextPage === pageId)
+    }
+    const readFields = names => Object.fromEntries(names.map(name => {
+      const field = document.querySelector(`#command-controls [data-field="${name}"]`)
+      return [name, field ? (field.type === 'checkbox' ? field.checked : field.value) : null]
+    }))
+    const allActual = changes => changes.every(change => change.temporary === false)
+
+    api.activateCommand('parcel', { focusCanvas: false }); await sleep(25)
+    const lotAppearancePage = await clickCreatePage('create-appearance')
+    const lotAppearanceChanges = await changeEditFields({ 'show-area': true, 'show-tsubo': false, 'show-lengths': true })
+    const lotTextPage = await clickCreatePage('create-text')
+    const lotTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.3 })
+    const lotDimensionPage = await clickCreatePage('create-dimension')
+    const lotDimensionChanges = await changeEditFields({ approximate: true, 'dimension-decimals': 1, 'dimension-rounding': 'ceil', 'dimension-adjustment': 0.2, 'dimension-font': 'even', 'dimension-size': 1.4 })
+    api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]
+    api.session.step = 4
+    const lotFinished = api.finishCommand(); await sleep(35)
+    const lot = pageOf(api.store.document).shapes.find(shape => shape.kind === 'lot')
+
+    api.activateCommand('road', { focusCanvas: false }); await sleep(25)
+    const roadBasicPage = await clickCreatePage('create-basic')
+    const typeChanges = await changeEditFields({ 'road-type': '水路' })
+    const afterWaterSwitch = {
+      form: {
+        type: api.session.form['road-type'], name: api.session.form['road-name'], width: Number(api.session.form['road-width']),
+        fill: api.session.form.fill, stroke: api.session.form.stroke, opacity: Number(api.session.form['fill-opacity']),
+        area: Boolean(api.session.form['show-area']), tsubo: Boolean(api.session.form['show-tsubo']), lengths: Boolean(api.session.form['show-lengths']),
+        labelFont: api.session.form['font-family'], widthFont: api.session.form['road-width-font'], dimensionFont: api.session.form['dimension-font']
+      },
+      fields: readFields(['road-type', 'road-name', 'road-width'])
+    }
+    const waterBasicChanges = await changeEditFields({ 'road-name': '排水路', 'road-width': 1.5 })
+    const waterAppearancePage = await clickCreatePage('create-appearance')
+    const waterInitialMetrics = readFields(['show-area', 'show-tsubo', 'show-lengths'])
+    const waterAppearanceChanges = await changeEditFields({ 'show-area': true, 'show-tsubo': true, 'show-lengths': true })
+    const waterTextPage = await clickCreatePage('create-text')
+    const waterTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.5, 'road-width-font': 'even', 'road-width-size': 1.25 })
+    const waterDimensionPage = await clickCreatePage('create-dimension')
+    const waterDimensionChanges = await changeEditFields({ approximate: true, 'dimension-decimals': 1, 'dimension-rounding': 'floor', 'dimension-adjustment': -0.1, 'dimension-font': 'even', 'dimension-size': 1.6 })
+    api.session.points = [{ x: 120, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 50 }, { x: 120, y: 50 }]
+    api.session.step = 4
+    const waterFinished = api.finishCommand(); await sleep(35)
+    const water = pageOf(api.store.document).shapes.find(shape => shape.kind === 'water')
+
+    api.activateCommand('select', { focusCanvas: false }); await sleep(20)
+    api.selectObject(lot.id, { openEditor: true }); await sleep(25)
+    const lotSelectedAppearancePage = await clickObjectPage('object-appearance')
+    const lotSelectedAppearance = readFields(['show-area', 'show-tsubo'])
+    const lotSelectedDimensionPage = await clickObjectPage('object-dimension')
+    const lotSelectedDimension = readFields(['dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const lotSelectedTextPage = await clickObjectPage('object-text')
+    const lotSelectedText = readFields(['font-family', 'text-size'])
+
+    api.selectObject(water.id, { openEditor: true }); await sleep(25)
+    const waterSelectedAppearancePage = await clickObjectPage('object-appearance')
+    const waterSelectedAppearance = readFields(['show-area', 'show-tsubo'])
+    const waterSelectedDimensionPage = await clickObjectPage('object-dimension')
+    const waterSelectedDimension = readFields(['dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const waterSelectedTextPage = await clickObjectPage('object-text')
+    const waterSelectedText = readFields(['font-family', 'text-size'])
+    const textRole = document.querySelector('#command-controls [data-text-role]')
+    if (textRole) { textRole.value = 'width'; textRole.dispatchEvent(new Event('change', { bubbles: true })); await sleep(25) }
+    const waterSelectedWidthText = readFields(['road-width-font', 'road-width-size'])
+
+    const restoredDocument = IO.deserializeProject(IO.serializeProject(api.store.document)).document
+    const restoredLot = K.objectById(restoredDocument, lot.id)?.object
+    const restoredWater = K.objectById(restoredDocument, water.id)?.object
+    const creationChanges = [lotAppearanceChanges, lotTextChanges, lotDimensionChanges, typeChanges, waterBasicChanges, waterAppearanceChanges, waterTextChanges, waterDimensionChanges].flat()
+    const shapeChecks = {
+      lot: Boolean(lot && lot.visibility?.area === true && lot.visibility?.tsubo === false && lot.visibility?.dimensions === true && lot.dimensionStyle?.approximate === true && lot.dimensionStyle?.decimals === 1 && lot.dimensionStyle?.rounding === 'ceil' && lot.dimensionStyle?.adjustment === 0.2 && lot.dimensionStyle?.fontFamily === 'even' && lot.labelStyle?.fontFamily === 'mincho'),
+      water: Boolean(water && water.label === '排水路' && water.road?.widthM === 1.5 && water.visibility?.area === true && water.visibility?.tsubo === true && water.visibility?.dimensions === true && water.dimensionStyle?.approximate === true && water.dimensionStyle?.decimals === 1 && water.dimensionStyle?.rounding === 'floor' && water.dimensionStyle?.adjustment === -0.1 && water.dimensionStyle?.fontFamily === 'even' && water.labelStyle?.fontFamily === 'mincho' && water.road?.widthLabelStyle?.fontFamily === 'even'),
+      restoredLot: Boolean(restoredLot && restoredLot.visibility?.area === true && restoredLot.visibility?.tsubo === false && restoredLot.visibility?.dimensions === true && restoredLot.dimensionStyle?.approximate === true && restoredLot.dimensionStyle?.rounding === 'ceil' && restoredLot.dimensionStyle?.fontFamily === 'even' && restoredLot.labelStyle?.fontFamily === 'mincho'),
+      restoredWater: Boolean(restoredWater && restoredWater.label === '排水路' && restoredWater.road?.widthM === 1.5 && restoredWater.visibility?.area === true && restoredWater.visibility?.tsubo === true && restoredWater.visibility?.dimensions === true && restoredWater.dimensionStyle?.approximate === true && restoredWater.dimensionStyle?.rounding === 'floor' && restoredWater.dimensionStyle?.fontFamily === 'even' && restoredWater.labelStyle?.fontFamily === 'mincho' && restoredWater.road?.widthLabelStyle?.fontFamily === 'even')
+    }
+    const selectedChecks = {
+      lot: lotSelectedAppearance['show-area'] === true && lotSelectedAppearance['show-tsubo'] === false && lotSelectedDimension['dimension-visible'] === true && lotSelectedDimension['dimension-approximate'] === true && lotSelectedDimension['dimension-rounding'] === 'ceil' && lotSelectedDimension['dimension-font'] === 'even' && lotSelectedText['font-family'] === 'mincho',
+      water: waterSelectedAppearance['show-area'] === true && waterSelectedAppearance['show-tsubo'] === true && waterSelectedDimension['dimension-visible'] === true && waterSelectedDimension['dimension-approximate'] === true && waterSelectedDimension['dimension-rounding'] === 'floor' && waterSelectedDimension['dimension-font'] === 'even' && waterSelectedText['font-family'] === 'mincho' && waterSelectedWidthText['road-width-font'] === 'even'
+    }
+    return {
+      pass: lotAppearancePage && lotTextPage && lotDimensionPage && lotFinished && roadBasicPage && waterAppearancePage && waterTextPage && waterDimensionPage && waterFinished &&
+        allActual(creationChanges) && afterWaterSwitch.form.type === '水路' && afterWaterSwitch.form.name === '側溝' && afterWaterSwitch.form.width === 1.25 &&
+        afterWaterSwitch.form.fill === '#bfe7f8' && afterWaterSwitch.form.stroke === '#427aa1' && afterWaterSwitch.form.opacity === 42 &&
+        afterWaterSwitch.form.area === false && afterWaterSwitch.form.tsubo === false && afterWaterSwitch.form.lengths === false &&
+        afterWaterSwitch.form.labelFont === 'mincho' && afterWaterSwitch.form.widthFont === 'even' && afterWaterSwitch.form.dimensionFont === 'gothic' &&
+        waterInitialMetrics['show-area'] === false && waterInitialMetrics['show-tsubo'] === false && waterInitialMetrics['show-lengths'] === false &&
+        lotSelectedAppearancePage && lotSelectedDimensionPage && lotSelectedTextPage && waterSelectedAppearancePage && waterSelectedDimensionPage && waterSelectedTextPage &&
+        Object.values(shapeChecks).every(Boolean) && Object.values(selectedChecks).every(Boolean),
+      details: {
+        creationPages: { lotAppearancePage, lotTextPage, lotDimensionPage, roadBasicPage, waterAppearancePage, waterTextPage, waterDimensionPage },
+        creationChanges, afterWaterSwitch, waterInitialMetrics, shapeChecks, selectedChecks,
+        selected: { lotAppearance: lotSelectedAppearance, lotDimension: lotSelectedDimension, lotText: lotSelectedText, waterAppearance: waterSelectedAppearance, waterDimension: waterSelectedDimension, waterText: waterSelectedText, waterWidthText: waterSelectedWidthText },
+        restored: { lot: restoredLot, water: restoredWater }
+      }
+    }
+  })
+
+  await run('app-corner-cut-progresses-without-a-finish-button', () => {
     if (!api?.activateCommand || !api?.renderCommandSurface) return { pass: false, details: 'command UI API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
     const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }])
@@ -1525,7 +1743,7 @@ async function rendererSuite() {
     return {
       pass: selectTarget.header === '1/3' && selectTarget.finishHidden && selectTarget.popHidden &&
         selectVertex.header === '2/3' && selectVertex.finishHidden && selectVertex.popHidden &&
-        ready.header === '3/3' && ready.finishHidden === false && ready.finishDisabled === false && ready.popHidden,
+        ready.header === '3/3' && ready.finishHidden && ready.finishDisabled && ready.popHidden,
       details: { selectTarget, selectVertex, ready }
     }
   })
@@ -1547,7 +1765,8 @@ async function rendererSuite() {
         segmentIndex: api.ui.editSegmentIndex,
         value: select?.value,
         options: select ? [...select.options].map(option => ({ value: option.value, text: option.textContent.trim() })) : [],
-        globalVisible: Boolean(document.querySelector('[data-field="dimension-visible"]')),
+        globalVisible: (() => { const field = document.querySelector('[data-field="dimension-visible"]'); return Boolean(field && !field.closest('label')?.hidden && getComputedStyle(field).display !== 'none') })(),
+        partVisible: Boolean(document.querySelector('[data-field="part-approximate"]')),
         partTabs: [...document.querySelectorAll('[data-segment-panel]')].map(button => button.dataset.segmentPanel),
         legacyToggle: Boolean(document.querySelector('[data-action="toggle-edge-visibility-mode"]')),
         legacyModeProperty: Object.prototype.hasOwnProperty.call(api.ui, 'edgeVisibilityMode')
@@ -1565,16 +1784,16 @@ async function rendererSuite() {
     const expectedOptions = ['all', 'edge:0', 'edge:1', 'edge:2', 'edge:3']
     return {
       pass: Boolean(dimensionTab && target) && all.contextPage === 'object-dimension' && all.value === 'all' &&
-        JSON.stringify(all.options.map(option => option.value)) === JSON.stringify(expectedOptions) && all.options[0]?.text === '全辺共通' &&
+        JSON.stringify(all.options.map(option => option.value)) === JSON.stringify(expectedOptions) && all.options[0]?.text === '全ての辺（共通設定）' &&
         all.edgeIndex == null && all.segmentIndex == null && all.globalVisible && all.partTabs.length === 0 && !all.legacyToggle && !all.legacyModeProperty &&
-        edge.contextPage === 'object-dimension' && edge.value === 'edge:1' && edge.edgeIndex === 1 && edge.segmentIndex == null && !edge.globalVisible &&
+        edge.contextPage === 'object-dimension' && edge.value === 'edge:1' && edge.edgeIndex === 1 && edge.segmentIndex == null && !edge.globalVisible && edge.partVisible &&
         JSON.stringify(edge.partTabs) === JSON.stringify([]) &&
         allAgain.value === 'all' && allAgain.edgeIndex == null && allAgain.segmentIndex == null && allAgain.globalVisible && allAgain.partTabs.length === 0,
       details: { expectedOptions, all, edge, allAgain }
     }
   })
 
-  await run('app-parallel-direction-and-baseline-actions-appear-only-after-two-points', async () => {
+  await run('app-parallel-direction-is-always-available-and-baseline-reset-is-retired', async () => {
     if (!api?.activateCommand || !api?.renderCommandSurface) return { pass: false, details: 'command UI API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
     api.store.replace(doc, { clean: true })
@@ -1591,13 +1810,10 @@ async function rendererSuite() {
     const twoPoints = inspect()
     twoPoints.flip?.click(); await sleep(20)
     const afterFlip = { sign: api.session.form.parallelSign, points: api.session.points.length }
-    document.querySelector('[data-action="reset-parallel-baseline"]')?.click(); await sleep(20)
-    const afterReset = inspect()
     return {
-      pass: initial.flipHidden && initial.resetHidden && onePoint.flipHidden && onePoint.resetHidden &&
-        twoPoints.flipHidden === false && twoPoints.resetHidden === false && twoPoints.flipText === '反転' && !/(?:右側|左側)/.test(twoPoints.processText) && afterFlip.sign === -1 && afterFlip.points === 2 &&
-        afterReset.points === 0 && afterReset.flipHidden && afterReset.resetHidden,
-      details: { initial: { ...initial, flip: undefined, reset: undefined }, onePoint: { ...onePoint, flip: undefined, reset: undefined }, twoPoints: { ...twoPoints, flip: undefined, reset: undefined }, afterFlip, afterReset: { ...afterReset, flip: undefined, reset: undefined } }
+      pass: !initial.flipHidden && initial.resetHidden && !onePoint.flipHidden && onePoint.resetHidden &&
+        !twoPoints.flipHidden && twoPoints.resetHidden && twoPoints.flipText === '反転' && !/(?:右側|左側)/.test(twoPoints.processText) && afterFlip.sign === -1 && afterFlip.points === 2,
+      details: { initial: { ...initial, flip: undefined, reset: undefined }, onePoint: { ...onePoint, flip: undefined, reset: undefined }, twoPoints: { ...twoPoints, flip: undefined, reset: undefined }, afterFlip }
     }
   })
 
@@ -1691,6 +1907,161 @@ async function rendererSuite() {
         before.showArea === false && before.showTsubo === false && before.showLengths === false &&
         formMatches && visibleFormMatches && storedDefaultsMatch,
       details: { button: Boolean(button), before, after, expected, formMatches, visibleFormMatches, storedDefaultsMatch }
+    }
+  })
+
+  await run('app-typography-settings-has-target-selector-and-no-confirm-buttons', async () => {
+    if (!api?.activateCommand) return { pass: false, details: 'command UI API unavailable' }
+    api.store.replace(K.createDocument(), { clean: true })
+    api.activateCommand('typography-settings', { focusCanvas: false }); await sleep(25)
+    const target = document.querySelector('#command-controls [data-field="typography-apply-target"]')
+    const options = target ? [...target.options].map(option => ({ value: option.value, text: option.textContent.trim() })) : []
+    const presets = [...document.querySelectorAll('#command-controls [data-typography-preset]')].map(button => button.dataset.typographyPreset)
+    const fields = ['typography-lot', 'typography-metric', 'typography-dimension', 'typography-road', 'typography-text']
+      .map(name => ({ name, present: Boolean(document.querySelector(`#command-controls [data-field="${name}"]`)) }))
+    const retired = {
+      saveDefaults: Boolean(document.querySelector('[data-action="save-typography-defaults"]')),
+      applyExisting: Boolean(document.querySelector('[data-action="apply-typography-existing"]')),
+      dropdown: Boolean(document.querySelector('#command-controls details.toolbar-dropdown'))
+    }
+    return {
+      pass: Boolean(target) && target.value === 'new' && JSON.stringify(options.map(option => option.value)) === JSON.stringify(['new', 'all']) &&
+        options[0]?.text === '新規の標準' && options[1]?.text === '現在の図面全体' &&
+        JSON.stringify(presets) === JSON.stringify(['small', 'standard', 'large']) && fields.every(field => field.present) && Object.values(retired).every(value => value === false),
+      details: { target: target?.value, options, presets, fields, retired }
+    }
+  })
+
+  await run('app-typography-presets-and-individual-input-auto-save-new-or-all-in-one-undo', async () => {
+    if (!api?.activateCommand || !api?.store?.undo) return { pass: false, details: 'command/history API unavailable' }
+    const equalJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
+    const styled = size => ({ fontFamily: 'gothic', size, fontSize: size, scale: 1, color: '#172033' })
+    const styleSize = style => {
+      const value = Number(style?.fontSize ?? style?.size)
+      return Number.isFinite(value) ? value : null
+    }
+    const makeDocument = () => {
+      const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+      const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }], { label: 'TYPO-LOT', labelStyle: styled(31), dimensionStyle: styled(34) })
+      lot.areaLabel = { ...(lot.areaLabel || {}), visible: true, style: styled(32) }
+      lot.tsuboLabel = { ...(lot.tsuboLabel || {}), visible: true, style: styled(33) }
+      for (const edge of lot.edges || []) edge.style = styled(35)
+      const road = K.addShape(doc, 'road', [{ x: 120, y: 0 }, { x: 220, y: 0 }, { x: 220, y: 45 }, { x: 120, y: 45 }], { label: 'TYPO-ROAD', labelStyle: styled(36), dimensionStyle: styled(39), road: { type: 'private', name: 'TYPO-ROAD', widthM: 4, nameStyle: styled(37), widthLabelStyle: styled(38) } })
+      road.areaLabel = { ...(road.areaLabel || {}), visible: true, style: styled(40) }
+      road.tsuboLabel = { ...(road.tsuboLabel || {}), visible: true, style: styled(41) }
+      road.road = { ...(road.road || {}), nameStyle: styled(37), widthLabelStyle: styled(38) }
+      const water = K.addShape(doc, 'water', [{ x: 240, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 45 }, { x: 240, y: 45 }], { label: 'TYPO-WATER', labelStyle: styled(42), dimensionStyle: styled(43), road: { type: 'water', name: 'TYPO-WATER', widthM: 1.2, nameStyle: styled(44), widthLabelStyle: styled(45) } })
+      water.areaLabel = { ...(water.areaLabel || {}), visible: true, style: styled(46) }
+      water.tsuboLabel = { ...(water.tsuboLabel || {}), visible: true, style: styled(47) }
+      water.road = { ...(water.road || {}), nameStyle: styled(44), widthLabelStyle: styled(45) }
+      const measurement = K.addEntity(doc, 'distance', { points: [{ x: 0, y: 110 }, { x: 100, y: 110 }], dimensionStyle: styled(48) })
+      for (const segment of measurement.segments || []) segment.style = styled(49)
+      const textEntity = K.addEntity(doc, 'text', { position: { x: 20, y: 140 }, text: 'TYPO-TEXT', style: styled(50), textStyle: styled(51), fontSize: 52 })
+      textEntity.style = styled(50); textEntity.textStyle = styled(51); textEntity.fontSize = 52
+      const house = K.addEntity(doc, 'house', { position: { x: 180, y: 140 }, text: 'TYPO-HOUSE', width: 10, height: 8, style: styled(53), textStyle: styled(54), fontSize: 55 })
+      house.style = styled(53); house.textStyle = styled(54); house.fontSize = 55
+      return doc
+    }
+    const stateOf = documentModel => {
+      const page = pageOf(documentModel)
+      const lot = page.shapes.find(shape => shape.kind === 'lot')
+      const road = page.shapes.find(shape => shape.kind === 'road')
+      const water = page.shapes.find(shape => shape.kind === 'water')
+      const measurement = page.entities.find(entity => entity.kind === 'distance')
+      const textEntity = page.entities.find(entity => entity.kind === 'text')
+      const house = page.entities.find(entity => entity.kind === 'house')
+      const preferences = documentModel.preferences
+      return {
+        preferences: {
+          typography: { ...(preferences.typography || {}) },
+          lot: [styleSize(preferences.lot?.labelStyle), styleSize(preferences.lot?.dimensionStyle)],
+          road: [styleSize(preferences.road?.labelStyle), styleSize(preferences.road?.dimensionStyle), styleSize(preferences.road?.widthLabelStyle)],
+          water: [styleSize(preferences.water?.labelStyle), styleSize(preferences.water?.dimensionStyle), styleSize(preferences.water?.widthLabelStyle)],
+          text: styleSize(preferences.text), measurement: styleSize(preferences.measurement?.dimensionStyle)
+        },
+        existing: {
+          lot: [styleSize(lot?.labelStyle), styleSize(lot?.areaLabel?.style), styleSize(lot?.tsuboLabel?.style), styleSize(lot?.dimensionStyle), styleSize(lot?.edges?.[0]?.style)],
+          road: [styleSize(road?.labelStyle), styleSize(road?.areaLabel?.style), styleSize(road?.tsuboLabel?.style), styleSize(road?.dimensionStyle), styleSize(road?.road?.nameStyle), styleSize(road?.road?.widthLabelStyle)],
+          water: [styleSize(water?.labelStyle), styleSize(water?.areaLabel?.style), styleSize(water?.tsuboLabel?.style), styleSize(water?.dimensionStyle), styleSize(water?.road?.nameStyle), styleSize(water?.road?.widthLabelStyle)],
+          measurement: [styleSize(measurement?.dimensionStyle), styleSize(measurement?.segments?.[0]?.style)],
+          text: [styleSize(textEntity?.style), styleSize(textEntity?.textStyle), Number(textEntity?.fontSize)],
+          house: [styleSize(house?.style), styleSize(house?.textStyle), Number(house?.fontSize)]
+        }
+      }
+    }
+    const preferencesMatch = (state, expected) => equalJson(state.preferences.typography, expected) &&
+      equalJson(state.preferences.lot, [expected.lot, expected.dimension]) &&
+      equalJson(state.preferences.road, [expected.road, expected.dimension, expected.dimension]) &&
+      equalJson(state.preferences.water, [expected.road, expected.dimension, expected.dimension]) &&
+      state.preferences.text === expected.text && state.preferences.measurement === expected.dimension
+    const existingMatch = (state, expected) =>
+      equalJson(state.existing.lot, [expected.lot, expected.metric, expected.metric, expected.dimension, expected.dimension]) &&
+      equalJson(state.existing.road, [expected.road, expected.metric, expected.metric, expected.dimension, expected.road, expected.dimension]) &&
+      equalJson(state.existing.water, [expected.road, expected.metric, expected.metric, expected.dimension, expected.road, expected.dimension]) &&
+      equalJson(state.existing.measurement, [expected.dimension, expected.dimension]) &&
+      equalJson(state.existing.text, [expected.text, expected.text, expected.text]) &&
+      equalJson(state.existing.house, [expected.text, expected.text, expected.text])
+    const scenarios = [
+      { name: 'preset-new', target: 'new', preset: 'large', expected: { lot: 17, metric: 14, dimension: 12, road: 17, text: 17 } },
+      { name: 'input-new', target: 'new', field: 'typography-lot', value: 23 },
+      { name: 'preset-all', target: 'all', preset: 'small', expected: { lot: 12, metric: 10, dimension: 9, road: 12, text: 12 } },
+      { name: 'input-all', target: 'all', field: 'typography-metric', value: 21 }
+    ]
+    const rows = []
+    for (const scenario of scenarios) {
+      api.store.replace(makeDocument(), { clean: true })
+      const before = stateOf(api.store.document)
+      api.activateCommand('typography-settings', { focusCanvas: false }); await sleep(25)
+      const initialValues = {
+        lot: Number(api.session.form['typography-lot']), metric: Number(api.session.form['typography-metric']),
+        dimension: Number(api.session.form['typography-dimension']), road: Number(api.session.form['typography-road']), text: Number(api.session.form['typography-text'])
+      }
+      const targetField = document.querySelector('#command-controls [data-field="typography-apply-target"]')
+      if (targetField) {
+        targetField.value = scenario.target
+        targetField.dispatchEvent(new Event('input', { bubbles: true }))
+        targetField.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      await sleep(20)
+      const undoBefore = api.store.undoStack?.length || 0
+      const targetDidNotCommit = undoBefore === 0
+      let inputDidNotCommitEarly = true
+      let controlPresent = false
+      let expected = scenario.expected
+      if (scenario.preset) {
+        const button = document.querySelector(`#command-controls [data-typography-preset="${scenario.preset}"]`)
+        controlPresent = Boolean(button)
+        button?.click(); await sleep(35)
+      } else {
+        const field = document.querySelector(`#command-controls [data-field="${scenario.field}"]`)
+        controlPresent = Boolean(field)
+        field?.focus({ preventScroll: true })
+        if (field) {
+          field.value = String(scenario.value)
+          field.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+        await sleep(15)
+        inputDidNotCommitEarly = (api.store.undoStack?.length || 0) === undoBefore
+        field?.dispatchEvent(new Event('change', { bubbles: true }))
+        field?.blur(); await sleep(40)
+        expected = { ...initialValues, [scenario.field.replace('typography-', '')]: scenario.value }
+      }
+      const undoAfter = api.store.undoStack?.length || 0
+      const after = stateOf(api.store.document)
+      const preferenceApplied = preferencesMatch(after, expected)
+      const existingApplied = scenario.target === 'all' ? existingMatch(after, expected) : equalJson(after.existing, before.existing)
+      const undone = api.store.undo()
+      const restored = stateOf(api.store.document)
+      const undoRestored = undone === true && equalJson(restored, before)
+      rows.push({
+        name: scenario.name, target: scenario.target, controlPresent, targetDidNotCommit, inputDidNotCommitEarly,
+        undoBefore, undoAfter, oneUndo: undoAfter === undoBefore + 1, expected, preferenceApplied, existingApplied, undoRestored,
+        before, after, restored
+      })
+    }
+    return {
+      pass: rows.every(row => row.controlPresent && row.targetDidNotCommit && row.inputDidNotCommitEarly && row.oneUndo && row.preferenceApplied && row.existingApplied && row.undoRestored),
+      details: rows
     }
   })
 
@@ -1817,7 +2188,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-toggle-snap-switches-all-four-snap-modes-off-then-on', async () => {
+  await run('app-toggle-snap-switches-three-visible-snap-modes-and-keeps-grid-off', async () => {
     const doc = K.createDocument(); api.store.replace(doc, { clean: true })
     const values = () => {
       const snap = api.store.document.preferences.snap
@@ -1829,7 +2200,9 @@ async function rendererSuite() {
     document.querySelector('#status-snap')?.click(); await sleep(20)
     const on = values()
     return {
-      pass: Object.values(initial).some(Boolean) && Object.values(off).every(value => value === false) && Object.values(on).every(value => value === true),
+      pass: initial.grid === false && initial.vertex && initial.intersection && initial.edge &&
+        off.grid === false && !off.vertex && !off.intersection && !off.edge &&
+        on.grid === false && on.vertex && on.intersection && on.edge,
       details: { initial, off, on }
     }
   })
@@ -1848,19 +2221,19 @@ async function rendererSuite() {
       tsubo: api.session.form['global-show-tsubo'], dimensions: api.session.form['global-show-lengths']
     }
     const before = clone(K.objectById(api.store.document, lot.id).object.visibility)
-    const grid = document.querySelector('[data-field="snap-grid"]')
-    if (grid) {
-      grid.checked = !grid.checked
-      grid.dispatchEvent(new Event('change', { bubbles: true }))
+    const edgeSnap = document.querySelector('[data-field="snap-edge"]')
+    if (edgeSnap) {
+      edgeSnap.checked = !edgeSnap.checked
+      edgeSnap.dispatchEvent(new Event('change', { bubbles: true }))
       await sleep(20)
     }
     const savedLot = K.objectById(api.store.document, lot.id).object
     const after = clone(savedLot.visibility)
     return {
-      pass: Boolean(grid) && loaded.number === false && loaded.area === false && loaded.tsubo === true && loaded.dimensions === false &&
+      pass: Boolean(edgeSnap) && !document.querySelector('[data-field="snap-grid"]') && api.store.document.preferences.snap.grid === false && loaded.number === false && loaded.area === false && loaded.tsubo === true && loaded.dimensions === false &&
         before.number === after.number && before.area === after.area && before.tsubo === after.tsubo && before.dimensions === after.dimensions &&
         savedLot.areaLabel.visible === false && savedLot.tsuboLabel.visible === true,
-      details: { loaded, before, after, grid: grid?.checked, areaLabel: savedLot.areaLabel, tsuboLabel: savedLot.tsuboLabel }
+      details: { loaded, before, after, edgeSnap: edgeSnap?.checked, grid: api.store.document.preferences.snap.grid, areaLabel: savedLot.areaLabel, tsuboLabel: savedLot.tsuboLabel }
     }
   })
 
@@ -2017,20 +2390,18 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-parallel-guide-reuses-baseline-for-one-and-two-distances', () => {
+  await run('app-parallel-guide-completes-one-line-and-returns-to-selection', () => {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; api.store.replace(doc, { clean: true })
     const baseline = [{ x: 10, y: 100 }, { x: 110, y: 100 }]
     api.activateCommand('parallel', { focusCanvas: false }); api.session.points = baseline.map(K.point); api.session.step = 2; api.session.form['parallel-distance'] = 2; api.session.form.parallelSign = 1
     const firstOk = api.finishCommand()
     const firstSession = { command: api.session.command, points: clone(api.session.points), count: api.session.form.parallelCount }
     const firstEntities = clone(pageOf(api.store.document).entities.filter(entity => entity.kind === 'parallel'))
-    const secondOk = api.finishCommand()
-    const secondSession = { command: api.session.command, points: clone(api.session.points), count: api.session.form.parallelCount }
     const entities = pageOf(api.store.document).entities.filter(entity => entity.kind === 'parallel')
     const offsets = entities.map(entity => Math.abs(entity.points[0].y - baseline[0].y)).sort((a, b) => a - b)
     return {
-      pass: firstOk && secondOk && firstEntities.length === 1 && entities.length === 2 && firstSession.command === 'parallel-guide' && secondSession.command === 'parallel-guide' && JSON.stringify(firstSession.points) === JSON.stringify(baseline) && JSON.stringify(secondSession.points) === JSON.stringify(baseline) && Number(firstSession.count) === 1 && Number(secondSession.count) === 2 && Math.abs(offsets[0] - 20) < 1e-6 && Math.abs(offsets[1] - 40) < 1e-6,
-      details: { baseline, firstOk, secondOk, firstSession, secondSession, firstEntities, entities, offsets }
+      pass: firstOk && firstEntities.length === 1 && entities.length === 1 && firstSession.command === 'select' && firstSession.points.length === 0 && Math.abs(offsets[0] - 20) < 1e-6,
+      details: { baseline, firstOk, firstSession, firstEntities, entities, offsets }
     }
   })
 
@@ -2091,35 +2462,67 @@ async function rendererSuite() {
       ['parking', { x: 300, y: 100 }, { 'stamp-label': 'P1', 'stamp-width': 2.5, 'stamp-depth': 5, 'stamp-scale': 1.8, 'stamp-text-scale': 1.2 }],
       ['north', { x: 500, y: 100 }, { 'stamp-label': 'N', 'stamp-scale': 1.5, 'stamp-text-scale': 1.7 }]
     ]
+    const visibleField = name => {
+      const field = document.querySelector(`#command-controls [data-field="${name}"]`)
+      return Boolean(field && !field.hidden && !field.closest('[hidden]'))
+    }
+    const clickCreatePage = async pageId => {
+      const button = document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)
+      button?.click(); await sleep(18)
+      return Boolean(button && api.ui.createPage === pageId && document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)?.classList.contains('active'))
+    }
+    const clickObjectPage = async pageId => {
+      const button = document.querySelector(`#command-pages [data-context-page="${pageId}"]`)
+      button?.click(); await sleep(18)
+      return Boolean(button && api.ui.contextPage === pageId && document.querySelector(`#command-pages [data-context-page="${pageId}"]`)?.classList.contains('active'))
+    }
     const placed = []
     for (const [command, position, form] of placements) {
-      api.activateCommand(command, { focusCanvas: false }); Object.assign(api.session.form, form); api.runtime.pointerWorld = position
+      api.activateCommand(command, { focusCanvas: false })
+      const basicPage = await clickCreatePage('create-basic')
       const beforeFields = {
-        scale: Boolean(document.querySelector('[data-field="stamp-scale"]')),
-        textScale: Boolean(document.querySelector('[data-field="stamp-text-scale"]'))
+        scale: visibleField('stamp-scale'),
+        textScale: false,
+        label: false
       }
+      const basicValues = Object.fromEntries(Object.entries(form).filter(([key]) => ['stamp-width', 'stamp-depth', 'stamp-scale'].includes(key)))
+      const basicChanges = await changeEditFields(basicValues)
+      const textPage = await clickCreatePage('create-text')
+      beforeFields.textScale = visibleField('stamp-text-scale')
+      beforeFields.label = visibleField('stamp-label')
+      const textValues = Object.fromEntries(Object.entries(form).filter(([key]) => ['stamp-label', 'stamp-text-scale'].includes(key)))
+      const textChanges = await changeEditFields(textValues)
+      const appearancePage = await clickCreatePage('create-appearance')
+      api.runtime.pointerWorld = position
       const ok = api.finishCommand(); await sleep(25)
       const entity = [...pageOf(api.store.document).entities].reverse().find(value => value.kind === command)
-      placed.push({ command, ok, beforeFields, id: entity?.id, scale: entity?.stampScale, textScale: entity?.stampTextScale, fontSize: entity?.textStyle?.fontSize })
+      placed.push({ command, ok, pages: { basicPage, textPage, appearancePage }, beforeFields, actualFields: [...basicChanges, ...textChanges].every(change => !change.temporary), id: entity?.id, scale: entity?.stampScale, textScale: entity?.stampTextScale, fontSize: entity?.textStyle?.fontSize })
     }
     const edited = []
     for (const item of placed) {
-      api.activateCommand('select', { focusCanvas: false }); api.ui.contextPage = 'object-special'; api.selectObject(item.id, { openEditor: true }); api.renderCommandSurface(); await sleep(20)
+      api.activateCommand('select', { focusCanvas: false }); api.selectObject(item.id, { openEditor: true }); await sleep(20)
+      const basicPage = await clickObjectPage('object-basic')
+      const labelVisible = visibleField('object-label')
+      const labelChanges = await changeEditFields({ 'object-label': `${item.command}-編集` })
+      const sizePage = await clickObjectPage('object-special')
+      const scaleVisible = visibleField('stamp-scale')
+      const scaleChanges = await changeEditFields({ 'stamp-scale': 1.3 })
+      const textPage = await clickObjectPage('object-text')
       const fields = {
-        scale: Boolean(document.querySelector('[data-field="stamp-scale"]')),
-        textScale: Boolean(document.querySelector('[data-field="stamp-text-scale"]')),
-        label: Boolean(document.querySelector('[data-field="object-label"]'))
+        scale: scaleVisible,
+        textScale: visibleField('text-size'),
+        label: labelVisible
       }
-      await changeEditFields({ 'stamp-scale': 1.3, 'stamp-text-scale': 2, 'object-label': `${item.command}-編集` })
+      const textChanges = await changeEditFields({ 'text-size': 2 })
       const entity = K.objectById(api.store.document, item.id)?.object
-      edited.push({ command: item.command, fields, entity: clone(entity) })
+      edited.push({ command: item.command, pages: { basicPage, sizePage, textPage }, fields, actualFields: [...labelChanges, ...scaleChanges, ...textChanges].every(change => !change.temporary), entity: clone(entity) })
     }
     const house = edited.find(item => item.command === 'house')?.entity
     const houseDimensions = api.renderer._stampDimensions(house, api.store.document)
     const hit = K.hitTestDocument(api.store.document, { x: 150, y: 130 }, 4)
     return {
-      pass: placed.every(item => item.ok && item.beforeFields.scale && item.beforeFields.textScale && item.scale > 1 && item.textScale > 1 && item.fontSize > 14) &&
-        edited.every(item => item.fields.scale && item.fields.textScale && item.fields.label && item.entity?.stampScale === 1.3 && item.entity?.stampTextScale === 2 && item.entity?.textStyle?.fontSize === 28 && item.entity?.text === `${item.command}-編集`) &&
+      pass: placed.every(item => item.ok && Object.values(item.pages).every(Boolean) && item.actualFields && item.beforeFields.scale && item.beforeFields.textScale && item.beforeFields.label && item.scale > 1 && item.textScale > 1 && item.fontSize > 14) &&
+        edited.every(item => Object.values(item.pages).every(Boolean) && item.actualFields && item.fields.scale && item.fields.textScale && item.fields.label && item.entity?.stampScale === 1.3 && item.entity?.stampTextScale === 2 && item.entity?.textStyle?.fontSize === 28 && item.entity?.text === `${item.command}-編集`) &&
         Math.abs(houseDimensions.widthLabel - 13) < 1e-8 && hit?.id === house?.id,
       details: { placed, edited, houseDimensions, hit }
     }
@@ -2131,7 +2534,7 @@ async function rendererSuite() {
       label: '私道', road: { type: 'private', name: '私道', widthM: 4 }
     })
     api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
-    api.ui.contextPage = 'object-special'; api.ui.specialPanel = 'primary'; api.selectObject(road.id, { openEditor: true }); api.renderCommandSurface(); await sleep(20)
+    api.ui.contextPage = 'object-basic'; api.selectObject(road.id, { openEditor: true }); api.renderCommandSurface(); await sleep(20)
     const field = document.querySelector('[data-field="road-category"]')
     const loaded = field?.value
     await changeEditFields({ 'road-category': '位置指定道路' })
@@ -2213,13 +2616,15 @@ async function rendererSuite() {
     api.ui.editEdgeIndex = null; api.ui.editSegmentIndex = 0; api.ui.contextPage = 'object-dimension'; api.ui.segmentPanel = 'style'
     api.selectObject(polyline.id, { openEditor: true, preserveSubselection: true }); api.renderCommandSurface()
     const segmentStyleControl = Boolean(document.querySelector('[data-field="part-font"]'))
-    await changeEditFields({ 'part-approximate': true, 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'mono', 'part-size': 1.3, 'part-color': '#1d4ed8' })
+    await changeEditFields({ 'part-approximate': true, 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'even', 'part-size': 1.3, 'part-color': '#1d4ed8' })
     const savedSegment = K.objectById(api.store.document, polyline.id)?.object?.segments?.[0]
 
-    api.ui.contextPage = 'object-special'; api.ui.specialPanel = 'primary'
-    api.selectObject(house.id, { openEditor: true }); api.renderCommandSurface()
+    api.selectObject(house.id, { openEditor: true }); await sleep(15)
+    const appearanceTab = document.querySelector('#command-pages [data-context-page="object-appearance"]')
+    appearanceTab?.click(); await sleep(20)
+    const appearancePage = Boolean(appearanceTab && api.ui.contextPage === 'object-appearance' && document.querySelector('#command-pages [data-context-page="object-appearance"]')?.classList.contains('active'))
     const stampLineControl = document.querySelector('[data-field="stamp-line-style"]')
-    await changeEditFields({ 'stamp-line-style': 'dotted' })
+    const stampChanges = await changeEditFields({ 'stamp-line-style': 'dotted' })
     const savedHouse = K.objectById(api.store.document, house.id)?.object
 
     api.activateCommand('road-draw', { focusCanvas: false })
@@ -2229,11 +2634,11 @@ async function rendererSuite() {
     roadType.value = '公道'; roadType.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20)
     const roadForm = clone(api.session.form)
 
-    const pass = edgeValueControl && segmentStyleControl && Boolean(stampLineControl) &&
+    const pass = edgeValueControl && segmentStyleControl && appearancePage && Boolean(stampLineControl) && stampChanges.every(change => !change.temporary) &&
       savedEdge?.style?.approximate === true && savedEdge.style.decimals === 1 && savedEdge.style.rounding === 'floor' && savedEdge.style.adjustment === 0.15 && savedEdge.style.fontFamily === 'mincho' && savedEdge.style.color === '#b4232d' &&
-      savedSegment?.style?.approximate === true && savedSegment.style.decimals === 0 && savedSegment.style.rounding === 'ceil' && savedSegment.style.adjustment === -0.1 && savedSegment.style.fontFamily === 'mono' && savedSegment.style.color === '#1d4ed8' &&
+      savedSegment?.style?.approximate === true && savedSegment.style.decimals === 0 && savedSegment.style.rounding === 'ceil' && savedSegment.style.adjustment === -0.1 && savedSegment.style.fontFamily === 'even' && savedSegment.style.color === '#1d4ed8' &&
       savedHouse?.style?.lineStyle === 'dotted' && waterForm.fill === '#9ee7f5' && waterForm.stroke === '#167a9b' && waterForm['road-width'] === 1.2 && waterForm['road-name'] === '側溝' && roadForm.fill === '#cbd5e1' && roadForm['road-width'] === 5.5 && roadForm['road-name'] === '公道'
-    return { pass, details: { edgeValueControl, segmentStyleControl, stampLineControl: Boolean(stampLineControl), savedEdge, savedSegment, savedHouse, waterForm, roadForm } }
+    return { pass, details: { edgeValueControl, segmentStyleControl, appearancePage, stampLineControl: Boolean(stampLineControl), stampChanges, savedEdge, savedSegment, savedHouse, waterForm, roadForm } }
   })
 
   await run('app-individual-dimension-position-has-no-numeric-input-resets-and-offers-canvas-drag', async () => {
@@ -2475,17 +2880,17 @@ async function rendererSuite() {
   await run('app-object-editor-routes-all-18-kinds-through-six-stable-tab-slots', async () => {
     if (!api?.selectObject) return { pass: false, details: 'object editor API unavailable' }
     const expected = {
-      lot: ['object-basic', 'object-values', 'object-dimension', 'object-appearance', 'object-text', 'object-record'],
-      road: ['object-basic', 'object-special', 'object-dimension', 'object-values', 'object-appearance', 'object-text'],
-      water: ['object-basic', 'object-special', 'object-dimension', 'object-values', 'object-appearance', 'object-text'],
+      lot: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension', 'object-record'],
+      road: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension'],
+      water: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension'],
       cutout: ['object-basic', 'object-special', 'object-dimension', 'object-appearance', 'object-text', 'object-record'],
       distance: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       polyline: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       area: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       dimension: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       line: ['object-special'], arrow: ['object-basic', 'object-text', 'object-special'], text: ['object-basic', 'object-text'],
-      callout: ['object-basic', 'object-text', 'object-special'], north: ['object-special', 'object-text'],
-      house: ['object-basic', 'object-special', 'object-text', 'object-dimension'], parking: ['object-basic', 'object-special', 'object-text', 'object-dimension'],
+      callout: ['object-basic', 'object-text', 'object-special'], north: ['object-basic', 'object-appearance', 'object-text', 'object-special'],
+      house: ['object-basic', 'object-appearance', 'object-text', 'object-special'], parking: ['object-basic', 'object-appearance', 'object-text', 'object-special'],
       'lot-table': ['object-special', 'object-text'], guide: ['object-special'], parallel: ['object-special']
     }
     const doc = K.createDocument()
@@ -2502,10 +2907,17 @@ async function rendererSuite() {
       const tabs = [...document.querySelectorAll('#command-pages [data-context-page]')]
       const visible = tabs.filter(button => !button.hidden).map(button => button.dataset.contextPage)
       const labels = tabs.filter(button => !button.hidden).map(button => button.textContent.trim())
-      rows.push({ kind: object.kind, total: tabs.length, visible, labels })
+      const visited = []
+      for (const pageId of expected[object.kind]) {
+        const button = document.querySelector(`#command-pages [data-context-page="${pageId}"]`)
+        button?.click(); await sleep(12)
+        const current = document.querySelector(`#command-pages [data-context-page="${pageId}"]`)
+        visited.push({ pageId, present: Boolean(button), contextPage: api.ui.contextPage, active: Boolean(current?.classList.contains('active')) })
+      }
+      rows.push({ kind: object.kind, total: tabs.length, visible, labels, visited })
     }
     return {
-      pass: rows.length === 18 && rows.every(row => row.total === 6 && JSON.stringify(row.visible) === JSON.stringify(expected[row.kind]) && new Set(row.visible).size === row.visible.length && row.labels.every(Boolean)),
+      pass: rows.length === 18 && rows.every(row => row.total === 6 && JSON.stringify(row.visible) === JSON.stringify(expected[row.kind]) && new Set(row.visible).size === row.visible.length && row.labels.every(Boolean) && row.visited.every(item => item.present && item.contextPage === item.pageId && item.active)),
       details: { expected, rows }
     }
   })
@@ -2525,7 +2937,7 @@ async function rendererSuite() {
       api.ui.contextPage = 'object-basic'
       api.selectObject(object.id, { openEditor: true }); await sleep(30)
       const dimensionTab = document.querySelector('[data-context-page="object-dimension"]')
-      api.ui.contextPage = 'object-special'; api.ui.specialPanel = 'primary'; api.renderCommandSurface(); await sleep(20)
+      api.ui.contextPage = 'object-basic'; api.renderCommandSurface(); await sleep(20)
       const widthField = document.querySelector('[data-field="road-width-visible"]')
       const before = clone(K.objectById(api.store.document, object.id)?.object)
       if (widthField) {
@@ -2574,7 +2986,6 @@ async function rendererSuite() {
     api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
     api.ui.contextPage = 'object-values'; api.ui.valueLabelPanel = 'area'; api.selectObject(lot.id, { openEditor: true }); await sleep(30)
     const field = document.querySelector('[data-field="area-label-text"]')
-    const sizeField = document.querySelector('[data-field="area-label-size"]')
     const formatPopup = document.querySelector('#command-controls details.toolbar-dropdown')
     const colorsBefore = { area: lot.areaLabel?.style?.color, tsubo: lot.tsuboLabel?.style?.color }
     const exactArea = K.TSUBO_M2 * 50
@@ -2598,15 +3009,21 @@ async function rendererSuite() {
     const normalizedTsuboText = tsuboField?.value
     const saved = clone(K.objectById(api.store.document, lot.id)?.object)
     const colorsAfter = { area: saved?.areaLabel?.style?.color, tsubo: saved?.tsuboLabel?.style?.color }
+    api.ui.contextPage = 'object-text'; api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(20)
+    const areaSizeField = document.querySelector('[data-field="area-label-size"]')
+    const areaFontField = document.querySelector('[data-field="area-label-font"]')
+    api.ui.textRole = 'tsubo'; api.renderCommandSurface(); await sleep(20)
+    const tsuboSizeField = document.querySelector('[data-field="tsubo-label-size"]')
+    const tsuboFontField = document.querySelector('[data-field="tsubo-label-font"]')
     return {
       pass: Boolean(field) && Boolean(warning) && warning.hidden === false && /坪.*更新|手入力/.test(warning.textContent || '') &&
         normalizedAreaText === `${exactArea.toFixed(5)}㎡` && Math.abs(Number.parseFloat(String(linkedFromArea)) - 50) < 0.01 && /坪/.test(String(linkedFromArea)) &&
-        normalizedTsuboText === '7777坪' && Boolean(sizeField) && formatPopup == null && JSON.stringify(colorsAfter) === JSON.stringify(colorsBefore) && !document.querySelector('[data-action="save-edit"]'),
-      details: { exactArea, warning: warning ? { hidden: warning.hidden, text: warning.textContent } : null, normalizedAreaText, linkedFromArea, normalizedTsuboText, hasSizeField: Boolean(sizeField), hasFormatPopup: Boolean(formatPopup), colorsBefore, colorsAfter, saved }
+        normalizedTsuboText === '7777坪' && Boolean(areaSizeField && areaFontField && tsuboSizeField && tsuboFontField) && formatPopup == null && JSON.stringify(colorsAfter) === JSON.stringify(colorsBefore) && !document.querySelector('[data-action="save-edit"]'),
+      details: { exactArea, warning: warning ? { hidden: warning.hidden, text: warning.textContent } : null, normalizedAreaText, linkedFromArea, normalizedTsuboText, textControls: { areaSize: Boolean(areaSizeField), areaFont: Boolean(areaFontField), tsuboSize: Boolean(tsuboSizeField), tsuboFont: Boolean(tsuboFontField) }, hasFormatPopup: Boolean(formatPopup), colorsBefore, colorsAfter, saved }
     }
   })
 
-  await run('app-blank-click-keeps-selection-and-explicit-clear-removes-it', async () => {
+  await run('app-blank-click-clears-selection', async () => {
     if (!api?.selectObject || !api?.renderer) return { pass: false, details: 'selection API unavailable' }
     const doc = K.createDocument()
     const lot = K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 100, y: 20 }, { x: 100, y: 90 }, { x: 20, y: 90 }])
@@ -2617,11 +3034,9 @@ async function rendererSuite() {
     canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 611, pointerType: 'mouse', button: 0, buttons: 0, detail: 1, clientX: point.x, clientY: point.y }))
     await sleep(25)
     const afterBlank = [...api.ui.selectedIds]
-    const clear = document.querySelector('[data-action="clear-selection"]')
-    clear?.click(); await sleep(25)
     return {
-      pass: afterBlank.length === 1 && afterBlank[0] === lot.id && Boolean(clear) && api.ui.selectedIds.length === 0,
-      details: { afterBlank, afterClear: [...api.ui.selectedIds], clearButton: Boolean(clear), status: document.getElementById('status-message')?.textContent }
+      pass: afterBlank.length === 0 && api.ui.selectedIds.length === 0,
+      details: { afterBlank, status: document.getElementById('status-message')?.textContent }
     }
   })
 
@@ -2680,16 +3095,38 @@ async function rendererSuite() {
     const undoAfter = api.store.undoStack?.length || 0
     const undone = api.undo(); await sleep(25)
     const afterUndo = [first.id, second.id].map(id => clone(K.objectById(api.store.document, id)?.object))
-    await ctrlClickWorld({ x: 30, y: 135 }, 622)
+    api.selectObject(first.id, { openEditor: true }); await sleep(20)
+    await ctrlClickWorld({ x: 150, y: 30 }, 622)
+    await ctrlClickWorld({ x: 30, y: 135 }, 623)
     const mixedIds = [...api.ui.selectedIds]
     const mixedNotice = document.querySelector('.batch-edit-notice')?.textContent || ''
     const mixedHasSpecificFields = Boolean(document.querySelector('[data-field="fill-opacity"],[data-field="road-width"]'))
     return {
-      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && JSON.stringify(batchTabs) === JSON.stringify(['object-basic', 'object-values', 'object-dimension', 'object-appearance', 'object-text', 'object-record']) && Boolean(opacity) &&
+      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && JSON.stringify(batchTabs) === JSON.stringify(['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension', 'object-record']) && Boolean(opacity) &&
         afterBatch.every(object => Math.abs(Number(object?.style?.opacity) - 0.33) < 1e-8) && undoAfter === undoBefore + 1 && undone === true &&
         afterUndo.every(object => Math.abs(Number(object?.style?.opacity) - Number(K.DEFAULTS.lotStyle.opacity)) < 1e-8) &&
         mixedIds.length === 3 && mixedIds.includes(road.id) && /種類|共通|移動|複写/.test(mixedNotice) && !mixedHasSpecificFields,
       details: { selectedLots, batchTabs, afterBatch, undoBefore, undoAfter, undone, afterUndo, mixedIds, mixedNotice, mixedHasSpecificFields }
+    }
+  })
+
+  await run('app-object-kind-selection-converts-immediately-and-undoes-in-one-step', async () => {
+    if (!api?.selectObject || !api?.undo) return { pass: false, details: 'object edit API unavailable' }
+    const doc = K.createDocument()
+    const lot = K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 120, y: 100 }, { x: 20, y: 100 }], { number: 7, label: '即時種類変更' })
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false }); api.selectObject(lot.id, { openEditor: true }); await sleep(25)
+    const field = document.querySelector('[data-field="object-type"]')
+    const confirmationAbsent = !document.querySelector('#command-actions [data-action="save-edit"],#command-controls [data-action="save-edit"]')
+    const undoBefore = api.store.undoStack?.length || 0
+    if (field) { field.value = 'road'; field.dispatchEvent(new Event('change', { bubbles: true })) }
+    await sleep(35)
+    const converted = clone(K.objectById(api.store.document, lot.id)?.object)
+    const undoAfter = api.store.undoStack?.length || 0
+    const undone = api.undo(); await sleep(30)
+    const restored = clone(K.objectById(api.store.document, lot.id)?.object)
+    return {
+      pass: Boolean(field) && confirmationAbsent && converted?.id === lot.id && converted?.kind === 'road' && undoAfter === undoBefore + 1 && undone === true && restored?.id === lot.id && restored?.kind === 'lot',
+      details: { field: Boolean(field), confirmationAbsent, undoBefore, undoAfter, converted, undone, restored }
     }
   })
 
@@ -2703,11 +3140,23 @@ async function rendererSuite() {
         ? '[data-action="apply-legacy-approx"][data-approx-scope="part"]'
         : '[data-action="apply-legacy-approx"]:not([data-approx-scope="part"])'
       const button = document.querySelector(selector)
-      button?.click(); await sleep(20)
       const prefix = scope === 'part' ? 'part' : 'dimension'
+      let directControls = false
+      if (button) button.click()
+      else if (scope === 'part') {
+        const approximate = document.querySelector('[data-field="part-approximate"]')
+        directControls = Boolean(approximate)
+        const enabling = !approximate?.checked
+        const values = enabling
+          ? { 'part-approximate': true, 'part-adjustment': -0.1, 'part-rounding': 'floor', 'part-decimals': 1 }
+          : { 'part-approximate': false, 'part-adjustment': 0, 'part-rounding': 'round', 'part-decimals': 2 }
+        await changeEditFields(values)
+      }
+      await sleep(20)
       return {
         button: Boolean(button),
-        scope: button?.dataset.approxScope || 'global',
+        directControls,
+        scope: button?.dataset.approxScope || scope,
         compactClass: button?.classList.contains('part-approx-button') || false,
         form: {
           approximate: api.session.form[approximateField],
@@ -2766,9 +3215,9 @@ async function rendererSuite() {
     return {
       pass: lotPreset.button && measurementPreset.button && editPreset.button && !editSave && lotFinished === true && measurementFinished === true &&
         exact(lotPreset.form) && exact(measurementPreset.form) && exact(editPreset.form) && exact(savedLot?.dimensionStyle) && exact(savedMeasurement?.dimensionStyle) && exact(savedEdit?.dimensionStyle) &&
-        partOn.button && partOn.scope === 'part' && partOn.compactClass && exact(partOn.form) && exact(afterPartOn?.edges?.[0]?.style) && disabledExact(afterPartOn?.dimensionStyle) &&
+        !partOn.button && partOn.directControls && partOn.scope === 'part' && exact(partOn.form) && exact(afterPartOn?.edges?.[0]?.style) && disabledExact(afterPartOn?.dimensionStyle) &&
         globalOn.button && globalOn.scope === 'global' && exact(globalOn.form) && exact(afterGlobalOn?.dimensionStyle) && exact(afterGlobalOn?.edges?.[0]?.style) &&
-        partOff.button && partOff.scope === 'part' && disabledExact(partOff.form) && disabledExact(afterPartOff?.edges?.[0]?.style) && exact(afterPartOff?.dimensionStyle),
+        !partOff.button && partOff.directControls && disabledExact(partOff.form) && disabledExact(afterPartOff?.edges?.[0]?.style) && exact(afterPartOff?.dimensionStyle),
       details: {
         expected,
         lot: { preset: lotPreset, finished: lotFinished, saved: savedLot?.dimensionStyle },
@@ -2837,11 +3286,17 @@ async function rendererSuite() {
     const makeFile = name => new File([new TextEncoder().encode(pdf)], name, { type: 'application/pdf' })
     const oldDoc = K.createDocument(); K.addShape(oldDoc, 'lot', [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }], { label: 'MUST-CLEAR' })
     api.store.replace(oldDoc, { clean: true }); Object.assign(api.runtime.view, { x: -90, y: 75, zoom: 1.8 })
-    let firstOpen = false; let pageRoundtrip = false; let replacementPreserved = false; let serializedRoundtrip = false; let transientCleared = false
+    let firstOpen = false; let loadUndoable = false; let loadUndoRestored = false; let loadRedoRestored = false; let pageSwitchWithoutHistory = false
+    let pageRoundtrip = false; let replacementPreserved = false; let serializedRoundtrip = false; let transientCleared = false
     try {
       firstOpen = await api.loadUnderlay(makeFile('fresh-two-pages.pdf'), false)
       const afterFresh = api.store.document
-      firstOpen = firstOpen && afterFresh.pages.length === 1 && pageOf(afterFresh).shapes.length === 0 && api.store.dirty === true && api.store.canUndo === false && api.runtime.view.x === -90 && api.runtime.view.y === 75 && api.runtime.view.zoom === 1.8
+      loadUndoable = afterFresh.pages.length === 1 && pageOf(afterFresh).shapes.length === 0 && api.store.dirty === true && api.store.canUndo === true && (api.store.undoStack?.length || 0) === 1
+      firstOpen = firstOpen && loadUndoable && api.runtime.view.x === -90 && api.runtime.view.y === 75 && api.runtime.view.zoom === 1.8
+      const undoneLoad = api.undo(); await api.synchronizeBackgroundRuntime({ force: true }); await sleep(25)
+      loadUndoRestored = undoneLoad === true && pageOf(api.store.document).shapes.some(shape => shape.label === 'MUST-CLEAR') && !api.store.document.background?.type && !api.runtime.backgroundSource
+      const redoneLoad = api.redo(); await api.synchronizeBackgroundRuntime({ force: true }); await sleep(25)
+      loadRedoRestored = redoneLoad === true && api.store.document.background?.type === 'pdf' && pageOf(api.store.document).shapes.length === 0 && Boolean(api.runtime.backgroundSource) && api.store.canUndo === true
       api.store.commit('page one content', model => {
         model.calibration = { ...model.calibration, mpp: 0.1, mapScale: 377.9527559, realDistanceM: 10 }
         K.addShape(model, 'lot', [{ x: 10, y: 10 }, { x: 110, y: 10 }, { x: 110, y: 90 }, { x: 10, y: 90 }], { label: 'P1' })
@@ -2849,7 +3304,10 @@ async function rendererSuite() {
       })
       api.ui.selectedIds = [pageOf(api.store.document).shapes[0].id]
       api.session.points = [{ x: 1, y: 1 }]; api.session.targetIds = [...api.ui.selectedIds]
+      const historyBeforePageSwitch = api.store.undoStack?.length || 0
+      const dirtyBeforePageSwitch = api.store.dirty
       await api.showUnderlayPage(2)
+      pageSwitchWithoutHistory = (api.store.undoStack?.length || 0) === historyBeforePageSwitch && api.store.dirty === dirtyBeforePageSwitch
       transientCleared = api.ui.selectedIds.length === 0 && api.session.points.length === 0 && api.session.targetIds.length === 0
       const isolated = api.store.document.calibration.mpp == null && api.store.document.calibration.mapScale == null
       api.store.commit('page two content', model => {
@@ -2878,10 +3336,10 @@ async function rendererSuite() {
       api.runtime.backgroundRuntime = null; api.runtime.backgroundSource = null; api.renderer.clearBackgroundSources()
       api.store.replace(K.createDocument(), { clean: true })
     }
-    return { pass: firstOpen && transientCleared && pageRoundtrip && serializedRoundtrip && replacementPreserved, details: { firstOpen, transientCleared, pageRoundtrip, serializedRoundtrip, replacementPreserved } }
+    return { pass: firstOpen && loadUndoable && loadUndoRestored && loadRedoRestored && pageSwitchWithoutHistory && transientCleared && pageRoundtrip && serializedRoundtrip && replacementPreserved, details: { firstOpen, loadUndoable, loadUndoRestored, loadRedoRestored, pageSwitchWithoutHistory, transientCleared, pageRoundtrip, serializedRoundtrip, replacementPreserved } }
   })
 
-  await run('legacy-v3-v4-edge-metadata-migrates-to-v6', async () => {
+  await run('legacy-v3-v4-edge-metadata-migrates-to-v7', async () => {
     const legacy = {
       version: 4, mpp: 0.1, lotShowEdgeLengths: true,
       lots: [{
@@ -2896,7 +3354,7 @@ async function rendererSuite() {
     const shape = pageOf(migrated).shapes[0]
     const edge = shape?.edges?.[0]
     const hidden = shape?.edges?.[1]
-    return { pass: migrated.schemaVersion === 6 && edge?.customText === '境界特記' && edge?.rotationOffset === 17 && edge?.style?.color === '#a12345' && edge?.style?.fontFamily === 'mincho' && edge?.style?.fontSize === 14 && edge?.labelOffset?.x === 8 && edge?.labelOffset?.y === -4 && hidden?.hidden === true, details: { edge, hidden } }
+    return { pass: migrated.schemaVersion === 7 && edge?.customText === '境界特記' && edge?.rotationOffset === 17 && edge?.style?.color === '#a12345' && edge?.style?.fontFamily === 'mincho' && edge?.style?.fontSize === 14 && edge?.labelOffset?.x === 8 && edge?.labelOffset?.y === -4 && hidden?.hidden === true, details: { edge, hidden } }
   })
 
   await run('road-name-and-width-have-independent-metadata-and-label-boxes', async () => {
@@ -2906,7 +3364,7 @@ async function rendererSuite() {
         type: 'public', name: '中央通り', widthM: 4.2,
         namePosition: { x: 120, y: 60 }, widthLabelPosition: { x: 220, y: 84 },
         nameStyle: { color: '#112233', fontFamily: 'mincho', size: 16 },
-        widthLabelStyle: { color: '#aa2211', fontFamily: 'mono', size: 12 }, widthPrefix: '幅員 '
+        widthLabelStyle: { color: '#aa2211', fontFamily: 'even', size: 12 }, widthPrefix: '幅員 '
       }
     })
     api.store.replace(doc, { clean: true }); api.renderer.setDocument(api.store.document); api.render(); await sleep(40)
@@ -2972,10 +3430,10 @@ async function rendererSuite() {
     api.activateCommand('callout', { focusCanvas: false })
     api.session.form['note-text'] = '道路境界'
     api.addPoint({ x: 20, y: 20 }); api.addPoint({ x: 130, y: 45 })
-    const before = { canFinish: document.querySelector('[data-action="finish-command"]')?.disabled === false, points: api.session.points.length }
+    const beforeCommit = { finishButton: Boolean(document.querySelector('[data-action="finish-command"]')), command: api.session.command, points: api.session.points.length }
     const finished = api.finishCommand()
     const callout = pageOf(api.store.document).entities.find(entity => entity.kind === 'callout')
-    return { pass: before.canFinish && before.points === 2 && finished === true && callout?.points?.length === 2 && callout?.labelPosition?.x === 130 && callout?.text === '道路境界', details: { before, callout } }
+    return { pass: !beforeCommit.finishButton && beforeCommit.command === 'callout' && beforeCommit.points === 2 && finished === true && callout?.points?.length === 2 && callout?.labelPosition?.x === 130 && callout?.text === '道路境界', details: { beforeCommit, finished, callout } }
   })
 
   await run('lot-table-dynamic-and-fixed-snapshot-are-distinct', async () => {
@@ -2997,7 +3455,7 @@ async function rendererSuite() {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }], { label: 'A' })
     api.store.replace(doc, { clean: true }); api.activateCommand('lot-table', { focusCanvas: false })
-    Object.assign(api.session.form, { 'table-title': '面積集計', 'table-show-price': false, 'font-family': 'mono', 'text-size': 1.4, 'table-line-width': 2.25, 'table-scale': 1.2, 'table-angle': 7, 'table-mode': 'dynamic' })
+    Object.assign(api.session.form, { 'table-title': '面積集計', 'table-show-price': false, 'font-family': 'even', 'text-size': 1.4, 'table-line-width': 2.25, 'table-scale': 1.2, 'table-angle': 7, 'table-mode': 'dynamic' })
     api.runtime.pointerWorld = { x: 160, y: 20 }
     const created = api.finishCommand(); let table = pageOf(api.store.document).entities.find(entity => entity.kind === 'lot-table')
     api.activateCommand('select', { focusCanvas: false }); api.selectObject(table.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(25)
@@ -3020,28 +3478,33 @@ async function rendererSuite() {
     table = K.objectById(api.store.document, table.id)?.object
     const restored = K.objectById(IO.deserializeProject(IO.serializeProject(api.store.document)).document, table.id)?.object
     return {
-      pass: created && loaded.title === '面積集計' && loaded.showPrice === false && loaded.font === 'mono' && loaded.size === 1.4 && loaded.lineWidth === 2.25 && loaded.scale === 1.2 && loaded.angle === 7 && table?.title === '確定面積表' && table?.showPrice === true && table?.style?.fontFamily === 'mincho' && Math.abs(Number(table?.style?.fontSize) - 22.4) < 1e-8 && table?.style?.lineWidth === 3 && table?.scale === 1.5 && table?.rotation === 12 && table?.snapshot === true && restored?.title === table.title && restored?.style?.fontFamily === 'mincho' && restored?.style?.lineWidth === 3,
+      pass: created && loaded.title === '面積集計' && loaded.showPrice === false && loaded.font === 'even' && loaded.size === 1.4 && loaded.lineWidth === 2.25 && loaded.scale === 1.2 && loaded.angle === 7 && table?.title === '確定面積表' && table?.showPrice === true && table?.style?.fontFamily === 'mincho' && Math.abs(Number(table?.style?.fontSize) - 22.4) < 1e-8 && table?.style?.lineWidth === 3 && table?.scale === 1.5 && table?.rotation === 12 && table?.snapshot === true && restored?.title === table.title && restored?.style?.fontFamily === 'mincho' && restored?.style?.lineWidth === 3,
       details: { created, loaded, table, restored }
     }
   })
 
   await run('stamp-and-arrow-creation-settings-remain-editable-and-roundtrip', async () => {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; api.store.replace(doc, { clean: true })
-    api.activateCommand('house', { focusCanvas: false }); Object.assign(api.session.form, { 'stamp-label': '母屋', 'stamp-font': 'mono', 'stamp-text-scale': 1.4, 'stamp-line-width': 3, 'stamp-hatch': true, 'stamp-hatch-spacing': 13, 'stamp-hatch-angle': 30 }); api.runtime.pointerWorld = { x: 100, y: 100 }
+    api.activateCommand('house', { focusCanvas: false }); Object.assign(api.session.form, { 'stamp-label': '母屋', 'stamp-font': 'even', 'stamp-text-scale': 1.4, 'stamp-line-width': 3, 'stamp-hatch': true, 'stamp-hatch-spacing': 13, 'stamp-hatch-angle': 30 }); api.runtime.pointerWorld = { x: 100, y: 100 }
     const houseOk = api.finishCommand(); let house = pageOf(api.store.document).entities.find(entity => entity.kind === 'house')
     api.activateCommand('arrow', { focusCanvas: false }); Object.assign(api.session.form, { 'note-text': '進入口', 'note-font': 'mincho', 'note-size': 17 }); api.session.points = [{ x: 20, y: 20 }, { x: 70, y: 40 }]; api.session.step = 2
     const arrowOk = api.finishCommand(); const arrow = pageOf(api.store.document).entities.find(entity => entity.kind === 'arrow')
-    api.activateCommand('select', { focusCanvas: false }); api.selectObject(house.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    api.activateCommand('select', { focusCanvas: false }); api.selectObject(house.id, { openEditor: true }); await sleep(20)
+    const appearanceTab = document.querySelector('#command-pages [data-context-page="object-appearance"]')
+    appearanceTab?.click(); await sleep(20)
+    const appearancePage = Boolean(appearanceTab && api.ui.contextPage === 'object-appearance' && document.querySelector('#command-pages [data-context-page="object-appearance"]')?.classList.contains('active'))
     const loaded = { spacing: Number(document.querySelector('[data-field="stamp-hatch-spacing"]')?.value), angle: Number(document.querySelector('[data-field="stamp-hatch-angle"]')?.value), lineWidth: Number(document.querySelector('[data-field="stamp-line-width"]')?.value) }
     const hatchAngle = document.querySelector('[data-field="stamp-hatch-angle"]'); if (hatchAngle) { hatchAngle.value = '60'; hatchAngle.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
-    api.ui.contextPage = 'object-text'; api.renderCommandSurface(); await sleep(20)
+    const textTab = document.querySelector('#command-pages [data-context-page="object-text"]')
+    textTab?.click(); await sleep(20)
+    const textPage = Boolean(textTab && api.ui.contextPage === 'object-text' && document.querySelector('#command-pages [data-context-page="object-text"]')?.classList.contains('active'))
     const font = document.querySelector('[data-field="font-family"]'); if (font) { font.value = 'mincho'; font.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
     house = K.objectById(api.store.document, house.id)?.object
     const saved = IO.deserializeProject(IO.serializeProject(api.store.document)).document
     const restoredHouse = K.objectById(saved, house.id)?.object; const restoredArrow = K.objectById(saved, arrow.id)?.object
     return {
-      pass: houseOk && arrowOk && loaded.spacing === 13 && loaded.angle === 30 && loaded.lineWidth === 3 && house?.options?.hatch === true && house?.options?.hatchAngle === 60 && house?.options?.hatchSpacing === 13 && house?.style?.lineWidth === 3 && house?.textStyle?.fontFamily === 'mincho' && arrow?.text === '進入口' && arrow?.textStyle?.fontFamily === 'mincho' && arrow?.textStyle?.fontSize === 17 && restoredHouse?.options?.hatchAngle === 60 && restoredHouse?.textStyle?.fontFamily === 'mincho' && restoredArrow?.text === '進入口',
-      details: { houseOk, arrowOk, loaded, house, arrow, restoredHouse, restoredArrow }
+      pass: houseOk && arrowOk && appearancePage && textPage && Boolean(hatchAngle && font) && loaded.spacing === 13 && loaded.angle === 30 && loaded.lineWidth === 3 && house?.options?.hatch === true && house?.options?.hatchAngle === 60 && house?.options?.hatchSpacing === 13 && house?.style?.lineWidth === 3 && house?.textStyle?.fontFamily === 'mincho' && arrow?.text === '進入口' && arrow?.textStyle?.fontFamily === 'mincho' && arrow?.textStyle?.fontSize === 17 && restoredHouse?.options?.hatchAngle === 60 && restoredHouse?.textStyle?.fontFamily === 'mincho' && restoredArrow?.text === '進入口',
+      details: { houseOk, arrowOk, pages: { appearancePage, textPage }, controls: { hatchAngle: Boolean(hatchAngle), font: Boolean(font) }, loaded, house, arrow, restoredHouse, restoredArrow }
     }
   })
 
@@ -3064,7 +3527,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('manual-page-scale-presets-edge-snap-and-direct-shortcuts-are-explicit', async () => {
+  await run('manual-page-scale-presets-apply-immediately-grid-ui-is-absent-and-shortcuts-are-direct', async () => {
     const doc = K.createDocument()
     doc.background = { ...doc.background, type: 'pdf', name: 'manual-scale.pdf', width: 842, height: 1191, pageCount: 1, currentPage: 1 }
     api.store.replace(doc, { clean: true })
@@ -3073,11 +3536,13 @@ async function rendererSuite() {
     const presetValues = preset ? [...preset.options].map(option => option.value).filter(Boolean) : []
     const beforeScale = api.store.document.calibration.mpp
     if (preset) { preset.value = '500'; preset.dispatchEvent(new Event('input', { bubbles: true })) }
-    const selectedButUnapplied = api.store.document.calibration.mpp == null && api.session.form['manual-scale'] === '500'
-    document.querySelector('[data-action="apply-manual-scale"]')?.click(); await sleep(20)
+    await sleep(25)
     const appliedScale = api.store.document.calibration.mapScale
+    const appliedMpp = api.store.document.calibration.mpp
+    const confirmationAbsent = !document.querySelector('[data-action="apply-manual-scale"],[data-action="apply-calibration"]')
     api.activateCommand('display-settings', { focusCanvas: false }); await sleep(20)
     const edge = document.querySelector('[data-field="snap-edge"]'); if (edge) { edge.checked = false; edge.dispatchEvent(new Event('change', { bubbles: true })) }
+    const gridUiAbsent = !document.querySelector('[data-field="snap-grid"]')
     const shortcutRows = []
     const shortcutCases = [
       ['b', false, 'underlay-open'], ['v', false, 'select'], ['p', false, 'lot-draw'], ['r', false, 'road-draw'],
@@ -3091,10 +3556,11 @@ async function rendererSuite() {
       shortcutRows.push({ key, shiftKey, command: api.session.command, expected })
     }
     const expectedPresets = ['5', '10', '20', '25', '30', '50', '75', '100', '150', '200', '250', '300', '400', '500', '600', '1000']
-    return { pass: typeof IO.detectScaleCandidates === 'undefined' && expectedPresets.every(value => presetValues.includes(value)) && beforeScale == null && selectedButUnapplied && appliedScale === 500 && api.store.document.preferences.snap.edge === false && shortcutRows.every(row => row.command === row.expected) && !document.querySelector('[data-action="toggle-jww-mouse"]'), details: { presetValues, beforeScale, selectedButUnapplied, appliedScale, edgeSnap: api.store.document.preferences.snap.edge, shortcutRows } }
+    const expectedMpp = 500 / (72 / 0.0254)
+    return { pass: typeof IO.detectScaleCandidates === 'undefined' && expectedPresets.every(value => presetValues.includes(value)) && beforeScale == null && appliedScale === 500 && Math.abs(Number(appliedMpp) - expectedMpp) < 1e-12 && confirmationAbsent && gridUiAbsent && api.store.document.preferences.snap.grid === false && api.store.document.preferences.snap.edge === false && shortcutRows.every(row => row.command === row.expected) && !document.querySelector('[data-action="toggle-jww-mouse"]'), details: { presetValues, beforeScale, appliedScale, appliedMpp, expectedMpp, confirmationAbsent, gridUiAbsent, snap: clone(api.store.document.preferences.snap), shortcutRows } }
   })
 
-  await run('app-scale-required-shortcut-routes-to-fixed-calibration-without-changing-view', async () => {
+  await run('app-scale-required-shortcut-routes-to-inline-calibration-without-popup-or-view-change', async () => {
     if (!api?.activateCommand) return { pass: false, details: 'debug API unavailable' }
     api.store.replace(K.createDocument(), { clean: true })
     api.ui.scaleFlow = { reason: null, returnCommand: null }
@@ -3111,15 +3577,15 @@ async function rendererSuite() {
       view: clone(api.runtime.view),
       fieldInFixedBar: Boolean(calibrationField && document.getElementById('control-bar')?.contains(calibrationField)),
       fixedBarVisible: !document.getElementById('control-bar')?.hidden,
-      dialogOpen: document.getElementById('scale-required-dialog')?.open === true,
-      dialogCommand: document.querySelector('[data-scale-required-command]')?.textContent || ''
+      dialogExists: Boolean(document.getElementById('scale-required-dialog')),
+      dialogOpen: document.getElementById('scale-required-dialog')?.open === true
     }
-    const pass = state.command === 'calibrate' && state.scaleFlow.reason === 'required-command' && state.scaleFlow.returnCommand === 'distance' && state.fieldInFixedBar && state.fixedBarVisible && state.dialogOpen && /2点距離/.test(state.dialogCommand) && JSON.stringify(state.view) === JSON.stringify(before)
+    const pass = state.command === 'calibrate' && state.scaleFlow.reason === 'required-command' && state.scaleFlow.returnCommand === 'distance' && state.fieldInFixedBar && state.fixedBarVisible && !state.dialogExists && !state.dialogOpen && JSON.stringify(state.view) === JSON.stringify(before)
     api.ui.scaleFlow = { reason: null, returnCommand: null }; api.activateCommand('select', { focusCanvas: false })
     return { pass, details: { before, state } }
   })
 
-  await run('app-pdf-direct-scale-uses-72pt-per-inch-and-preserves-view', async () => {
+  await run('app-pdf-direct-scale-number-commits-immediately-without-button-and-preserves-view', async () => {
     if (!api?.loadUnderlay) return { pass: false, details: 'underlay API unavailable' }
     const stream = '0.92 g\n0 0 200 200 re f\n'
     const objects = [
@@ -3150,17 +3616,17 @@ async function rendererSuite() {
     if (input) {
       input.value = '500'
       input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.dispatchEvent(new Event('change', { bubbles: true }))
     }
-    apply?.click(); await sleep(35)
+    const beforeCommit = { scale: api.store.document.calibration.mapScale, manual: api.session.form['manual-scale'] }
+    input?.dispatchEvent(new Event('change', { bubbles: true })); await sleep(35)
     const expectedMpp = 500 / (72 / 0.0254)
     const afterApply = { view: clone(api.runtime.view), calibration: clone(api.store.document.calibration), command: api.session.command }
     return {
       pass: loaded === true && afterLoad.background.type === 'pdf' && afterLoad.command === 'calibrate' && afterLoad.scaleFlow.reason === 'underlay-loaded' &&
-        fieldInFixedBar && visible(input) && visible(apply) && directUi.length === 1 && directUi.every(row => row.visible) &&
+        fieldInFixedBar && visible(input) && apply == null && beforeCommit.scale == null && beforeCommit.manual === '500' && directUi.length === 1 && directUi.every(row => row.visible) &&
         JSON.stringify(afterLoad.view) === JSON.stringify(before) && JSON.stringify(afterApply.view) === JSON.stringify(before) &&
-        Math.abs(Number(afterApply.calibration.mpp) - expectedMpp) < 1e-12 && Number(afterApply.calibration.mapScale) === 500,
-      details: { before, afterLoad, directUi, fieldInFixedBar, expectedMpp, afterApply }
+        Math.abs(Number(afterApply.calibration.mpp) - expectedMpp) < 1e-12 && Number(afterApply.calibration.mapScale) === 500 && afterApply.command === 'calibrate' && api.ui.scaleFlow.reason == null,
+      details: { before, afterLoad, directUi, fieldInFixedBar, confirmationAbsent: apply == null, beforeCommit, expectedMpp, afterApply }
     }
   })
 
@@ -3240,7 +3706,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-unknown-dpi-image-hides-direct-scale-and-leaves-two-point-calibration', async () => {
+  await run('app-unknown-dpi-image-hides-direct-scale-and-leaves-auto-two-point-calibration', async () => {
     if (!api?.loadUnderlay) return { pass: false, details: 'underlay API unavailable' }
     const bytes = IO.base64ToBytes('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8Dwn4GBgYGJAQoAHgQCAckmKpkAAAAASUVORK5CYII=')
     const file = new File([bytes], 'qa-unknown-dpi.png', { type: 'image/png' })
@@ -3260,12 +3726,12 @@ async function rendererSuite() {
       view: clone(api.runtime.view),
       background: clone(api.store.document.background),
       distanceVisible: visible(distance),
-      twoPointApplyVisible: visible(twoPointApply),
+      twoPointApplyExists: Boolean(twoPointApply),
       fieldInFixedBar: Boolean(distance && document.getElementById('control-bar')?.contains(distance))
     }
     const pass = loaded === true && state.background.type === 'image' && !(Number(state.background.metadata?.dpi) > 0) && state.command === 'calibrate' && state.scaleFlow.reason === 'underlay-loaded' &&
       direct.length === 1 && direct.every(row => !row.visible && row.hidden) && candidates.length === 0 &&
-      state.distanceVisible && state.twoPointApplyVisible && state.fieldInFixedBar && warning.some(text => /解像度/.test(text)) && JSON.stringify(state.view) === JSON.stringify(before)
+      state.distanceVisible && !state.twoPointApplyExists && state.fieldInFixedBar && !document.getElementById('scale-required-dialog') && warning.some(text => /解像度/.test(text)) && JSON.stringify(state.view) === JSON.stringify(before)
     api.ui.scaleFlow = { reason: null, returnCommand: null }; api.store.replace(K.createDocument(), { clean: true }); api.activateCommand('select', { focusCanvas: false })
     return { pass, details: { before, direct, candidates, warning, state } }
   })
@@ -3365,7 +3831,7 @@ async function rendererSuite() {
     return { pass: targetOnly && baseSnapped && originSnapped && previewSnapped && pointerSnapped && committed, details: { targetOnly, baseSnapped, originSnapped, previewSnapped, pointerSnapped, committed, session: api.snapshot().session, moved: moved?.points } }
   })
 
-  await run('app-two-point-calibration-input-and-coordinate-invariance', async () => {
+  await run('app-two-point-calibration-auto-confirms-in-either-completion-order-and-keeps-coordinates', async () => {
     if (!api?.activateCommand) return { pass: false, details: 'debug API unavailable' }
     api.setWorkspace('drawing'); Object.assign(api.runtime.view, { x: 0, y: 0, zoom: 1 }); api.renderer.setView(api.runtime.view)
     let lot = pageOf(api.store.document).shapes.find(shape => shape.kind === 'lot')
@@ -3376,6 +3842,8 @@ async function rendererSuite() {
     lot = pageOf(api.store.document).shapes.find(shape => shape.kind === 'lot')
     const before = JSON.stringify(lot.points)
     api.activateCommand('calibrate', { focusCanvas: false }); await sleep(30)
+    const method = document.querySelector('[data-field="scale-method"]')
+    if (method) { method.value = 'two-point'; method.dispatchEvent(new Event('change', { bubbles: true })); await sleep(30) }
     const canvas = document.getElementById('drawing-canvas'); const rect = canvas.getBoundingClientRect()
     const fire = x => {
       canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: x, pointerType: 'mouse', button: 0, buttons: 1, clientX: rect.left + x, clientY: rect.top + 100 }))
@@ -3390,11 +3858,30 @@ async function rendererSuite() {
     const rubberBandStopped = api.renderer.overlay.pointer == null && api.renderer.overlay.draft?.points?.length === 2
     fire(500); await sleep(30)
     const pairPreserved = JSON.stringify(api.session.points) === JSON.stringify(pair)
+    const confirmationAbsent = !document.querySelector('[data-action="apply-calibration"],[data-action="apply-manual-scale"]')
+    const firstUndoBefore = api.store.undoStack?.length || 0
     if (input) { input.value = '20'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) }
-    document.querySelector('[data-action="apply-calibration"]')?.click(); await sleep(40)
+    await sleep(40)
+    const calibrationAfterDistance = clone(api.store.document.calibration)
+    const firstUndoAfter = api.store.undoStack?.length || 0
+    const firstAutoConfirmed = api.session.command === 'calibrate' && api.session.points.length === 0 && api.ui.scaleFlow.reason == null && calibrationAfterDistance.method === 'two-point' && Math.abs(Number(calibrationAfterDistance.mpp) - 0.1) < 1e-8
+
+    api.activateCommand('calibrate', { focusCanvas: false }); await sleep(25)
+    const secondMethod = document.querySelector('[data-field="scale-method"]')
+    if (secondMethod) { secondMethod.value = 'two-point'; secondMethod.dispatchEvent(new Event('change', { bubbles: true })); await sleep(25) }
+    const distanceFirstInput = document.querySelector('[data-field="calibration-distance"]')
+    if (distanceFirstInput) { distanceFirstInput.value = '10'; distanceFirstInput.dispatchEvent(new Event('input', { bubbles: true })); distanceFirstInput.dispatchEvent(new Event('change', { bubbles: true })) }
+    const waitingForPoints = api.session.command === 'calibrate' && api.session.points.length === 0 && Math.abs(Number(api.store.document.calibration.mpp) - 0.1) < 1e-8
+    const secondUndoBefore = api.store.undoStack?.length || 0
+    fire(120); fire(320); await sleep(50)
+    const calibrationAfterSecondPoint = clone(api.store.document.calibration)
+    const secondUndoAfter = api.store.undoStack?.length || 0
+    const secondAutoConfirmed = api.session.command === 'calibrate' && api.session.points.length === 0 && api.ui.scaleFlow.reason == null && calibrationAfterSecondPoint.method === 'two-point' && Math.abs(Number(calibrationAfterSecondPoint.mpp) - 0.05) < 1e-8
     lot = pageOf(api.store.document).shapes.find(shape => shape.id === lot.id)
-    const calibration = api.store.document.calibration
-    return { pass: Boolean(input) && focused && rubberBandStopped && pairPreserved && Math.abs(calibration.mpp - 0.1) < 1e-8 && JSON.stringify(lot.points) === before, details: { focused, activeElement, rubberBandStopped, pairPreserved, sessionPoints: api.session.points, calibration, before, after: JSON.stringify(lot.points) } }
+    return {
+      pass: Boolean(method) && Boolean(secondMethod) && Boolean(input) && Boolean(distanceFirstInput) && focused && rubberBandStopped && pairPreserved && confirmationAbsent && firstAutoConfirmed && firstUndoAfter === firstUndoBefore + 1 && waitingForPoints && secondAutoConfirmed && secondUndoAfter === secondUndoBefore + 1 && JSON.stringify(lot.points) === before,
+      details: { methods: { first: Boolean(method), second: Boolean(secondMethod) }, focused, activeElement, rubberBandStopped, pairPreserved, confirmationAbsent, firstUndoBefore, firstUndoAfter, calibrationAfterDistance, firstAutoConfirmed, waitingForPoints, secondUndoBefore, secondUndoAfter, calibrationAfterSecondPoint, secondAutoConfirmed, before, after: JSON.stringify(lot.points) }
+    }
   })
 
   await run('app-unsaved-work-guards-new-project-until-cancel-or-discard', async () => {
@@ -3471,7 +3958,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-empty-canvas-text-editor-and-output-default-follow-usability-review', async () => {
+  await run('app-empty-canvas-text-editor-and-output-paper-default-follow-usability-review', async () => {
     const empty = K.createDocument(); api.store.replace(empty, { clean: true }); api.activateCommand('select', { focusCanvas: false }); api.render(); await sleep(25)
     const hint = document.getElementById('empty-canvas-hint')
     const emptyHintVisible = Boolean(hint && !hint.hidden && getComputedStyle(hint).display !== 'none')
@@ -3486,7 +3973,9 @@ async function rendererSuite() {
     const emptyTextFinished = api.finishCommand(); await sleep(25)
     const placedDefaultText = pageOf(api.store.document).entities.find(entity => entity.kind === 'text')
     const defaultTextPlaced = emptyTextFinished === true && placedDefaultText?.text === '文字'
-    const outputDefault = api.ui.outputTab === 'export' && document.querySelector('[data-output-tab="export"]')?.classList.contains('active') === true && document.querySelector('[data-output-panel="export"]')?.hidden === false
+    api.setWorkspace('output'); await sleep(35)
+    const outputDefault = api.ui.outputTab === 'paper' && document.querySelector('[data-output-tab="paper"]')?.classList.contains('active') === true && document.querySelector('[data-output-panel="paper"]')?.hidden === false && document.querySelector('[data-output-panel="export"]')?.hidden === true
+    api.setWorkspace('drawing'); await sleep(20)
     api.store.replace(K.createDocument(), { clean: true }); api.activateCommand('underlay', { focusCanvas: false }); await sleep(20)
     const openBefore = document.querySelector('#command-controls [data-action="open-underlay"]')
     const openPrimaryBefore = openBefore?.classList.contains('primary') === true
@@ -3496,31 +3985,38 @@ async function rendererSuite() {
     const applyAfter = document.querySelector('#command-controls [data-action="apply-calibration"]')
     const stepNumbers = [...document.querySelectorAll('#command-controls .underlay-step-number')].map(node => node.textContent.trim())
     const pageScaleState = document.querySelector('[data-output="page-scale-state"]')?.textContent || ''
-    const clearWorkflow = openAfter?.classList.contains('primary') === false && applyAfter?.classList.contains('primary') === false && ['1', '2', '3'].every(value => stepNumbers.includes(value)) && /未設定/.test(pageScaleState)
+    const clearWorkflow = openAfter?.classList.contains('primary') === false && applyAfter == null && !document.getElementById('scale-required-dialog') && ['1', '2', '3'].every(value => stepNumbers.includes(value)) && /未設定/.test(pageScaleState)
     return {
       pass: emptyHintVisible && hintHiddenWhileDrawing && directTextField && defaultTextPlaced && outputDefault && openPrimaryBefore && clearWorkflow,
       details: { emptyHintVisible, hintHiddenWhileDrawing, directTextField, defaultTextPlaced, outputDefault, openPrimaryBefore, clearWorkflow, stepNumbers, pageScaleState }
     }
   })
 
-  await run('app-manual-page-scale-selection-does-not-apply-until-confirmed', async () => {
+  await run('app-manual-page-scale-preset-and-number-apply-immediately-without-confirm-button', async () => {
     const doc = K.createDocument()
     doc.background = { ...doc.background, type: 'pdf', name: 'A3-1-100.pdf', width: 1190.52, height: 841.92, pageCount: 1, currentPage: 1 }
     api.store.replace(doc, { clean: true }); api.activateCommand('calibrate', { focusCanvas: false }); await sleep(30)
     const preset = document.querySelector('[data-field="scale-preset"]')
     const apply = document.querySelector('[data-action="apply-manual-scale"]')
     if (preset) { preset.value = '100'; preset.dispatchEvent(new Event('input', { bubbles: true })) }
-    const before = {
-      button: apply?.textContent || '',
-      scale: api.store.document.calibration.mapScale,
-      manual: api.session.form['manual-scale'],
-      autoControls: document.querySelectorAll('[data-scale-candidates],[data-action="apply-scale-candidate"]').length
-    }
-    apply?.click(); await sleep(40)
-    const after = { scale: api.store.document.calibration.mapScale, command: api.session.command }
+    await sleep(35)
+    const presetResult = { calibration: clone(api.store.document.calibration), command: api.session.command }
+
+    const numericDoc = K.createDocument()
+    numericDoc.background = { ...numericDoc.background, type: 'pdf', name: 'A3-manual.pdf', width: 1190.52, height: 841.92, pageCount: 1, currentPage: 1 }
+    api.store.replace(numericDoc, { clean: true }); api.activateCommand('calibrate', { focusCanvas: false }); await sleep(30)
+    const manual = document.querySelector('[data-field="manual-scale"]')
+    if (manual) { manual.value = '250'; manual.dispatchEvent(new Event('input', { bubbles: true })) }
+    const beforeNumberCommit = { scale: api.store.document.calibration.mapScale, manual: api.session.form['manual-scale'] }
+    manual?.dispatchEvent(new Event('change', { bubbles: true })); await sleep(35)
+    const numericResult = { calibration: clone(api.store.document.calibration), command: api.session.command }
+    const expectedPresetMpp = 100 / (72 / 0.0254)
+    const expectedNumericMpp = 250 / (72 / 0.0254)
     return {
-      pass: /このページに設定/.test(before.button) && before.scale == null && before.manual === '100' && before.autoControls === 0 && Number(after.scale) === 100,
-      details: { before, after }
+      pass: Boolean(preset) && apply == null && document.querySelectorAll('[data-action="apply-manual-scale"],[data-action="apply-calibration"]').length === 0 && document.querySelectorAll('[data-scale-candidates],[data-action="apply-scale-candidate"]').length === 0 &&
+        Number(presetResult.calibration.mapScale) === 100 && Math.abs(Number(presetResult.calibration.mpp) - expectedPresetMpp) < 1e-12 && presetResult.command === 'calibrate' &&
+        Boolean(manual) && beforeNumberCommit.scale == null && beforeNumberCommit.manual === '250' && Number(numericResult.calibration.mapScale) === 250 && Math.abs(Number(numericResult.calibration.mpp) - expectedNumericMpp) < 1e-12 && numericResult.command === 'calibrate' && api.ui.scaleFlow.reason == null,
+      details: { preset: Boolean(preset), confirmationAbsent: apply == null, presetResult, expectedPresetMpp, manual: Boolean(manual), beforeNumberCommit, numericResult, expectedNumericMpp }
     }
   })
 
@@ -3566,11 +4062,11 @@ async function rendererSuite() {
     doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, printScale: 100, initialized: false }
     const lot = K.addShape(doc, 'lot', [{ x: 10, y: 20 }, { x: 210, y: 20 }, { x: 210, y: 120 }, { x: 10, y: 120 }])
     const originalPoints = clone(lot.points)
-    const originalCalibration = clone(doc.pages[0].calibration)
     const second = K.ensurePage(doc, 2)
     second.calibration = { ...K.createCalibration(), mpp: 0.2, mapScale: 200 }
     second.outputLayout = { ...second.outputLayout, paperSize: 'A3', orientation: 'portrait', printScale: 500, offsetMmX: 8, offsetMmY: 9, initialized: true }
     api.store.replace(doc, { clean: true })
+    const originalCalibration = clone(pageOf(api.store.document).calibration)
     await api.handleAction('center-drawing-on-paper')
     await sleep(30)
     const active = pageOf(api.store.document)

@@ -10,6 +10,8 @@ files:
   - jww-v210.css
   - "v210/**"
   - main-v210.js
+  - atomic-write-v210.js
+  - png-physical-resolution-v210.js
   - preload-v210.js
   - "vendor/**"
   - "!node_modules/**"
@@ -40,7 +42,7 @@ nsis:
   createStartMenuShortcut: true
   artifactName: kozu-measure-v210-Setup-${version}-${arch}.${ext}
   shortcutName: 土地区画作成工房 v2.1
-  uninstallDisplayName: 土地区画作成工房 v2.1.0-alpha.9
+  uninstallDisplayName: 土地区画作成工房 v${version}
   deleteAppDataOnUninstall: false
   installerLanguages:
     - ja

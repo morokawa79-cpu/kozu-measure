@@ -3,8 +3,9 @@
 
   const K = global.KozuV210 = global.KozuV210 || {};
   const FORMAT = 'kozu-measure';
-  const PROJECT_VERSION = 6;
-  const APP_VERSION = '2.1.0-alpha.8';
+  const PROJECT_VERSION = 7;
+  const desktopVersion = typeof global.kozuDesktop?.version === 'string' ? global.kozuDesktop.version.trim() : '';
+  const APP_VERSION = K.APP_VERSION || desktopVersion || '2.1.0-alpha.10';
   const PDF_WORKER_SRC = 'vendor/pdf.worker.min.js';
   // 300dpi出力時にも下絵PDFが拡大ぼけしない解像度（72dpi × 4.2 ≒ 302dpi）。
   const PDF_RENDER_SCALE = 4.2;
@@ -14,6 +15,12 @@
 
   const BACKGROUND_TYPES = new Set([null, 'pdf', 'image']);
   const SHAPE_KINDS = new Set(['lot', 'road', 'water', 'cutout']);
+  const CONVERTIBLE_SHAPE_KINDS = new Set(['lot', 'road', 'water']);
+  const KIND_STATE_KEYS = ['lot', 'road', 'water'];
+  const KIND_STATE_EXCLUDED_KEYS = new Set([
+    'id', 'kind', 'points', 'edges', 'kindStates',
+    'parentShapeId', 'parentOriginalPoints', 'parentOriginalEdges',
+  ]);
   const ENTITY_KINDS = new Set([
     'distance', 'polyline', 'area', 'line', 'arrow', 'text', 'callout',
     'north', 'house', 'parking', 'lot-table', 'parallel', 'guide', 'dimension',
@@ -141,7 +148,7 @@
         imageRotation: 0,
         locked: true,
       },
-      calibration: { mpp: null, mapScale: null },
+      calibration: { method: null, mpp: null, mapScale: null, points: null, realDistanceM: null },
       paper: {
         enabled: false,
         size: 'A4',
@@ -206,6 +213,42 @@
     return result;
   }
 
+  function normalizedKindStateEdge(value) {
+    if (!isObject(value)) return null;
+    const edge = cleanSerializable(value) || {};
+    delete edge.id;
+    return edge;
+  }
+
+  function normalizedKindState(value) {
+    if (!isObject(value)) return null;
+    const state = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (KIND_STATE_EXCLUDED_KEYS.has(key)) continue;
+      state[key] = cloneValue(item);
+    }
+    state.edges = (Array.isArray(value.edges) ? value.edges : []).map(normalizedKindStateEdge).filter(Boolean);
+    return cleanSerializable(state);
+  }
+
+  function captureShapeKindState(shape) {
+    const state = {};
+    for (const [key, item] of Object.entries(shape || {})) {
+      if (KIND_STATE_EXCLUDED_KEYS.has(key)) continue;
+      state[key] = cloneValue(item);
+    }
+    state.edges = (Array.isArray(shape?.edges) ? shape.edges : []).map(normalizedKindStateEdge).filter(Boolean);
+    return cleanSerializable(state);
+  }
+
+  function shapeWithNormalizedKindStates(shape) {
+    if (!isObject(shape) || !CONVERTIBLE_SHAPE_KINDS.has(shape.kind)) return shape;
+    const source = isObject(shape.kindStates) ? shape.kindStates : {};
+    const kindStates = Object.fromEntries(KIND_STATE_KEYS.map(kind => [kind, normalizedKindState(source[kind])]));
+    kindStates[shape.kind] = captureShapeKindState(shape);
+    return { ...shape, kindStates };
+  }
+
   function normalizedOutputLayout(value, paper = {}) {
     if (typeof K.createOutputLayout === 'function') return K.createOutputLayout(value || {}, paper);
     const source = isObject(value) ? value : {};
@@ -265,7 +308,11 @@
     result.background.currentPage = integerInRange(result.background.currentPage, 1, 1, Math.max(1, result.background.pageCount));
     result.background.metadata = isObject(result.background.metadata) ? result.background.metadata : {};
     result.background.imageRotation = normalizedQuarterTurn(result.background.imageRotation);
-    result.pages = result.pages.map(page => ({ ...page, outputLayout: normalizedOutputLayout(page.outputLayout, result.paper) }));
+    result.pages = result.pages.map(page => ({
+      ...page,
+      outputLayout: normalizedOutputLayout(page.outputLayout, result.paper),
+      shapes: (Array.isArray(page.shapes) ? page.shapes : []).map(shapeWithNormalizedKindStates),
+    }));
     return result;
   }
 
@@ -751,6 +798,84 @@
     return 2;
   }
 
+  function validateOptionalPoint(value, path, errors) {
+    if (value !== null && value !== undefined) validatePoint(value, path, errors);
+  }
+
+  function validateKindState(state, path, errors) {
+    if (!isObject(state)) {
+      errors.push(`${path}: nullまたはオブジェクトではありません`);
+      return;
+    }
+    for (const key of KIND_STATE_EXCLUDED_KEYS) {
+      if (key === 'edges') continue;
+      if (Object.prototype.hasOwnProperty.call(state, key)) errors.push(`${path}.${key}: 種類別状態には保存できません`);
+    }
+    validateStyleObject(state.style, `${path}.style`, errors);
+    validateStyleObject(state.labelStyle, `${path}.labelStyle`, errors);
+    validateStyleObject(state.dimensionStyle, `${path}.dimensionStyle`, errors);
+    validateOptionalPoint(state.labelPosition, `${path}.labelPosition`, errors);
+    validateOptionalPoint(state.areaLabelPosition, `${path}.areaLabelPosition`, errors);
+    validateOptionalPoint(state.tsuboLabelPosition, `${path}.tsuboLabelPosition`, errors);
+    for (const labelKey of ['areaLabel', 'tsuboLabel']) {
+      const label = state[labelKey];
+      if (label === null || label === undefined) continue;
+      if (!isObject(label)) errors.push(`${path}.${labelKey}: オブジェクトではありません`);
+      else {
+        validateOptionalPoint(label.position, `${path}.${labelKey}.position`, errors);
+        validateStyleObject(label.style, `${path}.${labelKey}.style`, errors);
+      }
+    }
+    if (state.road !== null && state.road !== undefined) {
+      if (!isObject(state.road)) errors.push(`${path}.road: オブジェクトではありません`);
+      else {
+        if (state.road.type !== undefined && !ROAD_TYPES.has(state.road.type)) errors.push(`${path}.road.type: 未対応の道路種別です`);
+        validateOptionalPoint(state.road.namePosition, `${path}.road.namePosition`, errors);
+        validateOptionalPoint(state.road.widthLabelPosition, `${path}.road.widthLabelPosition`, errors);
+        validateOptionalPoint(state.road.widthLabelOffset, `${path}.road.widthLabelOffset`, errors);
+        if (state.road.nameStyle !== null && state.road.nameStyle !== undefined) validateStyleObject(state.road.nameStyle, `${path}.road.nameStyle`, errors);
+        if (state.road.widthLabelStyle !== null && state.road.widthLabelStyle !== undefined) validateStyleObject(state.road.widthLabelStyle, `${path}.road.widthLabelStyle`, errors);
+      }
+    }
+    if (!Array.isArray(state.edges)) errors.push(`${path}.edges: 配列ではありません`);
+    else state.edges.forEach((edge, edgeIndex) => {
+      const edgePath = `${path}.edges[${edgeIndex}]`;
+      if (!isObject(edge)) {
+        errors.push(`${edgePath}: オブジェクトではありません`);
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(edge, 'id')) errors.push(`${edgePath}.id: 種類別状態にはIDを保存できません`);
+      validatePoint(edge.from, `${edgePath}.from`, errors);
+      validatePoint(edge.to, `${edgePath}.to`, errors);
+      if (edge.labelOffset !== undefined) validatePoint(edge.labelOffset, `${edgePath}.labelOffset`, errors);
+      if (edge.style !== null && edge.style !== undefined) validateStyleObject(edge.style, `${edgePath}.style`, errors);
+    });
+  }
+
+  function validateKindStates(shape, path, errors) {
+    if (!CONVERTIBLE_SHAPE_KINDS.has(shape.kind)) return;
+    if (!isObject(shape.kindStates)) {
+      errors.push(`${path}.kindStates: オブジェクトではありません`);
+      return;
+    }
+    for (const key of Object.keys(shape.kindStates)) {
+      if (!KIND_STATE_KEYS.includes(key)) errors.push(`${path}.kindStates.${key}: 未対応の種類です`);
+    }
+    KIND_STATE_KEYS.forEach(kind => {
+      const statePath = `${path}.kindStates.${kind}`;
+      if (!Object.prototype.hasOwnProperty.call(shape.kindStates, kind)) {
+        errors.push(`${statePath}: 項目がありません`);
+        return;
+      }
+      const state = shape.kindStates[kind];
+      if (state === null) {
+        if (kind === shape.kind) errors.push(`${statePath}: 現在種類の状態がありません`);
+        return;
+      }
+      validateKindState(state, statePath, errors);
+    });
+  }
+
   function validateDocument(documentValue) {
     const errors = [];
     if (!isObject(documentValue)) return { valid: false, errors: ['document: オブジェクトではありません'] };
@@ -760,6 +885,7 @@
 
     if (!isObject(documentValue.calibration)) errors.push('document.calibration: オブジェクトではありません');
     else {
+      if (![null, 'scale', 'two-point'].includes(documentValue.calibration.method ?? null)) errors.push('document.calibration.method: 未対応です');
       for (const key of ['mpp', 'mapScale']) {
         const value = documentValue.calibration[key];
         if (value !== null && (!isFiniteNumber(value) || value <= 0)) errors.push(`document.calibration.${key}: nullまたは正の有限数ではありません`);
@@ -807,7 +933,10 @@
       if (!Number.isSafeInteger(page.sourcePage) || page.sourcePage < 1) errors.push(`${pagePath}.sourcePage: 1以上の整数ではありません`);
       if (page.calibration !== null && page.calibration !== undefined) {
         if (!isObject(page.calibration)) errors.push(`${pagePath}.calibration: nullまたはオブジェクトではありません`);
-        else if (Array.isArray(page.calibration.points)) page.calibration.points.forEach((point, pointIndex) => validatePoint(point, `${pagePath}.calibration.points[${pointIndex}]`, errors));
+        else {
+          if (![null, 'scale', 'two-point'].includes(page.calibration.method ?? null)) errors.push(`${pagePath}.calibration.method: 未対応です`);
+          if (Array.isArray(page.calibration.points)) page.calibration.points.forEach((point, pointIndex) => validatePoint(point, `${pagePath}.calibration.points[${pointIndex}]`, errors));
+        }
       }
       if (!isObject(page.outputLayout)) errors.push(`${pagePath}.outputLayout: オブジェクトではありません`);
       else {
@@ -831,6 +960,7 @@
         validateStyleObject(shape.style, `${shapePath}.style`, errors);
         validateStyleObject(shape.labelStyle, `${shapePath}.labelStyle`, errors);
         validateStyleObject(shape.dimensionStyle, `${shapePath}.dimensionStyle`, errors);
+        validateKindStates(shape, shapePath, errors);
         if (shape.road?.type !== undefined && !ROAD_TYPES.has(shape.road.type)) errors.push(`${shapePath}.road.type: 未対応の道路種別です`);
         if (shape.labelPosition !== null && shape.labelPosition !== undefined) validatePoint(shape.labelPosition, `${shapePath}.labelPosition`, errors);
         if (shape.road?.widthLabelPosition !== null && shape.road?.widthLabelPosition !== undefined) validatePoint(shape.road.widthLabelPosition, `${shapePath}.road.widthLabelPosition`, errors);
@@ -956,6 +1086,21 @@
       divguide: 'guide',
     };
     return mapping[value] || (ENTITY_KINDS.has(value) ? value : null);
+  }
+
+  function migrateV6(raw) {
+    if (!isObject(raw)) throw new ProjectValidationError(['v6 project: オブジェクトではありません']);
+    const wrapper = cloneValue(raw);
+    const documentValue = cloneValue(extractDocumentCandidate(wrapper));
+    documentValue.schemaVersion = PROJECT_VERSION;
+    const normalized = normalizeDocument(documentValue);
+    return {
+      document: normalized,
+      view: normalizedView(wrapper.view),
+      meta: { ...(isObject(wrapper.meta) ? wrapper.meta : {}), name: stringOr(wrapper.meta?.name, '') },
+      migratedFrom: 6,
+      warnings: [],
+    };
   }
 
   function migrateV5(raw) {
@@ -1479,6 +1624,13 @@
     catch (error) { throw new ProjectValidationError([`JSONを解析できません: ${error.message}`]); }
     if (!isObject(raw)) throw new ProjectValidationError(['project: オブジェクトではありません']);
     const version = Number(raw.version ?? raw.schemaVersion ?? raw.document?.schemaVersion);
+    if (version === 6) {
+      if (options.allowLegacy === false) throw new ProjectValidationError(['v6形式の読込は無効です']);
+      const migrated = migrateV6(raw);
+      const check = validateDocument(migrated.document);
+      if (!check.valid) throw new ProjectValidationError(check.errors);
+      return migrated;
+    }
     if (version === 5) {
       if (options.allowLegacy === false) throw new ProjectValidationError(['v5形式の読込は無効です']);
       const migrated = migrateV5(raw);
@@ -1620,11 +1772,24 @@
     })[character]);
   }
 
+  function printPaperDimensions(options = {}) {
+    const size = PAPER_SIZES.has(options.paperSize) ? options.paperSize : 'A4';
+    const orientation = PAPER_ORIENTATIONS.has(options.orientation) ? options.orientation : 'landscape';
+    const portrait = size === 'A3'
+      ? { widthMm: 297, heightMm: 420 }
+      : { widthMm: 210, heightMm: 297 };
+    return Object.freeze({
+      size,
+      orientation,
+      widthMm: orientation === 'landscape' ? portrait.heightMm : portrait.widthMm,
+      heightMm: orientation === 'landscape' ? portrait.widthMm : portrait.heightMm,
+    });
+  }
+
   function canvasToPrintHTML(canvas, options = {}) {
     if (!canvas || !(canvas.width > 0 && canvas.height > 0)) throw new Error('印刷するCanvasがありません');
     const title = escapeHtml(options.title || '区画図');
-    const size = PAPER_SIZES.has(options.paperSize) ? options.paperSize : 'A4';
-    const orientation = PAPER_ORIENTATIONS.has(options.orientation) ? options.orientation : 'landscape';
+    const paper = printPaperDimensions(options);
     const margin = typeof options.margin === 'string' ? options.margin : '0';
     const dataUrl = canvasDataUrl(canvas);
     const autoPrint = options.autoPrint === true
@@ -1637,7 +1802,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <style>
-@page { size: ${size} ${orientation}; margin: ${escapeHtml(margin)}; }
+@page { size: ${paper.widthMm}mm ${paper.heightMm}mm; margin: ${escapeHtml(margin)}; }
 html,body { margin:0; width:100%; height:100%; background:#fff; }
 body { display:flex; align-items:center; justify-content:center; overflow:hidden; }
 img { display:block; width:100%; height:100%; object-fit:contain; image-rendering:auto; }
@@ -1660,11 +1825,12 @@ img { display:block; width:100%; height:100%; object-fit:contain; image-renderin
 
   async function printCanvasWithSystemDialog(canvas, options = {}) {
     const html = canvasToPrintHTML(canvas, { ...options, autoPrint: false });
+    const paper = printPaperDimensions(options);
     const desktop = global.kozuDesktop;
     if (desktop?.printDrawing) return desktop.printDrawing({
       html,
-      pageSize: PAPER_SIZES.has(options.paperSize) ? options.paperSize : 'A4',
-      landscape: (PAPER_ORIENTATIONS.has(options.orientation) ? options.orientation : 'landscape') === 'landscape',
+      pageSize: paper.size,
+      landscape: paper.orientation === 'landscape',
       marginType: options.marginType || 'none',
     });
     return openPrintWindow(canvas, options);
@@ -1672,11 +1838,12 @@ img { display:block; width:100%; height:100%; object-fit:contain; image-renderin
 
   async function exportCanvasPdf(canvas, options = {}) {
     const html = canvasToPrintHTML(canvas, { ...options, autoPrint: false });
+    const paper = printPaperDimensions(options);
     const desktop = global.kozuDesktop;
     if (desktop?.exportPdf) return desktop.exportPdf({
       html,
-      pageSize: PAPER_SIZES.has(options.paperSize) ? options.paperSize : 'A4',
-      landscape: (PAPER_ORIENTATIONS.has(options.orientation) ? options.orientation : 'landscape') === 'landscape',
+      pageSize: paper.size,
+      landscape: paper.orientation === 'landscape',
       fileName: safeFileName(options.fileName || options.title || '区画図.pdf', '区画図.pdf'),
     });
     throw new Error('PDF書出し機能を利用できません');
@@ -1708,6 +1875,7 @@ img { display:block; width:100%; height:100%; object-fit:contain; image-renderin
     validateDocument,
     validateProject,
     migrateLegacyV3,
+    migrateV6,
     migrateV5,
     serializeProject,
     deserializeProject,
@@ -1723,6 +1891,7 @@ img { display:block; width:100%; height:100%; object-fit:contain; image-renderin
     readClipboardImage,
     copyCanvasPngToClipboard,
     canvasToPrintHTML,
+    printPaperDimensions,
     openPrintWindow,
     printCanvas: printCanvasWithSystemDialog,
     exportPDF: exportCanvasPdf,
