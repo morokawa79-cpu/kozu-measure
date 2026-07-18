@@ -59,7 +59,8 @@
 - A4・A3の縦横PDF MediaBox、300dpi PNGのpHYs情報、出力時の用紙・縮尺計算を実成果物で確認済み。
 - package、画面、main、preload、core、io、保存JSONの版番号をalpha.10へ統一。
 - Windows x64インストーラーを作成し、87,679,116 bytes、SHA-256 `CAAEE3C1E77EB19ADB65846BB8A82ABAC4D8130EE6813AB90D4DDF774FAEE639`、展開版タイトル `土地区画作成工房 v2.1.0-alpha.10` を確認。
-- GitHub・Notion反映は外部反映完了後に記録する。
+- GitHubへalpha.10コミット `c989efb` をプッシュし、Draft PR #1をalpha.10の内容へ更新。
+- Notionへalpha.10開発ログを作成（ページID `3a1c75d6-89bc-819f-991a-d39d269b68ec`）。
 
 ---
 
@@ -997,8 +998,8 @@ alpha.10で確認済み:
 alpha.10の配布工程:
 
 - [x] Windows x64インストーラー作成・起動確認と、サイズ・SHA-256記録
-- [ ] GitHubへalpha.10を反映
-- [ ] Notionへalpha.10開発ログを反映
+- [x] GitHubへalpha.10を反映（commit `c989efb`、Draft PR #1）
+- [x] Notionへalpha.10開発ログを反映（ページID `3a1c75d6-89bc-819f-991a-d39d269b68ec`）
 
 ---
 
