@@ -1,0 +1,19 @@
+{
+  "name": "kozu-measure-v210",
+  "version": "2.1.0-alpha.11",
+  "description": "公図・地図画像から区画図を作成するJw_cad型デスクトップアプリ",
+  "main": "main-v210.js",
+  "scripts": {
+    "start": "electron .",
+    "qa:v210": "node qa-v210.cjs",
+    "dist": "electron-builder --win --x64 --config electron-builder-v210.yml",
+    "dist:v210": "electron-builder --win --x64 --config electron-builder-v210.yml"
+  },
+  "dependencies": {
+    "pdfjs-dist": "3.11.174"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

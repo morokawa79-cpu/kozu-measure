@@ -6,7 +6,13 @@ backup_*/
 
 # ローカル開発サーバー
 node_modules/
-package-lock.json
+
+# 配布物・自動テスト生成物
+dist-installer*/
+qa-*-screens/
+qa-*-report.json
+qa-v*-*.png
+tmp/
 
 # OS
 .DS_Store
