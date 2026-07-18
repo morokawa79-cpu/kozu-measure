@@ -258,8 +258,8 @@ async function runElectronSuite() {
     const compactObjectPages = await win.webContents.executeJavaScript(`(async()=>{
       const api=window.__KOZU_V210_TEST__; const page=api.document.pages.find(p=>p.id===api.document.activePageId)||api.document.pages[0];
       const objects=[
-        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-appearance','object-text','object-values','object-dimension','object-record']},
-        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-appearance','object-text','object-values','object-dimension']},
+        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-appearance','object-text','object-dimension','object-record']},
+        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-appearance','object-text','object-dimension']},
         {name:'polyline',object:page.entities.find(o=>o.kind==='polyline'),pages:['object-basic','object-text','object-dimension','object-special'],segment:0},
         {name:'line',object:page.entities.find(o=>o.kind==='line'),pages:['object-special']},
         {name:'house',object:page.entities.find(o=>o.kind==='house'),pages:['object-basic','object-appearance','object-text','object-special']},
@@ -428,8 +428,8 @@ function staticChecks(add) {
   const objectEditTemplate = html.match(/<template\s+id=["']controls-object-edit["'][^>]*>([\s\S]*?)<\/template>/i)?.[1] || ''
   const objectEditTabs = [...objectEditTemplate.matchAll(/\bdata-context-page=["']([^"']+)["']/gi)].map(match => match[1])
   const expectedObjectEditTabs = [
-    'object-basic', 'object-appearance', 'object-values', 'object-text',
-    'object-dimension', 'object-special'
+    'object-basic', 'object-appearance', 'object-text', 'object-dimension',
+    'object-special', 'object-record'
   ]
   const colorControlSource = `${html}\n${appSource}`
   const prohibitedColorControls = [
@@ -464,6 +464,15 @@ function staticChecks(add) {
   const allColorOptionsNamed = namedColorSelects.length >= 5 && namedColorSelects.every(row => row.options.length >= 2 && row.options.every(option =>
     option.value && option.name && option.name.toLowerCase() !== option.value.toLowerCase() && !/^#[0-9a-f]{3,8}$/i.test(option.name)
   ))
+  const colorSwatchContract = {
+    control: /data-color-control|dataset\.colorControl/.test(colorControlSource),
+    trigger: /data-color-trigger|dataset\.colorTrigger/.test(colorControlSource),
+    current: /data-color-current|dataset\.colorCurrent/.test(colorControlSource),
+    palette: /data-color-palette|dataset\.colorPalette/.test(colorControlSource),
+    swatch: /data-color-swatch|dataset\.colorSwatch/.test(colorControlSource),
+    value: /data-color-value|dataset\.colorValue/.test(colorControlSource),
+    selected: /aria-selected|setAttribute\(['"]aria-selected['"]/.test(colorControlSource)
+  }
   const expectedDataCommands = [
     'area', 'arrow', 'blank-paper', 'calibrate', 'callout', 'copy', 'corner-cut', 'delete', 'display-settings',
     'distance', 'division-guide', 'house-stamp', 'line', 'lot-division-guide', 'lot-table', 'merge', 'move', 'move-all', 'north-arrow',
@@ -486,13 +495,14 @@ function staticChecks(add) {
   add('active-style-v210-only', styleSources.length === 1 && styleSources[0] === 'jww-v210.css', styleSources)
   add('all-declared-data-commands-in-v210-contract', sameJson(dataCommands, expectedDataCommands), { actual: dataCommands, expected: expectedDataCommands })
   add('no-legacy-active-assets', !scriptSources.some(source => /^(?:app|next-ui|ui-v\d+|jww-v200)\.js$/i.test(source)) && !styleSources.some(source => /^(?:style|next-ui|ui-v\d+|jww-v200)\.css$/i.test(source)), { scriptSources, styleSources })
-  add('all-color-controls-are-named-select-dropdowns', prohibitedColorControls.length === 0 && nonSelectColorFields.length === 0 && missingColorFields.length === 0 && Object.values(colorSelectCoverage).every(Boolean) && allColorOptionsNamed, {
+  add('all-color-fields-use-one-real-swatch-picker-contract', prohibitedColorControls.length === 0 && nonSelectColorFields.length === 0 && missingColorFields.length === 0 && Object.values(colorSelectCoverage).every(Boolean) && allColorOptionsNamed && Object.values(colorSwatchContract).every(Boolean), {
     prohibitedColorControls,
     nonSelectColorFields,
     missingColorFields,
     semanticColorFieldControls,
     coverage: colorSelectCoverage,
     allColorOptionsNamed,
+    colorSwatchContract,
     selects: namedColorSelects
   })
   add('no-localstorage-access', !/\blocalStorage\s*\.(?:getItem|setItem|removeItem|clear)\s*\(/.test(`${appSource}\n${ioSource}\n${preload}`))
@@ -590,9 +600,10 @@ function staticChecks(add) {
       legacySegmentReferences: [...`${html}\n${appSource}`.matchAll(/\bobject-segment\b/g)].map(match => match[0]),
       legacyModeReferences: [...`${html}\n${appSource}`.matchAll(/\bedgeVisibilityMode\b|toggle-edge-visibility-mode/g)].map(match => match[0])
     })
-  add('manual-area-text-has-linked-tsubo-warning-without-color-mutation',
-    /data-area-manual-warning/.test(appSource) && /area-label-text[\s\S]{0,900}tsubo-label-text/.test(appSource) &&
-    /K\.TSUBO_M2/.test(appSource) && !/area-label-text[\s\S]{0,900}(?:area-label-color|tsubo-label-color)\s*=/.test(appSource))
+  add('manual-area-and-tsubo-text-share-one-editor-but-remain-independent',
+    /function appendTextRoleControls\(/.test(appSource) && /area-label-text/.test(appSource) && /tsubo-label-text/.test(appSource) &&
+    /data-metric-manual-state/.test(appSource) && !/\bvalueLabelPanel\b|object-values|data-area-manual-warning/.test(`${html}\n${appSource}`) &&
+    !/area-label-text[\s\S]{0,900}(?:area-label-color|tsubo-label-color)\s*=/.test(appSource))
   add('professional-north-guide-cleanup-and-stamp-appearance-are-wired',
     /16方位/.test(renderSource) && /outerRadius/.test(renderSource) && /arrowHalfWidth/.test(renderSource) &&
     /entity\.kind === ['"]parallel['"][\s\S]{0,550}extension/.test(renderSource) &&
@@ -613,12 +624,15 @@ function staticChecks(add) {
     /compositionend[\s\S]{0,260}handleCommandFieldInput\(field, false\)/.test(appSource))
   add('road-and-water-have-separate-width-and-optional-edge-dimension-controls',
     /road-width-visible/.test(appSource) && /水路幅/.test(appSource) &&
-    /road:[\s\S]{0,360}\['object-values', '面積・坪'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
-    /water:[\s\S]{0,360}\['object-values', '面積・坪'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
+    /road:[\s\S]{0,360}\['object-text', '文字・数値'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
+    /water:[\s\S]{0,360}\['object-text', '文字・数値'\][\s\S]{0,120}\['object-dimension', '辺寸法'\]/.test(appSource) &&
     /_shapeShowsDimensions[\s\S]{0,180}visibility\.dimensions === true/.test(renderSource) &&
     !/_shapeShowsDimensions[\s\S]{0,160}(?:road|water)[\s\S]{0,80}return false/.test(renderSource))
-  add('copy-number-allocation-uses-document-max-plus-one',
-    /function nextLotNumber\(document\)/.test(coreSource) && /Math\.max\(\.\.\.used\)[\s\S]{0,40}\+\s*1/.test(coreSource) &&
+  add('approx-ui-is-one-toggle-button-without-duplicate-checkboxes',
+    /data-action=["']apply-legacy-approx["']/.test(`${html}\n${appSource}`) && /data-approx-scope=["']part["']/.test(appSource) &&
+    !/data-field=["'](?:approximate|dimension-approximate|part-approximate)["']|>約を付ける</.test(`${html}\n${appSource}`))
+  add('copy-number-allocation-uses-active-page-max-plus-one',
+    /function nextLotNumber\(document, pageId = document\.activePageId\)/.test(coreSource) && /pageValue\?\.shapes[\s\S]{0,260}Math\.max\(\.\.\.used\)[\s\S]{0,40}\+\s*1/.test(coreSource) &&
     /copy\.number\s*=\s*nextLotNumber\(document\)/.test(coreSource))
   add('registry-is-permanent-right-dock-not-a-workspace-overlay',
     /function installRegistryDock/.test(appSource) && /registry-dock/.test(`${html}\n${appSource}`) &&
@@ -1175,6 +1189,26 @@ async function rendererSuite() {
     }
   })
 
+  await run('core-lot-numbering-and-renumbering-are-current-page-local', () => {
+    const doc = K.createDocument()
+    K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }], { number: 1 })
+    K.addShape(doc, 'lot', [{ x: 80, y: 0 }, { x: 140, y: 0 }, { x: 140, y: 40 }, { x: 80, y: 40 }], { number: 5 })
+    const firstPageId = doc.activePageId
+    const second = K.setActivePage(doc, 2)
+    const firstOnSecond = K.addShape(doc, 'lot', [{ x: 0, y: 60 }, { x: 60, y: 60 }, { x: 60, y: 100 }, { x: 0, y: 100 }])
+    const laterOnSecond = K.addShape(doc, 'lot', [{ x: 80, y: 60 }, { x: 140, y: 60 }, { x: 140, y: 100 }, { x: 80, y: 100 }], { number: 7 })
+    const nextBefore = K.nextLotNumber(doc)
+    const changed = K.renumberLots(doc, second.id)
+    const firstNumbers = doc.pages.find(page => page.id === firstPageId).shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+    const secondNumbers = second.shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+    const invalidChanged = K.renumberLots(doc, 'missing-page')
+    return {
+      pass: firstOnSecond.number === 1 && laterOnSecond.number === 2 && nextBefore === 8 && changed === 1 &&
+        String(firstNumbers) === '1,5' && String(secondNumbers) === '1,2' && K.nextLotNumber(doc) === 3 && invalidChanged === 0,
+      details: { firstOnSecond: firstOnSecond.number, laterOnSecond: laterOnSecond.number, nextBefore, changed, firstNumbers, secondNumbers, nextAfter: K.nextLotNumber(doc), invalidChanged }
+    }
+  })
+
   await run('core-normalization-preserves-registry-output-and-size-fields', () => {
     const doc = K.createDocument()
     doc.paper = { ...doc.paper, enabled: true, note: '備考を保持', showTitleFrame: false, includeUnderlay: false }
@@ -1550,7 +1584,7 @@ async function rendererSuite() {
         'create-basic': [],
         'create-appearance': ['fill', 'stroke', 'fill-opacity', 'show-area', 'show-tsubo', 'show-lengths'],
         'create-text': ['font-family', 'text-size'],
-        'create-dimension': ['approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
+        'create-dimension': ['dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
       }
     }, {
       command: 'road',
@@ -1558,7 +1592,7 @@ async function rendererSuite() {
         'create-basic': ['road-type', 'road-name', 'road-width'],
         'create-appearance': ['fill', 'stroke', 'fill-opacity', 'show-label', 'road-width-visible', 'show-area', 'show-tsubo', 'show-lengths'],
         'create-text': ['font-family', 'text-size', 'road-width-font', 'road-width-size', 'text-vertical'],
-        'create-dimension': ['approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
+        'create-dimension': ['dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size']
       }
     }]
     const expectedLabels = ['基本', '表示', '文字', '辺寸法']
@@ -1585,6 +1619,7 @@ async function rendererSuite() {
           uiPage: api.ui.createPage,
           visiblePages,
           fieldStates,
+          approxButtonVisible: pageId !== 'create-dimension' || visible(document.querySelector('#command-controls [data-action="apply-legacy-approx"]')),
           pageHasVisibleContent: pageElements.some(element => element.dataset.createPage === pageId && visible(element))
         })
       }
@@ -1592,7 +1627,7 @@ async function rendererSuite() {
     }
     return {
       pass: rows.every(row => JSON.stringify(row.labels) === JSON.stringify(expectedLabels) && row.pages.every(page =>
-        page.buttonPresent && page.active && page.uiPage === page.pageId && page.pageHasVisibleContent &&
+        page.buttonPresent && page.active && page.uiPage === page.pageId && page.pageHasVisibleContent && page.approxButtonVisible &&
         JSON.stringify(page.visiblePages) === JSON.stringify([page.pageId]) && page.fieldStates.every(field => field.present && field.visible)
       )),
       details: rows
@@ -1628,6 +1663,15 @@ async function rendererSuite() {
       const field = document.querySelector(`#command-controls [data-field="${name}"]`)
       return [name, field ? (field.type === 'checkbox' ? field.checked : field.value) : null]
     }))
+    const readApproxButton = () => {
+      const button = document.querySelector('#command-controls [data-action="apply-legacy-approx"]:not([data-approx-scope="part"])')
+      return { present: Boolean(button), active: Boolean(button?.classList.contains('active')), pressed: button?.getAttribute('aria-pressed'), text: button?.textContent?.trim() }
+    }
+    const toggleApproxButton = async () => {
+      const button = document.querySelector('#command-controls [data-action="apply-legacy-approx"]:not([data-approx-scope="part"])')
+      button?.click(); await sleep(25)
+      return readApproxButton()
+    }
     const allActual = changes => changes.every(change => change.temporary === false)
 
     api.activateCommand('parcel', { focusCanvas: false }); await sleep(25)
@@ -1636,7 +1680,8 @@ async function rendererSuite() {
     const lotTextPage = await clickCreatePage('create-text')
     const lotTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.3 })
     const lotDimensionPage = await clickCreatePage('create-dimension')
-    const lotDimensionChanges = await changeEditFields({ approximate: true, 'dimension-decimals': 1, 'dimension-rounding': 'ceil', 'dimension-adjustment': 0.2, 'dimension-font': 'even', 'dimension-size': 1.4 })
+    const lotApproxButton = await toggleApproxButton()
+    const lotDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'ceil', 'dimension-adjustment': 0.2, 'dimension-font': 'even', 'dimension-size': 1.4 })
     api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]
     api.session.step = 4
     const lotFinished = api.finishCommand(); await sleep(35)
@@ -1661,7 +1706,8 @@ async function rendererSuite() {
     const waterTextPage = await clickCreatePage('create-text')
     const waterTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.5, 'road-width-font': 'even', 'road-width-size': 1.25 })
     const waterDimensionPage = await clickCreatePage('create-dimension')
-    const waterDimensionChanges = await changeEditFields({ approximate: true, 'dimension-decimals': 1, 'dimension-rounding': 'floor', 'dimension-adjustment': -0.1, 'dimension-font': 'even', 'dimension-size': 1.6 })
+    const waterApproxButton = await toggleApproxButton()
+    const waterDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'floor', 'dimension-adjustment': -0.1, 'dimension-font': 'even', 'dimension-size': 1.6 })
     api.session.points = [{ x: 120, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 50 }, { x: 120, y: 50 }]
     api.session.step = 4
     const waterFinished = api.finishCommand(); await sleep(35)
@@ -1672,7 +1718,8 @@ async function rendererSuite() {
     const lotSelectedAppearancePage = await clickObjectPage('object-appearance')
     const lotSelectedAppearance = readFields(['show-area', 'show-tsubo'])
     const lotSelectedDimensionPage = await clickObjectPage('object-dimension')
-    const lotSelectedDimension = readFields(['dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const lotSelectedDimension = readFields(['dimension-visible', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const lotSelectedApproxButton = readApproxButton()
     const lotSelectedTextPage = await clickObjectPage('object-text')
     const lotSelectedText = readFields(['font-family', 'text-size'])
 
@@ -1680,7 +1727,8 @@ async function rendererSuite() {
     const waterSelectedAppearancePage = await clickObjectPage('object-appearance')
     const waterSelectedAppearance = readFields(['show-area', 'show-tsubo'])
     const waterSelectedDimensionPage = await clickObjectPage('object-dimension')
-    const waterSelectedDimension = readFields(['dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const waterSelectedDimension = readFields(['dimension-visible', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-font', 'dimension-size'])
+    const waterSelectedApproxButton = readApproxButton()
     const waterSelectedTextPage = await clickObjectPage('object-text')
     const waterSelectedText = readFields(['font-family', 'text-size'])
     const textRole = document.querySelector('#command-controls [data-text-role]')
@@ -1698,12 +1746,12 @@ async function rendererSuite() {
       restoredWater: Boolean(restoredWater && restoredWater.label === '排水路' && restoredWater.road?.widthM === 1.5 && restoredWater.visibility?.area === true && restoredWater.visibility?.tsubo === true && restoredWater.visibility?.dimensions === true && restoredWater.dimensionStyle?.approximate === true && restoredWater.dimensionStyle?.rounding === 'floor' && restoredWater.dimensionStyle?.fontFamily === 'even' && restoredWater.labelStyle?.fontFamily === 'mincho' && restoredWater.road?.widthLabelStyle?.fontFamily === 'even')
     }
     const selectedChecks = {
-      lot: lotSelectedAppearance['show-area'] === true && lotSelectedAppearance['show-tsubo'] === false && lotSelectedDimension['dimension-visible'] === true && lotSelectedDimension['dimension-approximate'] === true && lotSelectedDimension['dimension-rounding'] === 'ceil' && lotSelectedDimension['dimension-font'] === 'even' && lotSelectedText['font-family'] === 'mincho',
-      water: waterSelectedAppearance['show-area'] === true && waterSelectedAppearance['show-tsubo'] === true && waterSelectedDimension['dimension-visible'] === true && waterSelectedDimension['dimension-approximate'] === true && waterSelectedDimension['dimension-rounding'] === 'floor' && waterSelectedDimension['dimension-font'] === 'even' && waterSelectedText['font-family'] === 'mincho' && waterSelectedWidthText['road-width-font'] === 'even'
+      lot: lotSelectedAppearance['show-area'] === true && lotSelectedAppearance['show-tsubo'] === false && lotSelectedDimension['dimension-visible'] === true && lotSelectedApproxButton.active && lotSelectedApproxButton.pressed === 'true' && lotSelectedDimension['dimension-rounding'] === 'ceil' && lotSelectedDimension['dimension-font'] === 'even' && lotSelectedText['font-family'] === 'mincho',
+      water: waterSelectedAppearance['show-area'] === true && waterSelectedAppearance['show-tsubo'] === true && waterSelectedDimension['dimension-visible'] === true && waterSelectedApproxButton.active && waterSelectedApproxButton.pressed === 'true' && waterSelectedDimension['dimension-rounding'] === 'floor' && waterSelectedDimension['dimension-font'] === 'even' && waterSelectedText['font-family'] === 'mincho' && waterSelectedWidthText['road-width-font'] === 'even'
     }
     return {
       pass: lotAppearancePage && lotTextPage && lotDimensionPage && lotFinished && roadBasicPage && waterAppearancePage && waterTextPage && waterDimensionPage && waterFinished &&
-        allActual(creationChanges) && afterWaterSwitch.form.type === '水路' && afterWaterSwitch.form.name === '側溝' && afterWaterSwitch.form.width === 1.25 &&
+        allActual(creationChanges) && lotApproxButton.active && waterApproxButton.active && afterWaterSwitch.form.type === '水路' && afterWaterSwitch.form.name === '側溝' && afterWaterSwitch.form.width === 1.25 &&
         afterWaterSwitch.form.fill === '#bfe7f8' && afterWaterSwitch.form.stroke === '#427aa1' && afterWaterSwitch.form.opacity === 42 &&
         afterWaterSwitch.form.area === false && afterWaterSwitch.form.tsubo === false && afterWaterSwitch.form.lengths === false &&
         afterWaterSwitch.form.labelFont === 'mincho' && afterWaterSwitch.form.widthFont === 'even' && afterWaterSwitch.form.dimensionFont === 'gothic' &&
@@ -1712,10 +1760,201 @@ async function rendererSuite() {
         Object.values(shapeChecks).every(Boolean) && Object.values(selectedChecks).every(Boolean),
       details: {
         creationPages: { lotAppearancePage, lotTextPage, lotDimensionPage, roadBasicPage, waterAppearancePage, waterTextPage, waterDimensionPage },
-        creationChanges, afterWaterSwitch, waterInitialMetrics, shapeChecks, selectedChecks,
+        creationChanges, approxButtons: { lotApproxButton, waterApproxButton, lotSelectedApproxButton, waterSelectedApproxButton }, afterWaterSwitch, waterInitialMetrics, shapeChecks, selectedChecks,
         selected: { lotAppearance: lotSelectedAppearance, lotDimension: lotSelectedDimension, lotText: lotSelectedText, waterAppearance: waterSelectedAppearance, waterDimension: waterSelectedDimension, waterText: waterSelectedText, waterWidthText: waterSelectedWidthText },
         restored: { lot: restoredLot, water: restoredWater }
       }
+    }
+  })
+
+  await run('app-all-create-and-select-color-controls-render-real-swatches', async () => {
+    if (!api?.activateCommand || !api?.selectObject || !api?.renderCommandSurface) return { pass: false, details: 'color UI APIs unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 90, y: 0 }, { x: 90, y: 70 }, { x: 0, y: 70 }], { label: '色確認区画', style: { fill: '#123456', stroke: '#654321' } })
+    const road = K.addShape(doc, 'road', [{ x: 110, y: 0 }, { x: 210, y: 0 }, { x: 210, y: 40 }, { x: 110, y: 40 }], { label: '色確認道路' })
+    const line = K.addEntity(doc, 'line', { points: [{ x: 0, y: 100 }, { x: 90, y: 100 }], style: { color: '#253858' } })
+    const distance = K.addEntity(doc, 'distance', { points: [{ x: 0, y: 120 }, { x: 90, y: 120 }], dimensionStyle: { color: '#334155' } })
+    const text = K.addEntity(doc, 'text', { position: { x: 20, y: 145 }, text: '色確認', textStyle: { color: '#172033' } })
+    const north = K.addEntity(doc, 'north', { position: { x: 140, y: 100 }, textStyle: { color: '#172033' } })
+    const house = K.addEntity(doc, 'house', { position: { x: 180, y: 120 }, width: 10, height: 8, style: { stroke: '#253858', fill: '#edf2f8' }, textStyle: { color: '#172033' } })
+    const parking = K.addEntity(doc, 'parking', { position: { x: 230, y: 120 }, width: 2.5, height: 5, style: { stroke: '#253858', fill: '#eef4fb' }, textStyle: { color: '#172033' } })
+    api.store.replace(doc, { clean: true })
+
+    const normalizedColor = value => {
+      const probe = document.createElement('i')
+      probe.style.color = String(value || '')
+      document.body.append(probe)
+      const result = getComputedStyle(probe).color
+      probe.remove()
+      return result
+    }
+    const visible = element => {
+      if (!element || element.hidden) return false
+      let current = element
+      while (current && current !== document.body) {
+        if (current.hidden || getComputedStyle(current).display === 'none' || getComputedStyle(current).visibility === 'hidden') return false
+        current = current.parentElement
+      }
+      return element.getClientRects().length > 0
+    }
+    const rows = []
+    const minimumPaletteSize = { lot: 17, road: 20, fill: 20, border: 10, ink: 7, line: 6, dimension: 6 }
+    const inspectCurrentRoute = async context => {
+      const selects = [...document.querySelectorAll('#command-controls select[data-color-select][data-field]')]
+        .filter(select => visible(select.closest('[data-color-control]') || select.closest('label')))
+      for (const select of selects) {
+        const control = select.closest('[data-color-control]')
+        const trigger = control?.querySelector('[data-color-trigger]')
+        const current = trigger?.querySelector('[data-color-current]')
+        const selectStyle = getComputedStyle(select)
+        const nativeSelectHidden = Boolean(select.hidden || selectStyle.display === 'none' || select.getClientRects().length === 0 ||
+          (select.getAttribute('aria-hidden') === 'true' && select.tabIndex === -1 && Number(selectStyle.opacity) === 0 && selectStyle.pointerEvents === 'none'))
+        const currentColorMatches = Boolean(current && normalizedColor(select.value) === getComputedStyle(current).backgroundColor)
+        trigger?.click()
+        await sleep(12)
+        const palettes = [...document.querySelectorAll('body > [data-color-palette]')]
+        const palette = palettes[0]
+        const swatches = palette ? [...palette.querySelectorAll('[data-color-swatch][data-color-value]')] : []
+        const optionValues = [...select.options].map(option => option.value).filter(value => /^#[0-9a-f]{6}$/i.test(value))
+        const swatchValues = swatches.map(swatch => swatch.dataset.colorValue)
+        const optionSwatchesMatch = optionValues.length >= 2 && optionValues.every(value => swatchValues.includes(value)) && swatchValues.every(value => optionValues.includes(value))
+        const swatchColorsMatch = swatches.every(swatch => normalizedColor(swatch.dataset.colorValue) === getComputedStyle(swatch).backgroundColor)
+        const optionNames = [...select.options].map(option => option.textContent?.trim()).filter(Boolean)
+        const triggerText = String(trigger?.textContent || '').trim()
+        const noVisibleColorNames = !/^#[0-9a-f]{3,8}$/i.test(triggerText) && !optionNames.some(name => name === triggerText) && swatches.every(swatch => !String(swatch.textContent || '').trim())
+        const accessibleNames = Boolean(trigger?.getAttribute('aria-label') || trigger?.title) && swatches.every(swatch => Boolean(swatch.getAttribute('aria-label') || swatch.title))
+        const selected = swatches.filter(swatch => swatch.getAttribute('aria-selected') === 'true')
+        const selectedMatches = selected.length === 1 && selected[0].dataset.colorValue === select.value
+        const paletteVisible = Boolean(palette && visible(palette))
+        const enoughOptions = optionValues.length >= (minimumPaletteSize[select.dataset.colorSelect] || 2)
+        rows.push({
+          context,
+          field: select.dataset.field,
+          paletteName: select.dataset.colorSelect,
+          value: select.value,
+          optionCount: optionValues.length,
+          swatchCount: swatches.length,
+          paletteCount: palettes.length,
+          nativeSelectHidden,
+          currentColorMatches,
+          optionSwatchesMatch,
+          swatchColorsMatch,
+          noVisibleColorNames,
+          accessibleNames,
+          selectedMatches,
+          paletteVisible,
+          enoughOptions,
+          ok: Boolean(control && trigger && current && palettes.length === 1 && nativeSelectHidden && currentColorMatches && optionSwatchesMatch && swatchColorsMatch && noVisibleColorNames && accessibleNames && selectedMatches && paletteVisible && enoughOptions)
+        })
+        trigger?.click()
+        await sleep(8)
+      }
+    }
+    const createRoute = async (command, pageId = '') => {
+      api.activateCommand(command, { focusCanvas: false }); await sleep(18)
+      if (pageId) {
+        document.querySelector(`#command-pages [data-create-command-page="${pageId}"]`)?.click()
+        await sleep(18)
+      }
+      await inspectCurrentRoute(`create:${command}:${pageId || 'main'}`)
+    }
+    const selectRoute = async (object, pageId, { role = null, edge = null } = {}) => {
+      api.ui.contextPage = pageId
+      api.ui.editEdgeIndex = Number.isInteger(edge) ? edge : null
+      api.ui.editSegmentIndex = null
+      api.selectObject(object.id, { openEditor: true, preserveSubselection: Number.isInteger(edge) })
+      if (role) api.ui.textRole = role
+      api.renderCommandSurface(); await sleep(18)
+      await inspectCurrentRoute(`select:${object.kind}:${pageId}${role ? `:${role}` : ''}${Number.isInteger(edge) ? `:edge${edge}` : ''}`)
+    }
+
+    await createRoute('parcel', 'create-appearance')
+    await createRoute('road', 'create-appearance')
+    await createRoute('distance')
+    await createRoute('line')
+    await createRoute('text')
+    await createRoute('north-arrow', 'create-appearance')
+    await createRoute('house-stamp', 'create-appearance')
+    await createRoute('parking-stamp', 'create-appearance')
+    api.activateCommand('select', { focusCanvas: false }); await sleep(18)
+    await selectRoute(lot, 'object-appearance')
+    await selectRoute(lot, 'object-text', { role: 'name' })
+    await selectRoute(lot, 'object-text', { role: 'area' })
+    await selectRoute(lot, 'object-text', { role: 'tsubo' })
+    await selectRoute(lot, 'object-dimension')
+    await selectRoute(lot, 'object-dimension', { edge: 0 })
+    await selectRoute(road, 'object-text', { role: 'width' })
+    await selectRoute(line, 'object-special')
+    await selectRoute(distance, 'object-dimension')
+    await selectRoute(text, 'object-text')
+    await selectRoute(north, 'object-appearance')
+    await selectRoute(house, 'object-appearance')
+    await selectRoute(parking, 'object-appearance')
+
+    const covered = new Set(rows.map(row => `${row.field}:${row.paletteName}`))
+    const expected = [
+      'fill:lot', 'fill:road', 'fill:fill', 'stroke:border', 'color:line', 'color:ink',
+      'textColor:ink', 'dimensionColor:dimension', 'object-line-color:line', 'road-width-color:dimension',
+      'area-label-color:ink', 'tsubo-label-color:ink', 'stamp-fill:fill', 'stamp-stroke:border', 'part-color:dimension'
+    ]
+    const missing = expected.filter(key => !covered.has(key))
+    const customCurrentColors = ['#123456', '#654321', '#edf2f8', '#eef4fb']
+    const missingCustomCurrentColors = customCurrentColors.filter(value => !rows.some(row => row.value === value && row.currentColorMatches && row.selectedMatches))
+    return {
+      pass: rows.length >= expected.length && rows.every(row => row.ok) && missing.length === 0 && missingCustomCurrentColors.length === 0 && document.querySelectorAll('body > [data-color-palette]').length === 1,
+      details: { expected, missing, customCurrentColors, missingCustomCurrentColors, minimumPaletteSize, covered: [...covered], rows }
+    }
+  })
+
+  await run('app-color-swatch-selection-updates-create-preview-and-selected-object', async () => {
+    if (!api?.activateCommand || !api?.selectObject || !api?.finishCommand) return { pass: false, details: 'color edit APIs unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    api.store.replace(doc, { clean: true })
+    const chooseVisibleColor = async (fieldName, color) => {
+      const select = [...document.querySelectorAll(`#command-controls select[data-color-select][data-field="${CSS.escape(fieldName)}"]`)]
+        .find(field => field.closest('[data-color-control]')?.getClientRects().length)
+      const control = select?.closest('[data-color-control]')
+      const trigger = control?.querySelector('[data-color-trigger]')
+      trigger?.click(); await sleep(12)
+      const swatch = [...document.querySelectorAll('body > [data-color-palette] [data-color-swatch][data-color-value]')]
+        .find(button => button.dataset.colorValue === color)
+      swatch?.click(); await sleep(30)
+      return {
+        found: Boolean(select && trigger && swatch),
+        selectValue: select?.value,
+        formValue: api.session.form[fieldName],
+        currentValue: control?.querySelector('[data-color-current]')?.style?.backgroundColor || getComputedStyle(control?.querySelector('[data-color-current]') || document.body).backgroundColor
+      }
+    }
+
+    api.activateCommand('parcel', { focusCanvas: false }); await sleep(20)
+    document.querySelector('#command-pages [data-create-command-page="create-appearance"]')?.click(); await sleep(20)
+    const createFill = await chooseVisibleColor('fill', '#cfe5f5')
+    const createStroke = await chooseVisibleColor('stroke', '#427aa1')
+    api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]
+    api.session.step = 4
+    const created = api.finishCommand(); await sleep(35)
+    const createdLot = pageOf(api.store.document).shapes.find(shape => shape.kind === 'lot')
+    if (!createdLot) return { pass: false, details: { reason: 'lot creation failed', created, createFill, createStroke, form: clone(api.session.form) } }
+
+    api.activateCommand('select', { focusCanvas: false }); await sleep(20)
+    api.ui.contextPage = 'object-appearance'; api.ui.editEdgeIndex = null; api.ui.editSegmentIndex = null
+    api.selectObject(createdLot.id, { openEditor: true }); api.renderCommandSurface(); await sleep(20)
+    const selectedFill = await chooseVisibleColor('fill', '#f2cbd2')
+    const selectedStroke = await chooseVisibleColor('stroke', '#a34f5d')
+    const selectedAppearance = clone(K.objectById(api.store.document, createdLot.id)?.object)
+
+    api.ui.contextPage = 'object-text'
+    api.selectObject(createdLot.id, { openEditor: true }); api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(20)
+    const selectedAreaColor = await chooseVisibleColor('area-label-color', '#b4232d')
+    const selectedText = clone(K.objectById(api.store.document, createdLot.id)?.object)
+
+    return {
+      pass: created === true && createFill.found && createStroke.found && createFill.selectValue === '#cfe5f5' && createFill.formValue === '#cfe5f5' && createStroke.formValue === '#427aa1' &&
+        createdLot?.style?.fill === '#cfe5f5' && createdLot?.style?.stroke === '#427aa1' && selectedFill.found && selectedStroke.found &&
+        selectedFill.selectValue === '#f2cbd2' && selectedStroke.selectValue === '#a34f5d' && selectedAppearance?.style?.fill === '#f2cbd2' && selectedAppearance?.style?.stroke === '#a34f5d' &&
+        selectedAreaColor.found && selectedAreaColor.selectValue === '#b4232d' && selectedText?.areaLabel?.style?.color === '#b4232d',
+      details: { created, createFill, createStroke, createdLot, selectedFill, selectedStroke, selectedAppearance, selectedAreaColor, selectedText }
     }
   })
 
@@ -1766,7 +2005,7 @@ async function rendererSuite() {
         value: select?.value,
         options: select ? [...select.options].map(option => ({ value: option.value, text: option.textContent.trim() })) : [],
         globalVisible: (() => { const field = document.querySelector('[data-field="dimension-visible"]'); return Boolean(field && !field.closest('label')?.hidden && getComputedStyle(field).display !== 'none') })(),
-        partVisible: Boolean(document.querySelector('[data-field="part-approximate"]')),
+        partVisible: Boolean(document.querySelector('[data-action="apply-legacy-approx"][data-approx-scope="part"]')),
         partTabs: [...document.querySelectorAll('[data-segment-panel]')].map(button => button.dataset.segmentPanel),
         legacyToggle: Boolean(document.querySelector('[data-action="toggle-edge-visibility-mode"]')),
         legacyModeProperty: Object.prototype.hasOwnProperty.call(api.ui, 'edgeVisibilityMode')
@@ -1784,7 +2023,7 @@ async function rendererSuite() {
     const expectedOptions = ['all', 'edge:0', 'edge:1', 'edge:2', 'edge:3']
     return {
       pass: Boolean(dimensionTab && target) && all.contextPage === 'object-dimension' && all.value === 'all' &&
-        JSON.stringify(all.options.map(option => option.value)) === JSON.stringify(expectedOptions) && all.options[0]?.text === '全ての辺（共通設定）' &&
+        JSON.stringify(all.options.map(option => option.value)) === JSON.stringify(expectedOptions) && all.options[0]?.text === '全辺共通' &&
         all.edgeIndex == null && all.segmentIndex == null && all.globalVisible && all.partTabs.length === 0 && !all.legacyToggle && !all.legacyModeProperty &&
         edge.contextPage === 'object-dimension' && edge.value === 'edge:1' && edge.edgeIndex === 1 && edge.segmentIndex == null && !edge.globalVisible && edge.partVisible &&
         JSON.stringify(edge.partTabs) === JSON.stringify([]) &&
@@ -2183,8 +2422,46 @@ async function rendererSuite() {
     return {
       pass: noLots.focus === true && noLots.visibility === true && noLots.remove === true && noLots.areaTable === true && noLots.renumber === true &&
         oneLot.focus === true && oneLot.visibility === true && oneLot.remove === true && oneLot.areaTable === false && oneLot.renumber === true &&
-        twoLots.focus === true && twoLots.visibility === true && twoLots.remove === true && twoLots.areaTable === false && twoLots.renumber === false,
+        twoLots.focus === true && twoLots.visibility === true && twoLots.remove === true && twoLots.areaTable === false && twoLots.renumber === true,
       details: { noLots, oneLot, twoLots }
+    }
+  })
+
+  await run('app-renumber-lots-handles-one-lot-current-page-and-single-step-undo', async () => {
+    if (!api?.store) return { pass: false, details: 'store API unavailable' }
+    const rectangle = (x, y) => [{ x, y }, { x: x + 60, y }, { x: x + 60, y: y + 40 }, { x, y: y + 40 }]
+
+    const one = K.createDocument()
+    K.addShape(one, 'lot', rectangle(0, 0), { number: 7 })
+    api.store.replace(one, { clean: true }); api.selectObject(null, { openEditor: false }); await sleep(20)
+    const oneButton = document.querySelector('[data-action="renumber-lots"]')
+    const oneEnabled = oneButton?.disabled === false
+    oneButton?.click(); await sleep(25)
+    const oneAfter = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+    const oneUndoDepth = api.store.undoStack.length
+    const oneUndone = api.store.undo()
+    const oneRestored = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+
+    const multiple = K.createDocument()
+    K.addShape(multiple, 'lot', rectangle(0, 0), { number: 9 })
+    const secondPage = K.setActivePage(multiple, 2)
+    K.addShape(multiple, 'lot', rectangle(80, 0), { number: 8 })
+    K.addShape(multiple, 'lot', rectangle(160, 0), { number: 4 })
+    multiple.activePageId = secondPage.id
+    api.store.replace(multiple, { clean: true }); api.selectObject(null, { openEditor: false }); await sleep(20)
+    const multiButton = document.querySelector('[data-action="renumber-lots"]')
+    const multiEnabled = multiButton?.disabled === false
+    multiButton?.click(); await sleep(25)
+    const firstNumbers = api.store.document.pages[0].shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+    const secondNumbers = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+    const multiUndoDepth = api.store.undoStack.length
+    const multiUndone = api.store.undo()
+    const restoredSecondNumbers = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot').map(shape => shape.number)
+
+    return {
+      pass: oneEnabled && String(oneAfter) === '1' && oneUndoDepth === 1 && oneUndone && String(oneRestored) === '7' &&
+        multiEnabled && String(firstNumbers) === '9' && String(secondNumbers) === '2,1' && multiUndoDepth === 1 && multiUndone && String(restoredSecondNumbers) === '8,4',
+      details: { oneEnabled, oneAfter, oneUndoDepth, oneRestored, multiEnabled, firstNumbers, secondNumbers, multiUndoDepth, restoredSecondNumbers }
     }
   })
 
@@ -2610,13 +2887,15 @@ async function rendererSuite() {
     api.ui.editEdgeIndex = 0; api.ui.editSegmentIndex = null; api.ui.contextPage = 'object-dimension'; api.ui.segmentPanel = 'correction'
     api.selectObject(lot.id, { openEditor: true, preserveSubselection: true }); api.renderCommandSurface()
     const edgeValueControl = Boolean(document.querySelector('[data-field="part-rounding"]'))
+    const edgeApproxButton = Boolean(document.querySelector('[data-action="apply-legacy-approx"][data-approx-scope="part"]'))
     await changeEditFields({ 'part-approximate': true, 'part-decimals': 1, 'part-rounding': 'floor', 'part-adjustment': 0.15, 'part-font': 'mincho', 'part-size': 1.6, 'part-color': '#b4232d' })
     const savedEdge = K.objectById(api.store.document, lot.id)?.object?.edges?.[0]
 
     api.ui.editEdgeIndex = null; api.ui.editSegmentIndex = 0; api.ui.contextPage = 'object-dimension'; api.ui.segmentPanel = 'style'
     api.selectObject(polyline.id, { openEditor: true, preserveSubselection: true }); api.renderCommandSurface()
     const segmentStyleControl = Boolean(document.querySelector('[data-field="part-font"]'))
-    await changeEditFields({ 'part-approximate': true, 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'even', 'part-size': 1.3, 'part-color': '#1d4ed8' })
+    const segmentApproxControl = Boolean(document.querySelector('[data-field="part-approximate"],[data-action="apply-legacy-approx"][data-approx-scope="part"]'))
+    await changeEditFields({ 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'even', 'part-size': 1.3, 'part-color': '#1d4ed8' })
     const savedSegment = K.objectById(api.store.document, polyline.id)?.object?.segments?.[0]
 
     api.selectObject(house.id, { openEditor: true }); await sleep(15)
@@ -2634,11 +2913,11 @@ async function rendererSuite() {
     roadType.value = '公道'; roadType.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20)
     const roadForm = clone(api.session.form)
 
-    const pass = edgeValueControl && segmentStyleControl && appearancePage && Boolean(stampLineControl) && stampChanges.every(change => !change.temporary) &&
+    const pass = edgeValueControl && edgeApproxButton && segmentStyleControl && !segmentApproxControl && appearancePage && Boolean(stampLineControl) && stampChanges.every(change => !change.temporary) &&
       savedEdge?.style?.approximate === true && savedEdge.style.decimals === 1 && savedEdge.style.rounding === 'floor' && savedEdge.style.adjustment === 0.15 && savedEdge.style.fontFamily === 'mincho' && savedEdge.style.color === '#b4232d' &&
-      savedSegment?.style?.approximate === true && savedSegment.style.decimals === 0 && savedSegment.style.rounding === 'ceil' && savedSegment.style.adjustment === -0.1 && savedSegment.style.fontFamily === 'even' && savedSegment.style.color === '#1d4ed8' &&
+      savedSegment?.style?.approximate !== true && savedSegment.style.decimals === 0 && savedSegment.style.rounding === 'ceil' && savedSegment.style.adjustment === -0.1 && savedSegment.style.fontFamily === 'even' && savedSegment.style.color === '#1d4ed8' &&
       savedHouse?.style?.lineStyle === 'dotted' && waterForm.fill === '#9ee7f5' && waterForm.stroke === '#167a9b' && waterForm['road-width'] === 1.2 && waterForm['road-name'] === '側溝' && roadForm.fill === '#cbd5e1' && roadForm['road-width'] === 5.5 && roadForm['road-name'] === '公道'
-    return { pass, details: { edgeValueControl, segmentStyleControl, appearancePage, stampLineControl: Boolean(stampLineControl), stampChanges, savedEdge, savedSegment, savedHouse, waterForm, roadForm } }
+    return { pass, details: { edgeValueControl, edgeApproxButton, segmentStyleControl, segmentApproxControl, appearancePage, stampLineControl: Boolean(stampLineControl), stampChanges, savedEdge, savedSegment, savedHouse, waterForm, roadForm } }
   })
 
   await run('app-individual-dimension-position-has-no-numeric-input-resets-and-offers-canvas-drag', async () => {
@@ -2782,7 +3061,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-lot-editor-auto-saves-major-fields-and-linked-tsubo', async () => {
+  await run('app-lot-editor-auto-saves-major-fields-with-independent-area-and-tsubo', async () => {
     if (!api?.selectObject || !api?.renderer) return { pass: false, details: 'object editor API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     const lot = K.addShape(doc, 'lot', [{ x: 40, y: 40 }, { x: 300, y: 40 }, { x: 300, y: 230 }, { x: 40, y: 230 }], {
@@ -2856,7 +3135,7 @@ async function rendererSuite() {
     const editedValues = object => Boolean(object) && object.number === 12 && object.label === '販売区画A' &&
       object.visibility?.number === true && object.visibility.label === true && object.visibility.area === true && object.visibility.tsubo === true && object.visibility.dimensions === true &&
       object.areaLabel?.visible === true && object.areaLabel.text === '123.45㎡' && near(object.areaLabel.style?.fontSize, 15) && object.areaLabel.style?.color === '#b4232d' && object.areaLabel.style?.vertical === false &&
-      object.tsuboLabel?.visible === true && object.tsuboLabel.text === '37.34坪' && near(object.tsuboLabel.style?.fontSize, 13.2) && object.tsuboLabel.style?.color === '#1d4ed8' && object.tsuboLabel.style?.vertical === true &&
+      object.tsuboLabel?.visible === true && !String(object.tsuboLabel.text || '').trim() && near(object.tsuboLabel.style?.fontSize, 13.2) && object.tsuboLabel.style?.color === '#1d4ed8' && object.tsuboLabel.style?.vertical === true &&
       near(object.labelStyle?.fontSize, 22.4) && object.labelStyle?.fontFamily === 'mincho' && object.labelStyle?.color === '#08735c' && object.labelStyle?.vertical === true && near(object.labelStyle?.rotation, 15) &&
       object.dimensionStyle?.visible === true && object.dimensionStyle.approximate === true && object.dimensionStyle.decimals === 1 && object.dimensionStyle.rounding === 'floor' && near(object.dimensionStyle.adjustment, -0.1) && near(object.dimensionStyle.fontSize, 14) && near(object.dimensionStyle.offset, 18) && object.dimensionStyle.color === '#7c3aed'
     const autoSaved = editedValues(saved)
@@ -2880,9 +3159,9 @@ async function rendererSuite() {
   await run('app-object-editor-routes-all-18-kinds-through-six-stable-tab-slots', async () => {
     if (!api?.selectObject) return { pass: false, details: 'object editor API unavailable' }
     const expected = {
-      lot: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension', 'object-record'],
-      road: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension'],
-      water: ['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension'],
+      lot: ['object-basic', 'object-appearance', 'object-text', 'object-dimension', 'object-record'],
+      road: ['object-basic', 'object-appearance', 'object-text', 'object-dimension'],
+      water: ['object-basic', 'object-appearance', 'object-text', 'object-dimension'],
       cutout: ['object-basic', 'object-special', 'object-dimension', 'object-appearance', 'object-text', 'object-record'],
       distance: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       polyline: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
@@ -2937,7 +3216,7 @@ async function rendererSuite() {
       api.ui.contextPage = 'object-basic'
       api.selectObject(object.id, { openEditor: true }); await sleep(30)
       const dimensionTab = document.querySelector('[data-context-page="object-dimension"]')
-      api.ui.contextPage = 'object-basic'; api.renderCommandSurface(); await sleep(20)
+      api.ui.contextPage = 'object-appearance'; api.renderCommandSurface(); await sleep(20)
       const widthField = document.querySelector('[data-field="road-width-visible"]')
       const before = clone(K.objectById(api.store.document, object.id)?.object)
       if (widthField) {
@@ -2975,7 +3254,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-manual-area-auto-calculates-tsubo-warns-and-keeps-colors', async () => {
+  await run('app-integrated-text-metric-editor-keeps-manual-area-and-tsubo-independent', async () => {
     if (!api?.selectObject) return { pass: false, details: 'object editor API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     const lot = K.addShape(doc, 'lot', [{ x: 30, y: 30 }, { x: 230, y: 30 }, { x: 230, y: 180 }, { x: 30, y: 180 }], {
@@ -2984,7 +3263,8 @@ async function rendererSuite() {
       tsuboLabel: { visible: true, style: { color: '#1d4ed8' } }
     })
     api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
-    api.ui.contextPage = 'object-values'; api.ui.valueLabelPanel = 'area'; api.selectObject(lot.id, { openEditor: true }); await sleep(30)
+    api.ui.contextPage = 'object-text'; api.selectObject(lot.id, { openEditor: true }); api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(30)
+    const textTabs = [...document.querySelectorAll('#command-pages [data-context-page]')].filter(button => !button.hidden).map(button => button.dataset.contextPage)
     const field = document.querySelector('[data-field="area-label-text"]')
     const formatPopup = document.querySelector('#command-controls details.toolbar-dropdown')
     const colorsBefore = { area: lot.areaLabel?.style?.color, tsubo: lot.tsuboLabel?.style?.color }
@@ -2996,10 +3276,16 @@ async function rendererSuite() {
       await sleep(35)
     }
     const normalizedAreaText = field?.value
-    const warning = document.querySelector('[data-area-manual-warning]')
-    const linkedFromArea = K.objectById(api.store.document, lot.id)?.object?.tsuboLabel?.text ?? api.session.form['tsubo-label-text']
-    api.ui.valueLabelPanel = 'tsubo'; api.renderCommandSurface(); await sleep(20)
+    const manualState = document.querySelector('[data-metric-manual-state]')
+    const tsuboAfterArea = K.objectById(api.store.document, lot.id)?.object?.tsuboLabel?.text ?? null
+    const roleSelector = document.querySelector('[data-text-role]')
+    if (roleSelector) {
+      roleSelector.value = 'tsubo'
+      roleSelector.dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(20)
+    }
     const tsuboField = document.querySelector('[data-field="tsubo-label-text"]')
+    const tsuboInitiallyBlank = !String(tsuboField?.value || '').trim()
     if (tsuboField) {
       tsuboField.value = '７７７７'
       tsuboField.dispatchEvent(new Event('input', { bubbles: true }))
@@ -3009,17 +3295,289 @@ async function rendererSuite() {
     const normalizedTsuboText = tsuboField?.value
     const saved = clone(K.objectById(api.store.document, lot.id)?.object)
     const colorsAfter = { area: saved?.areaLabel?.style?.color, tsubo: saved?.tsuboLabel?.style?.color }
-    api.ui.contextPage = 'object-text'; api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(20)
+    api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(20)
     const areaSizeField = document.querySelector('[data-field="area-label-size"]')
     const areaFontField = document.querySelector('[data-field="area-label-font"]')
     api.ui.textRole = 'tsubo'; api.renderCommandSurface(); await sleep(20)
     const tsuboSizeField = document.querySelector('[data-field="tsubo-label-size"]')
     const tsuboFontField = document.querySelector('[data-field="tsubo-label-font"]')
     return {
-      pass: Boolean(field) && Boolean(warning) && warning.hidden === false && /坪.*更新|手入力/.test(warning.textContent || '') &&
-        normalizedAreaText === `${exactArea.toFixed(5)}㎡` && Math.abs(Number.parseFloat(String(linkedFromArea)) - 50) < 0.01 && /坪/.test(String(linkedFromArea)) &&
+      pass: JSON.stringify(textTabs) === JSON.stringify(['object-basic', 'object-appearance', 'object-text', 'object-dimension', 'object-record']) &&
+        Boolean(field && roleSelector && manualState) && manualState.hidden === false && /手入力/.test(manualState.textContent || '') &&
+        normalizedAreaText === `${exactArea.toFixed(5)}㎡` && tsuboAfterArea == null && tsuboInitiallyBlank &&
         normalizedTsuboText === '7777坪' && Boolean(areaSizeField && areaFontField && tsuboSizeField && tsuboFontField) && formatPopup == null && JSON.stringify(colorsAfter) === JSON.stringify(colorsBefore) && !document.querySelector('[data-action="save-edit"]'),
-      details: { exactArea, warning: warning ? { hidden: warning.hidden, text: warning.textContent } : null, normalizedAreaText, linkedFromArea, normalizedTsuboText, textControls: { areaSize: Boolean(areaSizeField), areaFont: Boolean(areaFontField), tsuboSize: Boolean(tsuboSizeField), tsuboFont: Boolean(tsuboFontField) }, hasFormatPopup: Boolean(formatPopup), colorsBefore, colorsAfter, saved }
+      details: { exactArea, textTabs, manualState: manualState ? { hidden: manualState.hidden, text: manualState.textContent } : null, normalizedAreaText, tsuboAfterArea, tsuboInitiallyBlank, normalizedTsuboText, textControls: { areaSize: Boolean(areaSizeField), areaFont: Boolean(areaFontField), tsuboSize: Boolean(tsuboSizeField), tsuboFont: Boolean(tsuboFontField) }, hasFormatPopup: Boolean(formatPopup), colorsBefore, colorsAfter, saved }
+    }
+  })
+
+  await run('app-area-and-tsubo-real-dom-is-limited-to-standard-display-controls', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface) return { pass: false, details: 'object editor API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const lot = K.addShape(doc, 'lot', [{ x: 30, y: 30 }, { x: 230, y: 30 }, { x: 230, y: 180 }, { x: 30, y: 180 }], {
+      number: 1, visibility: { area: true, tsubo: true }, areaLabel: { visible: true }, tsuboLabel: { visible: true }
+    })
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(lot.id, { openEditor: true }); api.ui.contextPage = 'object-text'
+    const rows = []
+    for (const role of ['area', 'tsubo']) {
+      api.ui.textRole = role
+      api.renderCommandSurface(); await sleep(22)
+      const prefix = role === 'area' ? 'area-label' : 'tsubo-label'
+      const controls = document.getElementById('command-controls')
+      const fields = [...controls.querySelectorAll('[data-field]')].map(field => field.dataset.field).sort()
+      const expectedFields = [`${prefix}-color`, `${prefix}-font`, `${prefix}-size`, `${prefix}-text`].sort()
+      const manualField = controls.querySelector(`[data-field="${prefix}-text"]`)
+      const manualLabel = manualField?.closest('label')?.textContent?.replace(/\s+/g, '') || ''
+      const standardButton = [...controls.querySelectorAll('button')].find(button => /標準表示へ戻す/.test(button.textContent || ''))
+      const prohibitedFields = [
+        `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-frame`, `${prefix}-underline`,
+        `${prefix}-decimals`, `${prefix}-rounding`, `${prefix}-adjustment`
+      ].filter(name => controls.querySelector(`[data-field="${name}"]`))
+      const prohibitedText = [...controls.querySelectorAll('label,button')]
+        .map(node => node.textContent?.replace(/\s+/g, '') || '')
+        .filter(text => /^(?:角度|縦書き|枠|下線|小数(?:桁)?|丸め|補正(?:値)?)/.test(text))
+      rows.push({
+        role, fields, expectedFields, manualLabel,
+        hasManual: Boolean(manualField) && /手入力/.test(manualLabel),
+        hasFont: Boolean(controls.querySelector(`[data-field="${prefix}-font"]`)),
+        hasSize: Boolean(controls.querySelector(`[data-field="${prefix}-size"]`)),
+        hasColor: Boolean(controls.querySelector(`[data-field="${prefix}-color"]`)),
+        standardButton: standardButton?.textContent?.trim() || null,
+        prohibitedFields, prohibitedText
+      })
+    }
+    return {
+      pass: rows.every(row => row.hasManual && row.hasFont && row.hasSize && row.hasColor && row.standardButton &&
+        JSON.stringify(row.fields) === JSON.stringify(row.expectedFields) && row.prohibitedFields.length === 0 && row.prohibitedText.length === 0),
+      details: rows
+    }
+  })
+
+  await run('app-metric-standard-display-reset-clears-only-hidden-legacy-style', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface || !api?.undo || !api?.redo) return { pass: false, details: 'object editor history API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const lot = K.addShape(doc, 'lot', [{ x: 30, y: 30 }, { x: 230, y: 30 }, { x: 230, y: 180 }, { x: 30, y: 180 }], { number: 1 })
+    lot.areaDigits = 1
+    lot.areaLabel = {
+      visible: true,
+      text: '123.45㎡',
+      position: { x: 118, y: 94 },
+      style: {
+        fontFamily: 'mincho', scale: 1.4, size: 14, fontSize: 14, color: '#b4232d',
+        rotation: 18, angle: 18, vertical: true, background: '#fff', boxStyle: 'box',
+        frame: true, underline: true, borderColor: '#172033', borderWidth: 2,
+        decimals: 1, digits: 1, rounding: 'floor', adjustment: -0.1, approximate: true
+      }
+    }
+    lot.customAreaLabel = lot.areaLabel.text
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(lot.id, { openEditor: true }); api.ui.contextPage = 'object-text'; api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(24)
+    const button = [...document.querySelectorAll('#command-controls button')].find(item => /標準表示へ戻す/.test(item.textContent || ''))
+    const visibleBefore = Boolean(button && !button.hidden && !button.disabled)
+    const undoBefore = api.store.undoStack.length
+    button?.click(); await sleep(30)
+    const saved = clone(K.objectById(api.store.document, lot.id)?.object?.areaLabel)
+    const style = saved?.style || {}
+    const preserved = saved?.visible === true && saved?.text === '123.45㎡' && saved?.position?.x === 118 && saved?.position?.y === 94 &&
+      style.fontFamily === 'mincho' && style.scale === 1.4 && style.size === 14 && style.fontSize === 14 && style.color === '#b4232d'
+    const standardized = Number(style.rotation) === 0 && Number(style.angle) === 0 && style.vertical === false &&
+      style.background === 'transparent' && style.boxStyle === 'none' && style.frame === false && style.underline === false &&
+      style.borderColor == null && Number(style.borderWidth) === 0 && Number(style.decimals) === 2 && Number(style.digits) === 2 &&
+      style.rounding === 'round' && Number(style.adjustment) === 0 && style.approximate === false
+    const undoAfter = api.store.undoStack.length
+    const undone = api.undo(); await sleep(22)
+    const restored = clone(K.objectById(api.store.document, lot.id)?.object?.areaLabel)
+    const redone = api.redo(); await sleep(22)
+    const resetAgain = clone(K.objectById(api.store.document, lot.id)?.object?.areaLabel)
+    return {
+      pass: visibleBefore && preserved && standardized && undoAfter === undoBefore + 1 && undone === true &&
+        restored?.style?.rotation === 18 && restored?.style?.vertical === true && restored?.style?.decimals === 1 &&
+        redone === true && resetAgain?.style?.rotation === 0 && resetAgain?.style?.vertical === false && resetAgain?.style?.decimals === 2,
+      details: { button: button?.textContent?.trim() || null, visibleBefore, undoBefore, undoAfter, preserved, standardized, saved, undone, restored, redone, resetAgain }
+    }
+  })
+
+  await run('app-common-and-individual-edge-approx-presets-save-the-same-values', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface) return { pass: false, details: 'object editor API unavailable' }
+    const polygon = [{ x: 20, y: 20 }, { x: 140, y: 20 }, { x: 140, y: 100 }, { x: 20, y: 100 }]
+    const tuple = style => ({
+      approximate: Boolean(style?.approximate),
+      decimals: Number(style?.decimals ?? style?.digits),
+      rounding: style?.rounding || '',
+      adjustment: Number(style?.adjustment)
+    })
+    const apply = async scope => {
+      const doc = K.createDocument(); doc.calibration.mpp = 0.1
+      const lot = K.addShape(doc, 'lot', polygon)
+      api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+      api.selectObject(lot.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(18)
+      if (scope === 'part') {
+        const target = document.querySelector('[data-dimension-target]')
+        if (target) { target.value = 'edge:0'; target.dispatchEvent(new Event('change', { bubbles: true })) }
+        await sleep(22)
+      }
+      const selector = scope === 'part'
+        ? '[data-action="apply-legacy-approx"][data-approx-scope="part"]'
+        : '[data-action="apply-legacy-approx"]:not([data-approx-scope="part"])'
+      const button = document.querySelector(selector)
+      button?.click(); await sleep(28)
+      const saved = K.objectById(api.store.document, lot.id)?.object
+      const formPrefix = scope === 'part' ? 'part' : 'dimension'
+      return {
+        scope,
+        button: Boolean(button),
+        pressed: button?.getAttribute('aria-pressed'),
+        form: {
+          approximate: Boolean(api.session.form[`${formPrefix}-approximate`]),
+          decimals: Number(api.session.form[`${formPrefix}-decimals`]),
+          rounding: api.session.form[`${formPrefix}-rounding`] || '',
+          adjustment: Number(api.session.form[`${formPrefix}-adjustment`])
+        },
+        saved: tuple(scope === 'part' ? saved?.edges?.[0]?.style : saved?.dimensionStyle)
+      }
+    }
+    const common = await apply('common')
+    const individual = await apply('part')
+    const expected = { approximate: true, decimals: 1, rounding: 'floor', adjustment: -0.1 }
+    return {
+      pass: common.button && individual.button && common.pressed === 'true' && individual.pressed === 'true' &&
+        JSON.stringify(common.form) === JSON.stringify(expected) && JSON.stringify(common.saved) === JSON.stringify(expected) &&
+        JSON.stringify(individual.form) === JSON.stringify(expected) && JSON.stringify(individual.saved) === JSON.stringify(expected) &&
+        JSON.stringify(common.saved) === JSON.stringify(individual.saved),
+      details: { expected, common, individual }
+    }
+  })
+
+  await run('app-shape-dimension-editor-keeps-the-same-two-row-order', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface) return { pass: false, details: 'object editor API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const polygon = [{ x: 20, y: 20 }, { x: 140, y: 20 }, { x: 140, y: 100 }, { x: 20, y: 100 }]
+    const shapes = ['lot', 'road', 'water', 'cutout'].map((kind, index) => K.addShape(doc, kind, polygon.map(point => ({ x: point.x + index * 160, y: point.y })), {
+      number: index + 1,
+      road: kind === 'road' || kind === 'water' ? { name: kind === 'water' ? '水路' : '道路', widthM: kind === 'water' ? 1.2 : 4 } : undefined,
+      visibility: { dimensions: true }
+    }))
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    const token = node => node.hasAttribute('data-dimension-target') ? 'target' : node.dataset.field || node.dataset.action || ''
+    const rows = () => [...document.querySelectorAll('#command-controls .dimension-editor-row')]
+      .map(row => [...row.querySelectorAll('[data-dimension-target],[data-field],[data-action]')]
+        .filter(node => !node.closest('[hidden]'))
+        .map(token).filter(Boolean))
+    const expectedCommon = [
+      ['target', 'dimension-visible', 'apply-legacy-approx', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment'],
+      ['dimension-font', 'dimension-size', 'dimensionColor', 'dimension-offset']
+    ]
+    const expectedPart = [
+      ['target', 'edge-visible', 'edge-custom-text', 'apply-legacy-approx', 'part-decimals', 'part-rounding', 'part-adjustment'],
+      ['part-font', 'part-size', 'part-color', 'edge-rotation-offset', 'reset-dimension-part-position', 'reset-dimension-part-overrides']
+    ]
+    const results = []
+    for (const shape of shapes) {
+      api.selectObject(shape.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(18)
+      const common = rows()
+      const target = document.querySelector('[data-dimension-target]')
+      if (target) { target.value = 'edge:0'; target.dispatchEvent(new Event('change', { bubbles: true })) }
+      await sleep(22)
+      const part = rows()
+      results.push({ kind: shape.kind, common, part })
+    }
+    return {
+      pass: results.every(result => JSON.stringify(result.common) === JSON.stringify(expectedCommon) && JSON.stringify(result.part) === JSON.stringify(expectedPart)),
+      details: { expectedCommon, expectedPart, results }
+    }
+  })
+
+  await run('app-individual-edge-manual-text-disables-only-automatic-number-controls', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface) return { pass: false, details: 'object editor API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const lot = K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 140, y: 20 }, { x: 140, y: 100 }, { x: 20, y: 100 }])
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(lot.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(18)
+    const target = document.querySelector('[data-dimension-target]')
+    if (target) { target.value = 'edge:0'; target.dispatchEvent(new Event('change', { bubbles: true })) }
+    await sleep(22)
+    const textField = document.querySelector('[data-field="edge-custom-text"]')
+    if (textField) {
+      textField.value = '間口'
+      textField.dispatchEvent(new Event('input', { bubbles: true }))
+      textField.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await sleep(28)
+    const state = () => {
+      const numeric = [
+        document.querySelector('[data-action="apply-legacy-approx"][data-approx-scope="part"]'),
+        document.querySelector('[data-field="part-decimals"]'),
+        document.querySelector('[data-field="part-rounding"]'),
+        document.querySelector('[data-field="part-adjustment"]')
+      ]
+      const style = [
+        document.querySelector('[data-field="part-font"]'),
+        document.querySelector('[data-field="part-size"]'),
+        document.querySelector('[data-field="part-color"]')
+      ]
+      return {
+        numericPresent: numeric.every(Boolean),
+        numericDisabled: numeric.map(control => control?.disabled === true),
+        stylePresent: style.every(Boolean),
+        styleEnabled: style.map(control => control?.disabled !== true)
+      }
+    }
+    const manual = state()
+    const savedManualText = K.objectById(api.store.document, lot.id)?.object?.edges?.[0]?.customText
+    const currentTextField = document.querySelector('[data-field="edge-custom-text"]')
+    if (currentTextField) {
+      currentTextField.value = ''
+      currentTextField.dispatchEvent(new Event('input', { bubbles: true }))
+      currentTextField.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await sleep(28)
+    const automatic = state()
+    const savedAutomaticText = K.objectById(api.store.document, lot.id)?.object?.edges?.[0]?.customText
+    return {
+      pass: Boolean(target && textField) && savedManualText === '間口' && manual.numericPresent && manual.numericDisabled.every(Boolean) &&
+        manual.stylePresent && manual.styleEnabled.every(Boolean) && automatic.numericPresent && automatic.numericDisabled.every(value => !value) &&
+        (savedAutomaticText == null || savedAutomaticText === ''),
+      details: { savedManualText, manual, savedAutomaticText, automatic }
+    }
+  })
+
+  await run('app-reset-individual-edge-to-common-clears-every-override-in-one-undo', async () => {
+    if (!api?.selectObject || !api?.renderCommandSurface || !api?.undo || !api?.redo) return { pass: false, details: 'object editor history API unavailable' }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const lot = K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 140, y: 20 }, { x: 140, y: 100 }, { x: 20, y: 100 }])
+    Object.assign(lot.edges[0], {
+      hidden: true,
+      customText: '間口',
+      labelOffset: { x: 18, y: -7 },
+      rotationOffset: 23,
+      style: { approximate: true, decimals: 1, digits: 1, rounding: 'floor', adjustment: -0.1, fontFamily: 'mincho', scale: 1.6, size: 16, fontSize: 16, color: '#b4232d', offset: 21, angle: 12 }
+    })
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(lot.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(18)
+    const target = document.querySelector('[data-dimension-target]')
+    if (target) { target.value = 'edge:0'; target.dispatchEvent(new Event('change', { bubbles: true })) }
+    await sleep(22)
+    const seeded = clone(K.objectById(api.store.document, lot.id)?.object?.edges?.[0])
+    const resetButton = [...document.querySelectorAll('#command-controls button')]
+      .find(button => /個別設定を共通へ戻す/.test(button.textContent || ''))
+    const undoBefore = api.store.undoStack.length
+    resetButton?.click(); await sleep(30)
+    const cleared = clone(K.objectById(api.store.document, lot.id)?.object?.edges?.[0])
+    const undoAfter = api.store.undoStack.length
+    const neutral = edge => Boolean(edge) && edge.hidden !== true && (edge.customText == null || edge.customText === '') &&
+      (edge.style == null || Object.keys(edge.style).length === 0) &&
+      (!edge.labelOffset || (Number(edge.labelOffset.x) === 0 && Number(edge.labelOffset.y) === 0)) &&
+      (edge.rotationOffset == null || Number(edge.rotationOffset) === 0)
+    const undone = api.undo(); await sleep(24)
+    const restored = clone(K.objectById(api.store.document, lot.id)?.object?.edges?.[0])
+    const redone = api.redo(); await sleep(24)
+    const clearedAgain = clone(K.objectById(api.store.document, lot.id)?.object?.edges?.[0])
+    const restoredOverrides = restored?.hidden === true && restored?.customText === '間口' && restored?.style?.fontFamily === 'mincho' &&
+      restored?.labelOffset?.x === 18 && restored?.labelOffset?.y === -7 && restored?.rotationOffset === 23
+    return {
+      pass: Boolean(target && resetButton) && seeded?.hidden === true && undoAfter === undoBefore + 1 && neutral(cleared) &&
+        undone === true && restoredOverrides && redone === true && neutral(clearedAgain),
+      details: { button: resetButton?.textContent?.trim() || null, undoBefore, undoAfter, seeded, cleared, undone, restored, redone, clearedAgain }
     }
   })
 
@@ -3102,7 +3660,7 @@ async function rendererSuite() {
     const mixedNotice = document.querySelector('.batch-edit-notice')?.textContent || ''
     const mixedHasSpecificFields = Boolean(document.querySelector('[data-field="fill-opacity"],[data-field="road-width"]'))
     return {
-      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && JSON.stringify(batchTabs) === JSON.stringify(['object-basic', 'object-appearance', 'object-text', 'object-values', 'object-dimension', 'object-record']) && Boolean(opacity) &&
+      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && JSON.stringify(batchTabs) === JSON.stringify(['object-basic', 'object-appearance', 'object-text', 'object-dimension', 'object-record']) && Boolean(opacity) &&
         afterBatch.every(object => Math.abs(Number(object?.style?.opacity) - 0.33) < 1e-8) && undoAfter === undoBefore + 1 && undone === true &&
         afterUndo.every(object => Math.abs(Number(object?.style?.opacity) - Number(K.DEFAULTS.lotStyle.opacity)) < 1e-8) &&
         mixedIds.length === 3 && mixedIds.includes(road.id) && /種類|共通|移動|複写/.test(mixedNotice) && !mixedHasSpecificFields,
@@ -3130,7 +3688,7 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-approx-presets-save-exact-policy-and-keep-global-part-scopes-independent', async () => {
+  await run('app-approx-presets-are-limited-to-shape-edge-dimensions', async () => {
     if (!api?.activateCommand || !api?.finishCommand || !api?.selectObject) return { pass: false, details: 'command API unavailable' }
     const expected = { approximate: true, adjustment: -0.1, rounding: 'floor', decimals: 1 }
     const exact = style => Boolean(style) && style.approximate === true && Number(style.adjustment) === -0.1 && style.rounding === 'floor' && Number(style.decimals) === 1
@@ -3213,11 +3771,11 @@ async function rendererSuite() {
     const afterPartOff = clone(K.objectById(api.store.document, scopedLot.id)?.object)
 
     return {
-      pass: lotPreset.button && measurementPreset.button && editPreset.button && !editSave && lotFinished === true && measurementFinished === true &&
-        exact(lotPreset.form) && exact(measurementPreset.form) && exact(editPreset.form) && exact(savedLot?.dimensionStyle) && exact(savedMeasurement?.dimensionStyle) && exact(savedEdit?.dimensionStyle) &&
-        !partOn.button && partOn.directControls && partOn.scope === 'part' && exact(partOn.form) && exact(afterPartOn?.edges?.[0]?.style) && disabledExact(afterPartOn?.dimensionStyle) &&
+      pass: lotPreset.button && !measurementPreset.button && editPreset.button && !editSave && lotFinished === true && measurementFinished === true &&
+        exact(lotPreset.form) && disabledExact(measurementPreset.form) && exact(editPreset.form) && exact(savedLot?.dimensionStyle) && disabledExact(savedMeasurement?.dimensionStyle) && exact(savedEdit?.dimensionStyle) &&
+        partOn.button && !partOn.directControls && partOn.scope === 'part' && exact(partOn.form) && exact(afterPartOn?.edges?.[0]?.style) && disabledExact(afterPartOn?.dimensionStyle) &&
         globalOn.button && globalOn.scope === 'global' && exact(globalOn.form) && exact(afterGlobalOn?.dimensionStyle) && exact(afterGlobalOn?.edges?.[0]?.style) &&
-        !partOff.button && partOff.directControls && disabledExact(partOff.form) && disabledExact(afterPartOff?.edges?.[0]?.style) && exact(afterPartOff?.dimensionStyle),
+        partOff.button && !partOff.directControls && disabledExact(partOff.form) && disabledExact(afterPartOff?.edges?.[0]?.style) && exact(afterPartOff?.dimensionStyle),
       details: {
         expected,
         lot: { preset: lotPreset, finished: lotFinished, saved: savedLot?.dimensionStyle },
@@ -3225,6 +3783,70 @@ async function rendererSuite() {
         edit: { preset: editPreset, saveButton: Boolean(editSave), saved: savedEdit?.dimensionStyle },
         scoped: { partOn, afterPartOn, globalOn, afterGlobalOn, partOff, afterPartOff }
       }
+    }
+  })
+
+  await run('app-approx-rendering-and-controls-are-edge-only-for-lot-road-water', async () => {
+    if (!api?.selectObject || !api?.render) return { pass: false, details: 'render API unavailable' }
+    const visible = node => {
+      if (!node || node.hidden) return false
+      const container = node.closest('label,button') || node
+      return !container.hidden && !container.closest('[hidden]')
+    }
+    const captureCanvasText = async () => {
+      const values = []
+      const original = api.renderer._drawTextBlock
+      api.renderer._drawTextBlock = function (context, anchor, value, ...args) {
+        const lines = Array.isArray(value) ? value : [value]
+        lines.forEach(line => values.push(String(line)))
+        return original.call(this, context, anchor, value, ...args)
+      }
+      try { api.render(); await sleep(35) } finally { api.renderer._drawTextBlock = original }
+      return values
+    }
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const polygon = [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 120, y: 80 }, { x: 20, y: 80 }]
+    const shapes = ['lot', 'road', 'water'].map((kind, index) => K.addShape(doc, kind, polygon.map(point => ({ x: point.x + index * 150, y: point.y })), {
+      number: index + 1,
+      road: ['road', 'water'].includes(kind) ? { name: kind === 'water' ? '水路' : '道路', widthM: kind === 'water' ? 1.2 : 4 } : undefined,
+      visibility: { label: true, area: true, tsubo: true, dimensions: true, width: true },
+      areaLabel: { visible: true }, tsuboLabel: { visible: true },
+      dimensionStyle: { approximate: true, decimals: 1, rounding: 'floor', adjustment: -0.1 }
+    }))
+    shapes.forEach(shape => {
+      shape.visibility.area = true; shape.visibility.tsubo = true; shape.visibility.dimensions = true
+      shape.areaLabel.visible = true; shape.tsuboLabel.visible = true
+    })
+    api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    const shapeTexts = await captureCanvasText()
+    const metricTexts = shapeTexts.filter(text => /(?:㎡|坪)$/.test(text))
+    const approximateDimensionTexts = shapeTexts.filter(text => /^約.*m$/.test(text))
+    const controls = []
+    for (const shape of shapes) {
+      api.selectObject(shape.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(12)
+      const dimensionApprox = document.querySelector('[data-field="dimension-approximate"]')
+      const preset = document.querySelector('[data-action="apply-legacy-approx"]')
+      api.ui.contextPage = 'object-text'; api.ui.textRole = 'area'; api.renderCommandSurface(); await sleep(12)
+      const areaApprox = document.querySelector('[data-field="area-label-approximate"]')
+      api.ui.textRole = 'tsubo'; api.renderCommandSurface(); await sleep(12)
+      const tsuboApprox = document.querySelector('[data-field="tsubo-label-approximate"]')
+      controls.push({ kind: shape.kind, dimensionCheckbox: Boolean(dimensionApprox), preset: visible(preset), areaApprox: Boolean(areaApprox), tsuboApprox: Boolean(tsuboApprox) })
+    }
+    const measurementDoc = K.createDocument(); measurementDoc.calibration.mpp = 0.1
+    const distance = K.addEntity(measurementDoc, 'distance', {
+      points: [{ x: 20, y: 140 }, { x: 140, y: 140 }],
+      dimensionStyle: { visible: true, approximate: true, decimals: 1, rounding: 'floor', adjustment: -0.1 }
+    })
+    api.store.replace(measurementDoc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
+    const measurementTexts = (await captureCanvasText()).filter(text => /m$/.test(text))
+    api.selectObject(distance.id, { openEditor: true }); api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(12)
+    const measurementApprox = document.querySelector('[data-field="dimension-approximate"]')
+    const measurementPreset = document.querySelector('[data-action="apply-legacy-approx"]')
+    return {
+      pass: metricTexts.length >= 6 && metricTexts.every(text => !text.startsWith('約')) && approximateDimensionTexts.length >= 12 &&
+        controls.every(row => !row.dimensionCheckbox && row.preset && !row.areaApprox && !row.tsuboApprox) &&
+        measurementTexts.length > 0 && measurementTexts.every(text => !text.startsWith('約')) && !visible(measurementApprox) && !visible(measurementPreset),
+      details: { shapeTexts, metricTexts, approximateDimensionTexts, controls, measurementTexts, measurementControls: { approximate: visible(measurementApprox), preset: visible(measurementPreset) } }
     }
   })
 
@@ -3545,7 +4167,7 @@ async function rendererSuite() {
     const gridUiAbsent = !document.querySelector('[data-field="snap-grid"]')
     const shortcutRows = []
     const shortcutCases = [
-      ['b', false, 'underlay-open'], ['v', false, 'select'], ['p', false, 'lot-draw'], ['r', false, 'road-draw'],
+      ['b', false, 'calibrate'], ['v', false, 'select'], ['p', false, 'lot-draw'], ['r', false, 'road-draw'],
       ['x', false, 'move'], ['x', true, 'move-all'], ['z', false, 'vertex-edit'],
       ['s', false, 'split'], ['s', true, 'split-all'], ['g', false, 'merge'], ['k', false, 'corner-cut'], ['d', false, 'division-guide'], ['q', false, 'parallel-guide'],
       ['m', false, 'distance'], ['m', true, 'polyline'], ['a', false, 'area'], ['l', false, 'line'], ['w', false, 'arrow'], ['t', false, 'text'], ['o', false, 'callout'],

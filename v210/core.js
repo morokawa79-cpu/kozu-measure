@@ -1030,7 +1030,7 @@
         ? null
         : Number.isFinite(Number(attributes.number))
           ? Number(attributes.number)
-          : document.pages.flatMap(p => p.shapes).filter(s => s.kind === 'lot').length + 1
+          : nextLotNumber(document)
       shape.label = String(attributes.label || '')
       const normalizedLabel = shape.label.replace(/[\s　]+/g, '')
       const generatedNumberLabel = shape.number != null && normalizedLabel === `区画${shape.number}`
@@ -1402,17 +1402,43 @@
     }
     return copies
   }
-  function nextLotNumber(document) {
-    const used = (document.pages || []).flatMap(pageValue => pageValue.shapes || [])
+  function nextLotNumber(document, pageId = document.activePageId) {
+    const pageValue = (document.pages || []).find(value => value.id === pageId) || activePage(document)
+    const used = (pageValue?.shapes || [])
       .filter(shape => shape.kind === 'lot')
       .map(shape => Number(shape.number))
       .filter(Number.isFinite)
     return (used.length ? Math.max(...used) : 0) + 1
   }
-  function renumberLots(document) {
-    let number = 1
-    document.pages.forEach(pageValue => pageValue.shapes.filter(shape => shape.kind === 'lot').forEach(shape => { shape.number = number; number += 1 }))
-    return number - 1
+  function lotRenumberOrder(pageValue) {
+    return (pageValue?.shapes || [])
+      .map((shape, index) => ({ shape, index }))
+      .filter(entry => entry.shape.kind === 'lot')
+      .sort((a, b) => {
+        const aBlank = a.shape.number === null || a.shape.number === undefined || a.shape.number === ''
+        const bBlank = b.shape.number === null || b.shape.number === undefined || b.shape.number === ''
+        const aNumber = !aBlank && Number.isFinite(Number(a.shape.number)) ? Number(a.shape.number) : Number.POSITIVE_INFINITY
+        const bNumber = !bBlank && Number.isFinite(Number(b.shape.number)) ? Number(b.shape.number) : Number.POSITIVE_INFINITY
+        return aNumber - bNumber || a.index - b.index
+      })
+  }
+  function lotNumbersNeedRenumber(document, pageId = document.activePageId) {
+    const pageValue = (document.pages || []).find(value => value.id === pageId)
+    if (!pageValue) return false
+    const ordered = lotRenumberOrder(pageValue)
+    return ordered.some((entry, index) => Number(entry.shape.number) !== index + 1)
+  }
+  function renumberLots(document, pageId = document.activePageId) {
+    const pageValue = (document.pages || []).find(value => value.id === pageId)
+    if (!pageValue) return 0
+    let changed = 0
+    lotRenumberOrder(pageValue).forEach((entry, index) => {
+      const next = index + 1
+      if (Number(entry.shape.number) === next) return
+      entry.shape.number = next
+      changed += 1
+    })
+    return changed
   }
   function resetShapeLabelLayout(shape) {
     if (!shape || !SHAPE_KINDS.has(shape.kind)) return shape
@@ -2010,7 +2036,7 @@
     pointOnSegment, pointInPolygon, nearestPointOnSegment, segmentIntersection, polygonSelfIntersects, simplifyPolygon,
     validPolygon, splitPolygonByLine, splitPolygonByPolyline, analyzePolygonSplitByPolyline, mergeAdjacentPolygons, cornerCut, parallelLine, boundsOfPoints, unionBounds,
     createCalibration, createOutputLayout, createPage, createDocument, normalizeDocument, normalizeFontToken, activePage, ensurePage, setActivePage, allocId, edgeMetadata, createShape, createEntity, segmentMetadata, objectById,
-    addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, duplicateObjects, nextLotNumber, renumberLots,
+    addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, duplicateObjects, nextLotNumber, lotNumbersNeedRenumber, renumberLots,
     splitShape, splitAllLots, splitShapeByPolyline, splitAllLotsByPolyline, convertShapeKind, mergeLotShapes, cutShapeCorner, restoreCutout, objectSegments, snapPoint, hitTestDocument,
     metersFromPixels, squareMetersFromPixels, squareMetersToTsubo, applyRounding, formatMeasurement,
     shapeMetrics, entityMetrics, registrySummary, documentBounds, DocumentStore, CommandSession

@@ -31,7 +31,7 @@ npm run qa:v210
 node qa-v210-interaction.cjs
 ```
 
-alpha.10 は総合QA 299 / 299項目、実操作QA 21 / 21項目に合格しています。
+alpha.10 は総合QA 309 / 309項目、実操作QA 24 / 24項目に合格しています。
 
 ## Windowsインストーラー作成
 

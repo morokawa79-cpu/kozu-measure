@@ -1017,10 +1017,11 @@
       const areaSquareMeters = Number.isFinite(Number(shape.area))
         ? Number(shape.area)
         : (mpp > 0 ? polygonArea(shape.points) * mpp * mpp : null);
-      const approx = shape.approximate || shape.yaku || shape.dimensionStyle?.approximate;
-      const areaDigits = clamp(Math.round(finite(shape.areaDigits ?? shape.decimals ?? shape.dimensionStyle?.decimals, 2)), 0, 3);
-      const tsuboDigits = clamp(Math.round(finite(shape.tsuboDigits ?? shape.dimensionStyle?.decimals, 2)), 0, 3);
-      const metricFormat = { ...(shape.dimensionStyle || {}), adjustment: 0 };
+      // 「約・切捨て」は外周の辺寸法だけに適用する。面積・坪は
+      // areaLabel / tsuboLabel が持つ独立した桁数・丸め・補正だけを使う。
+      const areaDigits = clamp(Math.round(finite(shape.areaDigits, 2)), 0, 3);
+      const tsuboDigits = clamp(Math.round(finite(shape.tsuboDigits, 2)), 0, 3);
+      const metricFormat = { decimals: 2, digits: 2, rounding: 'round', adjustment: 0, approximate: false };
       const inheritedSize = clamp(finite(primaryStyle?.size ?? primaryStyle?.fontSize, DEFAULTS.label.size), 4, 144);
       const metricSize = clamp(inheritedSize * 0.8, 8, 32);
       const primaryHeight = primaryLines.length ? finite(primaryBox?.height, primaryLines.length * inheritedSize * 1.18) : 0;
@@ -1056,11 +1057,10 @@
         labelStyle.fontSize = resolvedSize;
         const automaticIndex = automaticDefinitions.indexOf(definition);
         const digits = clamp(Math.round(finite(customStyle.decimals ?? customStyle.digits, definition.defaultDigits)), 0, 3);
-        const formatStyle = { ...metricFormat, ...customStyle, decimals: digits, digits };
-        const useApprox = customStyle.approximate == null ? approx : customStyle.approximate === true;
+        const formatStyle = { ...metricFormat, ...customStyle, decimals: digits, digits, approximate: false };
         const automaticText = definition.automaticValue == null
           ? null
-          : `${useApprox ? '約' : ''}${formatMeasuredValue(definition.automaticValue, formatStyle)}${definition.unit}`;
+          : `${formatMeasuredValue(definition.automaticValue, formatStyle)}${definition.unit}`;
         const text = label.text == null ? automaticText : String(label.text);
         if (!text) continue;
         const renderedLineHeight = resolvedSize * 1.18 * (labelStyle.vertical ? Math.max(1, Array.from(String(text)).length) : 1);
@@ -1316,9 +1316,9 @@
     _measurementText(entity, value, fallbackUnit = 'm') {
       const style = mergeStyle(DEFAULTS.dimension, entity.dimensionStyle || entity.style, {
         digits: entity.digits ?? entity.decimals,
-        approximate: entity.approximate || entity.yaku,
+        approximate: false,
       });
-      const prefix = style.approximate ? '約' : (style.prefix || '');
+      const prefix = style.prefix || '';
       const unit = style.showUnit === false ? '' : (style.unit || fallbackUnit);
       return `${prefix}${formatMeasuredValue(value, style)}${unit}`;
     }
@@ -1386,7 +1386,7 @@
         const configuredAngle = segmentStyle.angle ?? segmentStyle.rotation;
         if (configuredAngle != null && configuredAngle !== 'auto') angle = finite(configuredAngle, 0);
         angle += finite(segment.rotationOffset, 0);
-        const prefix = segmentStyle.approximate ? '約' : (segmentStyle.prefix || '');
+        const prefix = segmentStyle.prefix || '';
         const unit = segmentStyle.showUnit === false ? '' : (segmentStyle.unit || 'm');
         const text = segment.customText != null && segment.customText !== ''
           ? String(segment.customText)

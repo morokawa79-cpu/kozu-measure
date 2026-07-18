@@ -27,11 +27,11 @@
   const DRAWING_SCALE_PRESETS = new Set([5, 10, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 1000])
   const CENTERABLE_LABEL_KINDS = new Set(['lot', 'road', 'water', 'cutout', 'distance', 'polyline', 'area', 'dimension', 'arrow', 'callout'])
   const OBJECT_EDITOR_ROUTES = Object.freeze({
-    // 区画・道路・水路は同じ並びに固定する。種類ごとの専用ページを挟むと、
-    // 同じ設定が別の場所へ移動して見えるため、基本→表示→文字→数値→辺→台帳に統一。
-    lot: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法'], ['object-record', '台帳']]),
-    road: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法']]),
-    water: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法']]),
+    // 名称・幅員・面積・坪は、内容と書式を同じ「文字・数値」で扱う。
+    // 表示ON/OFFは「表示」、辺ごとの上書きは「辺寸法」だけを正本にする。
+    lot: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字・数値'], ['object-dimension', '辺寸法'], ['object-record', '台帳']]),
+    road: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字・数値'], ['object-dimension', '辺寸法']]),
+    water: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字・数値'], ['object-dimension', '辺寸法']]),
     cutout: Object.freeze([['object-basic', '隅切り情報'], ['object-special', '元へ戻す'], ['object-dimension', '寸法'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-record', '台帳']]),
     distance: Object.freeze([['object-basic', '値・表示'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
     polyline: Object.freeze([['object-basic', '合計・区間'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
@@ -55,19 +55,25 @@
     house: Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字']]),
     parking: Object.freeze([['create-basic', '基本'], ['create-appearance', '表示'], ['create-text', '文字']])
   })
+  const SOFT_COLOR_OPTIONS = Object.freeze([
+    ['#f4dfa1', '淡い黄'], ['#cfe5f5', '淡い青'], ['#d8edcf', '淡い緑'], ['#f6d3b2', '淡い橙'],
+    ['#f2cbd2', '淡い赤'], ['#ddd3f2', '淡い紫'], ['#cce9df', '淡い青緑'], ['#e7edc5', '淡い黄緑'],
+    ['#f6ddd0', '淡い桃'], ['#e8dccb', '淡い茶'], ['#f1f3f5', 'ごく薄い灰'], ['#edf2f8', '家屋'],
+    ['#eef4fb', '駐車'], ['#e5e7eb', '隅切り'], ['#e3e5e8', '明るい灰'], ['#d8dde5', '薄灰'],
+    ['#c3c9d1', '灰'], ['#adb5bd', '中灰'], ['#8d99a6', '濃灰'],
+    ['#d6d3d1', '暖灰'], ['#cbd5e1', '青灰'], ['#bfe7f8', '水路青'], ['#ffffff', '白']
+  ])
   const COLOR_OPTIONS = Object.freeze({
     ink: [['#172033', '濃紺'], ['#0f172a', '黒'], ['#334155', '灰'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
-    line: [['#253858', '濃紺'], ['#111827', '黒'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
+    line: [['#253858', '濃紺'], ['#111827', '黒'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫'], ['#647783', 'ガイド'], ['#9b4c8d', '平行線']],
     dimension: [['#334155', '灰'], ['#172033', '濃紺'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
-    fill: [
-      ['#f4dfa1', '淡い黄'], ['#cfe5f5', '淡い青'], ['#d8edcf', '淡い緑'], ['#f6d3b2', '淡い橙'],
-      ['#f2cbd2', '淡い赤'], ['#ddd3f2', '淡い紫'], ['#cce9df', '淡い青緑'], ['#e7edc5', '淡い黄緑'],
-      ['#f6ddd0', '淡い桃'], ['#e8dccb', '淡い茶'], ['#f1f3f5', 'ごく薄い灰'], ['#d8dde5', '薄灰'],
-      ['#c3c9d1', '灰'], ['#adb5bd', '中灰'], ['#8d99a6', '濃灰'], ['#cbd5e1', '青灰'], ['#ffffff', '白']
-    ],
+    lot: SOFT_COLOR_OPTIONS,
+    road: SOFT_COLOR_OPTIONS,
+    fill: SOFT_COLOR_OPTIONS,
     border: [
       ['#987722', '黄土'], ['#427aa1', '青'], ['#477b52', '緑'], ['#b36b31', '橙'], ['#a34f5d', '赤'],
-      ['#6b5a9a', '紫'], ['#8d99a6', '中灰'], ['#596579', '道路灰'], ['#3f4a59', '濃い道路灰'], ['#172033', '濃紺']
+      ['#6b5a9a', '紫'], ['#2f7898', '水路'], ['#6b7280', '隅切り'], ['#8d99a6', '中灰'],
+      ['#596579', '道路灰'], ['#3f4a59', '濃い道路灰'], ['#172033', '濃紺']
     ]
   })
   const CSS_UNITS_PER_METER = 96 / 0.0254
@@ -98,7 +104,7 @@
   })
 
   const COMMAND = Object.freeze({
-    'underlay-open': { category: 'underlay', name: '下絵', icon: 'i-underlay', template: 'controls-underlay-calibrate', hint: '①下絵を開く　②ページを選ぶ　③そのページの縮尺を設定' },
+    'underlay-open': { category: 'underlay', name: '下絵', icon: 'i-underlay', template: 'controls-underlay', hint: '①下絵を開く　②ページを選ぶ　③そのページの縮尺を設定' },
     'underlay-replace': { category: 'underlay', name: '下絵差替', icon: 'i-replace', template: 'controls-underlay', hint: '現在の位置と倍率を保って下絵を差し替えます' },
     'underlay-page': { category: 'underlay', name: 'ページ', icon: 'i-page', template: 'controls-underlay', hint: 'PDFのページを切り替え、ページごとに縮尺を設定します' },
     'underlay-transform': { category: 'underlay', name: '下絵位置', icon: 'i-adjust', template: 'controls-underlay-adjust', hint: '数値入力またはドラッグで下絵を調整' },
@@ -156,7 +162,7 @@
   })
 
   const SHORTCUTS = Object.freeze({
-    B: 'underlay-open', V: 'select', P: 'lot-draw', R: 'road-draw',
+    B: 'underlay', V: 'select', P: 'lot-draw', R: 'road-draw',
     X: 'move', 'Shift+X': 'move-all', Z: 'vertex-edit',
     S: 'split', 'Shift+S': 'split-all', G: 'merge', K: 'corner-cut', D: 'division-guide', Q: 'parallel-guide',
     M: 'distance', 'Shift+M': 'polyline', A: 'area', L: 'line', W: 'arrow', T: 'text', O: 'callout',
@@ -218,7 +224,6 @@
     editSegmentIndex: null,
     segmentPanel: 'text',
     specialPanel: 'primary',
-    valueLabelPanel: 'area',
     textRole: 'name',
     clipboard: [],
     clipboardPasteCount: 0,
@@ -254,6 +259,8 @@
     fileDragDepth: 0,
     compositionEndedAt: 0,
     inputTransaction: null,
+    activeColorSelect: null,
+    activeColorTrigger: null,
     backgroundTaskToken: 0,
     backgroundSyncRequest: 0,
     backgroundVisualState: null
@@ -321,6 +328,117 @@
     const options = (COLOR_OPTIONS[palette] || COLOR_OPTIONS.ink)
       .map(([value, name]) => `<option value="${value}">${name}</option>`).join('')
     return `<label class="field-inline ${extraClass}"><span>${label}</span><select class="ctrl-select color-select" data-field="${field}" data-color-select="${palette}">${options}</select></label>`
+  }
+
+  function normalizeColorSelectOptions(select) {
+    if (!select || select.dataset.colorOptionsReady === 'true') return
+    const palette = COLOR_OPTIONS[select.dataset.colorSelect] || COLOR_OPTIONS.ink
+    const current = select.value
+    select.replaceChildren(...palette.map(([value, name]) => {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = name
+      return option
+    }))
+    if (current && ![...select.options].some(option => option.value === current)) {
+      const option = document.createElement('option')
+      option.value = current
+      option.textContent = `現在の色 ${current}`
+      select.prepend(option)
+    }
+    if (current) select.value = current
+    select.dataset.colorOptionsReady = 'true'
+  }
+
+  function enhanceColorSelects() {
+    $$('select[data-color-select]', dom.commandControls).forEach(select => {
+      normalizeColorSelectOptions(select)
+      if (select.closest('[data-color-control]')) return
+      const control = document.createElement('span')
+      control.className = 'color-control'
+      control.dataset.colorControl = ''
+      const trigger = document.createElement('button')
+      trigger.type = 'button'
+      trigger.className = 'color-trigger'
+      trigger.dataset.colorTrigger = ''
+      trigger.setAttribute('aria-haspopup', 'listbox')
+      trigger.setAttribute('aria-expanded', 'false')
+      trigger.innerHTML = '<span class="color-current-swatch" data-color-current aria-hidden="true"></span><span class="color-trigger-chevron" aria-hidden="true">⌄</span>'
+      select.before(control)
+      control.append(trigger, select)
+      select.classList.add('color-select-source')
+      select.tabIndex = -1
+      select.setAttribute('aria-hidden', 'true')
+    })
+  }
+
+  function ensureColorPalette() {
+    let palette = document.querySelector('[data-color-palette]')
+    if (palette) return palette
+    palette = document.createElement('div')
+    palette.className = 'color-palette'
+    palette.dataset.colorPalette = ''
+    palette.id = 'color-palette'
+    palette.hidden = true
+    palette.setAttribute('role', 'listbox')
+    document.body.append(palette)
+    return palette
+  }
+
+  function closeColorPalette(restoreFocus = false) {
+    const palette = document.querySelector('[data-color-palette]')
+    if (palette) palette.hidden = true
+    $$('[data-color-trigger]').forEach(trigger => trigger.setAttribute('aria-expanded', 'false'))
+    const trigger = runtime.activeColorTrigger
+    runtime.activeColorSelect = null
+    runtime.activeColorTrigger = null
+    if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true })
+  }
+
+  function openColorPalette(select, trigger) {
+    if (!select || !trigger) return
+    const palette = ensureColorPalette()
+    const wasOpen = !palette.hidden && runtime.activeColorSelect === select
+    closeColorPalette()
+    if (wasOpen) return
+    runtime.activeColorSelect = select
+    runtime.activeColorTrigger = trigger
+    const values = []
+    const seen = new Set()
+    for (const option of select.options) {
+      const value = String(option.value || '').trim()
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      values.push({ value, name: option.textContent?.trim() || value })
+    }
+    palette.replaceChildren(...values.map(({ value, name }) => {
+      const swatch = document.createElement('button')
+      swatch.type = 'button'
+      swatch.className = 'color-palette-swatch'
+      swatch.dataset.colorSwatch = ''
+      swatch.dataset.colorValue = value
+      swatch.style.setProperty('--swatch-color', value)
+      swatch.setAttribute('role', 'option')
+      swatch.setAttribute('aria-label', `${name} ${value}`)
+      swatch.setAttribute('aria-selected', String(value === select.value))
+      swatch.title = `${name} ${value}`
+      return swatch
+    }))
+    const label = select.closest('.field-inline')?.querySelector(':scope > span')?.textContent?.trim() || '色'
+    palette.setAttribute('aria-label', `${label}を選択`)
+    palette.style.setProperty('--color-columns', String(values.length > 10 ? 5 : Math.max(2, Math.min(4, values.length))))
+    palette.hidden = false
+    trigger.setAttribute('aria-expanded', 'true')
+    trigger.setAttribute('aria-controls', palette.id)
+    const rect = trigger.getBoundingClientRect()
+    const bounds = palette.getBoundingClientRect()
+    const gap = 4
+    let left = Math.min(Math.max(6, rect.left), Math.max(6, window.innerWidth - bounds.width - 6))
+    let top = rect.bottom + gap
+    if (top + bounds.height > window.innerHeight - 6) top = Math.max(6, rect.top - bounds.height - gap)
+    palette.style.left = `${Math.round(left)}px`
+    palette.style.top = `${Math.round(top)}px`
+    palette.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true })
   }
 
   function fontOptionsMarkup() {
@@ -631,6 +749,7 @@
   function closeMenus() {
     $$('[data-popup]').forEach(popup => { popup.hidden = true })
     $$('[data-menu]').forEach(button => button.classList.remove('active'))
+    closeColorPalette()
   }
 
   function setWorkspace(name) {
@@ -798,7 +917,7 @@
       case 'distance': case 'polyline': case 'area': return {
         'line-style': line.lineStyle || 'solid', 'line-width': finite(line.lineWidth, 1.4), color: line.color || '#253858',
         'note-text': '', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': 0, 'note-font': fontToken(text.fontFamily), 'note-vertical': false,
-        'dimension-approximate': Boolean(measurement.approximate),
+        'dimension-approximate': false,
         'dimension-font': fontToken(measurement.fontFamily), 'dimension-size': fontScale(measurement, DIMENSION_BASE_SIZE),
         'dimension-decimals': measurement.decimals ?? measurement.digits ?? 2,
         'dimension-rounding': measurement.rounding || 'round',
@@ -861,7 +980,9 @@
   }
 
   function activateCommand(rawCommand, options = {}) {
-    const command = UI_COMMAND_ALIASES[rawCommand] || rawCommand
+    const command = rawCommand === 'underlay' && store.document.background?.type
+      ? 'calibrate'
+      : (UI_COMMAND_ALIASES[rawCommand] || rawCommand)
     const meta = COMMAND[command]
     if (!meta) return false
     const requestedTargets = options.preserveSelection && SELECTION_TARGET_COMMANDS.has(command)
@@ -912,7 +1033,9 @@
   }
 
   function requestUserCommand(rawCommand, options = {}) {
-    const command = UI_COMMAND_ALIASES[rawCommand] || rawCommand
+    const command = rawCommand === 'underlay' && store.document.background?.type
+      ? 'calibrate'
+      : (UI_COMMAND_ALIASES[rawCommand] || rawCommand)
     if (SCALE_REQUIRED_COMMANDS.has(command) && !hasScale()) {
       const returnTargetIds = SELECTION_TARGET_COMMANDS.has(command) ? [...ui.selectedIds] : []
       ui.scaleFlow = { reason: 'required-command', returnCommand: command, returnTargetIds }
@@ -985,7 +1108,6 @@
     ui.editSegmentIndex = null
     ui.segmentPanel = 'text'
     ui.specialPanel = 'primary'
-    ui.valueLabelPanel = 'area'
     ui.textRole = 'name'
     ui.clipboard = []
     ui.clipboardPasteCount = 0
@@ -1185,45 +1307,85 @@
     return new Set(route.map(([pageId]) => pageId))
   }
 
-  function appendValueLabelControls(kind) {
-    if (!['lot', 'road', 'water'].includes(kind)) return
-    const panel = ui.valueLabelPanel === 'tsubo' ? 'tsubo' : 'area'
-    const prefix = panel === 'tsubo' ? 'tsubo-label' : 'area-label'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group value-toggle" aria-label="面積と坪の切替"><button class="ctrl-tab ${panel === 'area' ? 'active' : ''}" type="button" data-value-label-panel="area">㎡ 面積</button><span class="value-switch-arrow" aria-hidden="true">⇔</span><button class="ctrl-tab ${panel === 'tsubo' ? 'active' : ''}" type="button" data-value-label-panel="tsubo">坪</button></div><label class="check-control"><input data-field="${prefix}-visible" type="checkbox">表示</label><label class="field-inline value-text-field"><span>表示文字</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄で自動計算">${panel === 'area' ? '<em class="field-warning" data-area-manual-warning hidden>手入力値・坪も更新</em>' : ''}</label><label class="check-control"><input data-field="${prefix}-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="${prefix}-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option><option value="3">3桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="${prefix}-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="${prefix}-adjustment" type="number" step="0.01"><em>${panel === 'area' ? '㎡' : '坪'}</em></label>`)
-  }
-
   function appendRoadBasicControls(kind, { batch = false } = {}) {
     const water = kind === 'water'
     const widthName = water ? '水路幅' : '幅員'
     const categoryOptions = water
       ? '<option value="水路">水路</option>'
       : '<option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option>'
-    dom.commandControls.insertAdjacentHTML('beforeend', `${batch ? '' : `<label class="field-inline"><span>${water ? '水路名' : '道路名'}</span><input class="ctrl-input wide" data-field="object-label" type="text"></label>`}<label class="field-inline"><span>区分</span><select class="ctrl-select" data-field="road-category">${categoryOptions}</select></label><label class="field-inline"><span>${widthName}</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">${widthName}を表示</label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="空欄で自動表示"></label>`)
+    dom.commandControls.insertAdjacentHTML('beforeend', `${batch ? '' : `<label class="field-inline"><span>${water ? '水路名' : '道路名'}</span><input class="ctrl-input wide" data-field="object-label" type="text"></label>`}<label class="field-inline"><span>区分</span><select class="ctrl-select" data-field="road-category">${categoryOptions}</select></label><label class="field-inline"><span>${widthName}</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label>`)
   }
 
-  function appendTextRoleControls(object) {
+  function textRoleVisibility(objects, role) {
+    const visible = object => role === 'name'
+      ? object.visibility?.label !== false
+      : role === 'width'
+        ? object.visibility?.width !== false
+        : metricLabelVisible(object, role)
+    const values = objects.map(visible)
+    return values.every(Boolean) ? '' : values.some(Boolean) ? '（一部非表示）' : '（非表示）'
+  }
+
+  function automaticMetricSummary(objects, role) {
+    const mpp = Math.max(0, finite(store.document.calibration?.mpp))
+    if (!(mpp > 0)) return '自動値：縮尺未設定'
+    const values = objects.map(object => {
+      const area = Number.isFinite(Number(object.area)) ? Number(object.area) : K.polygonArea(object.points || []) * mpp * mpp
+      return role === 'tsubo' ? area / K.TSUBO_M2 : area
+    }).filter(Number.isFinite)
+    if (!values.length) return '自動値：—'
+    if (values.some(value => Math.abs(value - values[0]) > 0.000001)) return '自動値：複数の計算値'
+    const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
+    const style = objects[0]?.[property]?.style || {}
+    return `自動値：${K.formatMeasurement(values[0], { ...style, approximate: false }, role === 'tsubo' ? '坪' : '㎡')}`
+  }
+
+  function metricHiddenStyleNeedsReset(object, role) {
+    if (!object || !['area', 'tsubo'].includes(role)) return false
+    const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
+    const legacyDigits = role === 'tsubo' ? object.tsuboDigits : object.areaDigits
+    const style = object[property]?.style || {}
+    const boxStyle = String(style.boxStyle || '').toLowerCase()
+    const digits = style.decimals ?? style.digits ?? legacyDigits ?? 2
+    return Math.abs(finite(style.rotation ?? style.angle)) > 0.000001 ||
+      style.vertical === true || style.frame === true || style.underline === true ||
+      !['', 'none'].includes(boxStyle) || Boolean(style.borderColor) || finite(style.borderWidth) > 0 ||
+      Number(digits) !== 2 || String(style.rounding || 'round') !== 'round' ||
+      Math.abs(finite(style.adjustment)) > 0.000001 || style.approximate === true
+  }
+
+  function appendTextRoleControls(object, objects = [object]) {
     if (!['lot', 'road', 'water'].includes(object.kind)) return
-    const roles = [['name', object.kind === 'lot' ? '区画名' : object.kind === 'water' ? '水路名' : '道路名']]
+    const targets = objects.length ? objects : [object]
+    const roles = [['name', object.kind === 'lot' ? '区画名・番号' : object.kind === 'water' ? '水路名' : '道路名']]
     if (object.kind === 'road' || object.kind === 'water') roles.push(['width', object.kind === 'water' ? '水路幅' : '幅員'])
     roles.push(['area', '面積'], ['tsubo', '坪'])
     if (!roles.some(([value]) => value === ui.textRole)) ui.textRole = 'name'
-    const options = roles.map(([value, label]) => `<option value="${value}" ${value === ui.textRole ? 'selected' : ''}>${label}</option>`).join('')
-    dom.commandControls.insertAdjacentHTML('afterbegin', `<label class="field-inline"><span>編集対象</span><select class="ctrl-select" data-text-role>${options}</select></label>`)
-    if (ui.textRole === 'name') return
-    // 名前以外では静的テンプレートの名前用書式を使わず、対象固有の書式を同じ順序で表示する。
-    $$('[data-field="font-family"],[data-field="text-size"],[data-field="text-angle"],[data-field="text-vertical"],[data-field="textColor"],[data-field="text-frame"],[data-field="text-underline"]', dom.commandControls).forEach(field => {
-      const container = field.closest('label') || field
-      container.hidden = true
-    })
-    $$('[data-action="center-label"]', dom.commandControls).forEach(button => { button.hidden = true })
-    if (ui.textRole === 'width') {
+    const options = roles.map(([value, label]) => `<option value="${value}" ${value === ui.textRole ? 'selected' : ''}>${label}${textRoleVisibility(targets, value)}</option>`).join('')
+    const targetControl = `<label class="field-inline"><span>編集対象</span><select class="ctrl-select text-role-select" data-text-role>${options}</select></label>`
+    let content = ''
+    let style = ''
+    dom.commandControls.replaceChildren()
+    if (ui.textRole === 'name') {
+      const label = object.kind === 'lot' ? '区画名・番号' : object.kind === 'water' ? '水路名' : '道路名'
+      content = `<span class="control-label text-value-note">内容は「基本」で編集</span>`
+      style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="text-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('textColor', '文字色', 'ink')}<label class="check-control"><input data-field="text-frame" type="checkbox">枠</label><label class="check-control"><input data-field="text-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="name">${label}を自動位置へ戻す</button>`
+    } else if (ui.textRole === 'width') {
       const widthName = object.kind === 'water' ? '水路幅' : '幅員'
-      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="road-width-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('road-width-color', '文字色', 'dimension')}<label class="check-control"><input data-field="road-width-frame" type="checkbox">枠</label><label class="check-control"><input data-field="road-width-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="width">${widthName}を自動位置へ戻す</button>`)
-      return
+      const widths = targets.map(value => finite(value.road?.widthM ?? value.road?.width)).filter(Number.isFinite)
+      const widthSummary = widths.length && widths.every(value => Math.abs(value - widths[0]) < 0.000001) ? `実幅 ${widths[0].toFixed(2)}m` : '実幅：複数の値'
+      content = `<span class="control-label text-value-note">${widthSummary}</span><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="空欄で自動表示"></label>`
+      style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="road-width-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('road-width-color', '文字色', 'dimension')}<label class="check-control"><input data-field="road-width-frame" type="checkbox">枠</label><label class="check-control"><input data-field="road-width-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="width">${widthName}を自動位置へ戻す</button>`
+    } else {
+      const prefix = ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'
+      const label = ui.textRole === 'tsubo' ? '坪' : '面積'
+      // 面積・坪は図面内の主要数値であり、回転・縦書き・枠・下線や
+      // 個別の丸め補正を並べるより「表示値・書体・大きさ・色・位置」へ
+      // 絞る。旧版の詳細書式が残る場合だけ標準化ボタンを表示する。
+      content = `<span class="control-label text-value-note">${automaticMetricSummary(targets, ui.textRole)}</span><label class="field-inline value-text-field"><span>手入力値</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄＝自動"><em class="field-warning" data-metric-manual-state hidden>手入力中</em></label>`
+      style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup(`${prefix}-color`, '文字色', 'ink')}<button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="${ui.textRole}">${label}を自動位置へ戻す</button><button class="ctrl-btn metric-standard-reset" type="button" data-action="reset-metric-hidden-style" data-metric-role="${ui.textRole}" hidden>標準表示へ戻す</button>`
     }
-    const prefix = ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'
-    const label = ui.textRole === 'tsubo' ? '坪' : '面積'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${prefix}-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="${prefix}-vertical" type="checkbox">縦書き</label>${colorSelectMarkup(`${prefix}-color`, '文字色', 'ink')}<label class="check-control"><input data-field="${prefix}-frame" type="checkbox">枠</label><label class="check-control"><input data-field="${prefix}-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="${ui.textRole}">${label}を自動位置へ戻す</button>`)
+    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="text-value-row text-value-content-row">${targetControl}${content}</div><div class="text-value-row text-value-style-row"><span class="control-section-title">書式・位置</span>${style}</div>`)
   }
 
   function lotTableControlsMarkup() {
@@ -1284,6 +1446,9 @@
       $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = kind !== 'lot' })
       if (isRoadLike) appendRoadBasicControls(kind, { batch: true })
     }
+    if (ui.contextPage === 'object-appearance' && isRoadLike) {
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="road-width-visible" type="checkbox">${kind === 'water' ? '水路幅' : '幅員'}を表示</label>`)
+    }
     if (ui.contextPage === 'object-appearance' && isStamp) {
       dom.commandControls.replaceChildren()
       if (kind === 'north') {
@@ -1295,11 +1460,7 @@
         dom.commandControls.insertAdjacentHTML('beforeend', `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatch}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
       }
     }
-    if (ui.contextPage === 'object-text' && isShape) appendTextRoleControls(object)
-    if (ui.contextPage === 'object-values') {
-      appendValueLabelControls(kind)
-      $$('[data-action="reset-value-label-position"]', dom.commandControls).forEach(button => { button.hidden = true })
-    }
+    if (ui.contextPage === 'object-text' && isShape) appendTextRoleControls(object, objects)
     if (ui.contextPage === 'object-record') {
       $$('[data-field]', dom.commandControls).forEach(field => {
         const container = field.closest('label') || field
@@ -1319,10 +1480,11 @@
     }
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
     $$('.area-only', dom.commandControls).forEach(element => { element.hidden = kind !== 'area' })
+    $$('.edge-approx-only', dom.commandControls).forEach(element => { element.hidden = !['lot', 'road', 'water', 'cutout'].includes(kind) })
     const notice = document.createElement('div')
     notice.className = 'batch-edit-notice'
     notice.innerHTML = `<strong>${objectDisplayName(object).replace(/\s+$/, '')}ほか ${objects.length}件</strong><span>変更した項目だけを全件へ反映します。番号・名称・価格・メモは変えません。</span>`
-    dom.commandControls.append(notice)
+    if (ui.contextPage !== 'object-text') dom.commandControls.append(notice)
   }
 
   function dimensionPartLabel(object, type, index) {
@@ -1350,14 +1512,14 @@
     select.dataset.dimensionTarget = ''
     const all = document.createElement('option')
     all.value = 'all'
-    all.textContent = edgeCount ? '全ての辺（共通設定）' : '全ての区間（共通設定）'
+    all.textContent = edgeCount ? '全辺共通' : '全区間共通'
     select.append(all)
     const type = edgeCount ? 'edge' : 'segment'
     const count = edgeCount || segmentCount
     for (let index = 0; index < count; index += 1) {
       const option = document.createElement('option')
       option.value = `${type}:${index}`
-      option.textContent = `${dimensionPartLabel(object, type, index)}・個別設定`
+      option.textContent = dimensionPartLabel(object, type, index)
       select.append(option)
     }
     select.value = Number.isInteger(ui.editEdgeIndex) ? `edge:${ui.editEdgeIndex}` : Number.isInteger(ui.editSegmentIndex) ? `segment:${ui.editSegmentIndex}` : 'all'
@@ -1368,7 +1530,7 @@
     return wrap
   }
 
-  function appendDimensionPartControls(object) {
+  function appendDimensionPartControls(object, targetControl = null) {
     const isEdge = Number.isInteger(ui.editEdgeIndex)
     const isSegment = Number.isInteger(ui.editSegmentIndex)
     if (!(isEdge || isSegment)) return
@@ -1376,8 +1538,14 @@
     const visibleField = isEdge ? 'edge-visible' : 'segment-visible'
     const textField = isEdge ? 'edge-custom-text' : 'segment-custom-text'
     const rotationField = isEdge ? 'edge-rotation-offset' : 'segment-rotation-offset'
-    const visibleLabel = '表示'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label><label class="check-control"><input data-field="part-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>小数</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>補正</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label>${colorSelectMarkup('part-color', '文字色', 'dimension')}<button class="ctrl-btn" type="button" data-action="reset-dimension-part-position">位置を自動へ戻す</button>`)
+    const visibleLabel = '寸法を表示'
+    const approximateControl = isEdge ? '<button class="ctrl-btn preset-button dimension-auto-value-control" type="button" data-action="apply-legacy-approx" data-approx-scope="part" title="約を付け、小数1桁・切捨て・-0.1m補正にします">約表示</button>' : ''
+    const commonVisible = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
+      ? object.visibility?.dimensions !== false
+      : object.dimensionStyle?.visible !== false
+    dom.commandControls.replaceChildren()
+    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="dimension-editor-row dimension-value-row"><span class="dimension-target-slot"></span><span class="control-label dimension-common-state" data-state="${commonVisible ? 'on' : 'off'}">共通表示：${commonVisible ? 'ON' : 'OFF'}</span><label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label>${approximateControl}<label class="field-inline dimension-auto-value-control"><span>小数</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline dimension-auto-value-control"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline dimension-auto-value-control"><span>補正</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label></div><div class="dimension-editor-row dimension-style-row"><span class="control-section-title">書式・位置</span><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup('part-color', '寸法色', 'dimension')}<label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label><button class="ctrl-btn" type="button" data-action="reset-dimension-part-position">位置を自動へ戻す</button><button class="ctrl-btn" type="button" data-action="reset-dimension-part-overrides">個別設定を共通へ戻す</button></div>`)
+    if (targetControl) $('.dimension-target-slot', dom.commandControls)?.replaceWith(targetControl)
   }
 
   function selectDimensionTarget(value) {
@@ -1387,6 +1555,7 @@
     const match = String(value || '').match(/^(edge|segment):(\d+)$/)
     ui.editEdgeIndex = match?.[1] === 'edge' ? Number(match[2]) : null
     ui.editSegmentIndex = match?.[1] === 'segment' ? Number(match[2]) : null
+    if (!match) runtime.edgeHover = null
     ui.contextPage = 'object-dimension'
     ui.segmentPanel = 'text'
     selectObject(id, { openEditor: true, preserveSubselection: true })
@@ -1432,6 +1601,9 @@
       }
       if (isRoadLike) appendRoadBasicControls(object.kind)
     }
+    if (ui.contextPage === 'object-appearance' && isRoadLike) {
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="road-width-visible" type="checkbox">${object.kind === 'water' ? '水路幅' : '幅員'}を表示</label>`)
+    }
     if (ui.contextPage === 'object-appearance' && ['house', 'parking', 'north'].includes(object.kind)) {
       dom.commandControls.replaceChildren()
       if (object.kind === 'north') {
@@ -1460,18 +1632,14 @@
       }
     }
     if (ui.contextPage === 'object-dimension') {
-      if (hasSegmentSelection) {
-        $$('[data-field],[data-action="apply-legacy-approx"]', dom.commandControls).forEach(element => {
-          const container = element.closest('label') || element
-          container.hidden = true
-        })
-        $$('.control-section', dom.commandControls).forEach(section => { section.hidden = true })
-      }
       const targetControl = makeDimensionTargetControl(object)
-      if (targetControl) dom.commandControls.prepend(targetControl)
-      if (hasSegmentSelection) appendDimensionPartControls(object)
+      if (hasSegmentSelection) appendDimensionPartControls(object, targetControl)
+      else if (targetControl) {
+        const targetSlot = $('.dimension-target-slot', dom.commandControls)
+        if (targetSlot) targetSlot.replaceWith(targetControl)
+        else dom.commandControls.prepend(targetControl)
+      }
     }
-    if (ui.contextPage === 'object-values') appendValueLabelControls(object.kind)
     $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = object.kind !== 'lot' })
     $$('.shape-appearance-only', dom.commandControls).forEach(element => { element.hidden = !isShape })
     $$('.editable-text-only', dom.commandControls).forEach(element => {
@@ -1481,6 +1649,7 @@
     })
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
     $$('.area-only', dom.commandControls).forEach(element => { element.hidden = object.kind !== 'area' })
+    $$('.edge-approx-only', dom.commandControls).forEach(element => { element.hidden = !['lot', 'road', 'water', 'cutout'].includes(object.kind) })
     if (isMeasurement) $$('[data-action="center-label"]', dom.commandControls).forEach(button => { button.textContent = '寸法を自動位置へ戻す' })
     if (!isShape) {
       $$('[data-field="object-type"],[data-field="lot-number"],[data-field="lot-price"],[data-field="fill-opacity"],[data-field="show-number"],[data-field="show-label"],[data-field="show-area"],[data-field="show-tsubo"],[data-field="show-price"],[data-field="show-memo"],[data-field="show-top-label"]', dom.commandControls).forEach(field => {
@@ -1557,6 +1726,7 @@
   }
 
   function initializeFieldControls() {
+    enhanceColorSelects()
     $$('[data-field]', dom.commandControls).forEach(field => {
       const key = field.dataset.field
       if (!(key in session.form)) return
@@ -1602,9 +1772,21 @@
         select.prepend(option)
       }
       if (value && select.value !== String(value)) select.value = String(value)
-      select.style.setProperty('--selected-color', select.value || '#ffffff')
-      select.style.borderColor = select.value || ''
-      select.title = select.selectedOptions?.[0]?.textContent || '色を選択'
+      const control = select.closest('[data-color-control]')
+      const trigger = control?.querySelector('[data-color-trigger]')
+      const current = control?.querySelector('[data-color-current]')
+      const mixed = select.hasAttribute('data-mixed')
+      const selectedName = select.selectedOptions?.[0]?.textContent?.trim() || '現在の色'
+      const label = select.closest('.field-inline')?.querySelector(':scope > span')?.textContent?.trim() || '色'
+      if (current) {
+        current.style.setProperty('--selected-color', mixed ? 'transparent' : (select.value || '#ffffff'))
+        current.classList.toggle('is-mixed', mixed)
+      }
+      if (trigger) {
+        trigger.disabled = select.disabled
+        trigger.title = mixed ? `${label}：複数の色` : `${label}：${selectedName} ${select.value || ''}`.trim()
+        trigger.setAttribute('aria-label', trigger.title)
+      }
     })
   }
 
@@ -1635,15 +1817,31 @@
 
   function legacyApproxIsActive(scope = 'global') {
     const part = scope === 'part'
-    const approximate = part
+    return part
       ? Boolean(session.form['part-approximate'])
       : ('dimension-approximate' in session.form
           ? Boolean(session.form['dimension-approximate'])
           : Boolean(session.form.approximate))
-    return approximate &&
-      Math.round(finite(session.form[part ? 'part-decimals' : 'dimension-decimals'], 2)) === 1 &&
-      session.form[part ? 'part-rounding' : 'dimension-rounding'] === 'floor' &&
-      Math.abs(finite(session.form[part ? 'part-adjustment' : 'dimension-adjustment']) + 0.1) < 0.000001
+  }
+
+  function currentDimensionPart(object = ui.editDraft) {
+    if (!object) return null
+    if (Number.isInteger(ui.editEdgeIndex)) return object.edges?.[ui.editEdgeIndex] || null
+    if (Number.isInteger(ui.editSegmentIndex)) return object.segments?.[ui.editSegmentIndex] || null
+    return null
+  }
+
+  function dimensionPartHasOverrides(object = ui.editDraft) {
+    const part = currentDimensionPart(object)
+    if (!part) return false
+    const legacyHidden = Number.isInteger(ui.editEdgeIndex) &&
+      Array.isArray(object.hiddenEdges) && object.hiddenEdges.map(String).includes(String(ui.editEdgeIndex))
+    const labelOffset = part.labelOffset || {}
+    return part.hidden === true || legacyHidden ||
+      (part.customText != null && String(part.customText) !== '') ||
+      Math.abs(finite(labelOffset.x)) > 0.000001 || Math.abs(finite(labelOffset.y)) > 0.000001 ||
+      Math.abs(finite(part.rotationOffset)) > 0.000001 ||
+      Boolean(part.style && Object.keys(part.style).length)
   }
 
   function syncControlState() {
@@ -1683,7 +1881,7 @@
       const active = legacyApproxIsActive(button.dataset.approxScope === 'part' ? 'part' : 'global')
       button.classList.toggle('active', active)
       button.setAttribute('aria-pressed', String(active))
-      button.textContent = active ? '約・切捨て ON' : '約・切捨て'
+      button.textContent = active ? '約表示 ON' : '約表示'
     })
     $$('[data-action="reset-calibration-points"]', dom.commandControls).forEach(button => { button.hidden = count < 2 })
     const currentScale = Number(store.document.calibration?.mapScale) > 0
@@ -1755,19 +1953,53 @@
       button.disabled = !labelsAreOffset
       button.title = (labelsAreOffset ? '文字位置を自動配置へ戻します。' : '文字位置は既に自動配置です。') + '番号・面積・坪・寸法などの文字は図面上でドラッグして移動できます'
     })
-    const valueLabelProperty = ui.valueLabelPanel === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
-    const legacyValueLabelProperty = valueLabelProperty === 'tsuboLabel' ? 'tsuboLabelPosition' : 'areaLabelPosition'
-    const valueLabelIsOffset = Boolean(ui.editDraft?.[valueLabelProperty]?.position || ui.editDraft?.[legacyValueLabelProperty])
-    setActionAvailability('[data-action="reset-value-label-position"]', valueLabelIsOffset, '表示位置を自動配置へ戻します', '表示位置は既に自動配置です')
     $$('[data-action="reset-text-role-position"]', dom.commandControls).forEach(button => {
       const role = button.dataset.textPositionRole || ui.textRole
-      const offset = role === 'width'
-        ? Boolean(ui.editDraft?.road?.widthLabelPosition || ui.editDraft?.road?.widthLabelOffset)
-        : role === 'tsubo'
-          ? Boolean(ui.editDraft?.tsuboLabel?.position || ui.editDraft?.tsuboLabelPosition)
-          : Boolean(ui.editDraft?.areaLabel?.position || ui.editDraft?.areaLabelPosition)
+      const drafts = ui.batchDrafts.length ? ui.batchDrafts : (ui.editDraft ? [ui.editDraft] : [])
+      const offset = drafts.some(draft => role === 'name'
+        ? Boolean(draft.labelPosition || draft.road?.namePosition || Number.isFinite(draft.labelStyle?.x) || Number.isFinite(draft.labelStyle?.y))
+        : role === 'width'
+          ? Boolean(draft.road?.widthLabelPosition || draft.road?.widthLabelOffset)
+          : role === 'tsubo'
+            ? Boolean(draft.tsuboLabel?.position || draft.tsuboLabelPosition)
+            : Boolean(draft.areaLabel?.position || draft.areaLabelPosition))
       button.disabled = !offset
       button.title = offset ? '文字位置を自動配置へ戻します' : '文字位置は既に自動配置です'
+    })
+    $$('[data-action="reset-metric-hidden-style"]', dom.commandControls).forEach(button => {
+      const role = button.dataset.metricRole || ui.textRole
+      const drafts = ui.batchDrafts.length ? ui.batchDrafts : (ui.editDraft ? [ui.editDraft] : [])
+      const needsReset = drafts.some(draft => metricHiddenStyleNeedsReset(draft, role))
+      button.hidden = !needsReset
+      button.disabled = !needsReset
+      button.title = needsReset
+        ? '旧版で設定された回転・縦書き・装飾・数値書式だけを標準へ戻します'
+        : '面積・坪は標準表示です'
+    })
+    const part = currentDimensionPart()
+    const partOffset = part?.labelOffset || {}
+    setActionAvailability(
+      '[data-action="reset-dimension-part-position"]',
+      Boolean(part) && (Math.abs(finite(partOffset.x)) > 0.000001 || Math.abs(finite(partOffset.y)) > 0.000001),
+      'この寸法の位置だけを自動配置へ戻します',
+      'この寸法は自動位置です'
+    )
+    setActionAvailability(
+      '[data-action="reset-dimension-part-overrides"]',
+      dimensionPartHasOverrides(),
+      '表示文字・数値書式・書体・位置・角度を共通設定へ戻します',
+      'この寸法は共通設定を使っています'
+    )
+    const manualPartTextKey = Number.isInteger(ui.editEdgeIndex)
+      ? 'edge-custom-text'
+      : (Number.isInteger(ui.editSegmentIndex) ? 'segment-custom-text' : null)
+    const manualPartText = manualPartTextKey ? String(session.form[manualPartTextKey] ?? '').trim() : ''
+    $$('.dimension-auto-value-control', dom.commandControls).forEach(container => {
+      const control = container.matches('button,input,select') ? container : $('[data-field]', container)
+      if (!control) return
+      control.disabled = Boolean(manualPartText)
+      control.title = manualPartText ? '表示文字を空欄にすると自動寸法の数値設定を使えます' : ''
+      container.classList.toggle('is-disabled', Boolean(manualPartText))
     })
     if (session.command === 'typography-settings') {
       const values = typographyValuesFromForm()
@@ -1778,13 +2010,13 @@
       })
     }
     $$('[data-action="paste"]', dom.commandActions).forEach(button => { button.disabled = ui.clipboard.length === 0 })
-    const areaWarning = $('[data-area-manual-warning]', dom.commandControls)
-    if (areaWarning) {
-      const manualArea = String(session.form['area-label-text'] ?? '').trim()
-      const numericArea = numericTextValue(manualArea)
-      areaWarning.hidden = !manualArea
-      areaWarning.textContent = numericArea != null && numericArea >= 0 ? '手入力値・坪も更新' : '数値を確認してください'
-      areaWarning.classList.toggle('error', Boolean(manualArea) && !(numericArea != null && numericArea >= 0))
+    const manualMetricState = $('[data-metric-manual-state]', dom.commandControls)
+    if (manualMetricState) {
+      const prefix = ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'
+      const manualText = String(session.form[`${prefix}-text`] ?? '').trim()
+      manualMetricState.hidden = !manualText
+      manualMetricState.textContent = '手入力表示'
+      manualMetricState.classList.remove('error')
     }
     syncColorSelects()
     const step = commandStepText()
@@ -2165,7 +2397,6 @@
       ui.editSegmentIndex = null
       ui.segmentPanel = 'text'
       ui.specialPanel = 'primary'
-      ui.valueLabelPanel = 'area'
       ui.textRole = 'name'
     }
     const uniqueIds = [...new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String))]
@@ -2278,7 +2509,7 @@
       'text-frame': textStyle.frame === true || ['box', 'frame', 'border'].includes(String(textStyle.boxStyle || '').toLowerCase()),
       'text-underline': textStyle.underline === true || String(textStyle.boxStyle || '').toLowerCase() === 'underline',
       'dimension-visible': shape ? object.visibility?.dimensions !== false : object.dimensionStyle?.visible !== false,
-      'dimension-approximate': Boolean(object.dimensionStyle?.approximate),
+      'dimension-approximate': shape ? Boolean(object.dimensionStyle?.approximate) : false,
       'dimension-decimals': object.dimensionStyle?.decimals ?? object.dimensionStyle?.digits ?? 2,
       'dimension-rounding': object.dimensionStyle?.rounding || 'round',
       'dimension-adjustment': finite(object.dimensionStyle?.adjustment),
@@ -2350,9 +2581,8 @@
       'area-label-color': areaLabelStyle.color || object.labelStyle?.color || '#172033',
       'area-label-frame': areaLabelStyle.frame === true || ['box', 'frame', 'border'].includes(String(areaLabelStyle.boxStyle || '').toLowerCase()),
       'area-label-underline': areaLabelStyle.underline === true || String(areaLabelStyle.boxStyle || '').toLowerCase() === 'underline',
-      'area-label-approximate': Boolean(areaLabelStyle.approximate ?? object.dimensionStyle?.approximate),
-      'area-label-decimals': areaLabelStyle.decimals ?? areaLabelStyle.digits ?? object.areaDigits ?? object.dimensionStyle?.decimals ?? 2,
-      'area-label-rounding': areaLabelStyle.rounding || object.dimensionStyle?.rounding || 'round',
+      'area-label-decimals': areaLabelStyle.decimals ?? areaLabelStyle.digits ?? object.areaDigits ?? 2,
+      'area-label-rounding': areaLabelStyle.rounding || 'round',
       'area-label-adjustment': finite(areaLabelStyle.adjustment),
       'tsubo-label-visible': metricLabelVisible(object, 'tsubo'),
       'tsubo-label-text': tsuboLabel.text ?? object.customTsuboLabel ?? '',
@@ -2363,9 +2593,8 @@
       'tsubo-label-color': tsuboLabelStyle.color || object.labelStyle?.color || '#172033',
       'tsubo-label-frame': tsuboLabelStyle.frame === true || ['box', 'frame', 'border'].includes(String(tsuboLabelStyle.boxStyle || '').toLowerCase()),
       'tsubo-label-underline': tsuboLabelStyle.underline === true || String(tsuboLabelStyle.boxStyle || '').toLowerCase() === 'underline',
-      'tsubo-label-approximate': Boolean(tsuboLabelStyle.approximate ?? object.dimensionStyle?.approximate),
-      'tsubo-label-decimals': tsuboLabelStyle.decimals ?? tsuboLabelStyle.digits ?? object.tsuboDigits ?? object.dimensionStyle?.decimals ?? 2,
-      'tsubo-label-rounding': tsuboLabelStyle.rounding || object.dimensionStyle?.rounding || 'round',
+      'tsubo-label-decimals': tsuboLabelStyle.decimals ?? tsuboLabelStyle.digits ?? object.tsuboDigits ?? 2,
+      'tsubo-label-rounding': tsuboLabelStyle.rounding || 'round',
       'tsubo-label-adjustment': finite(tsuboLabelStyle.adjustment)
     }
   }
@@ -2435,7 +2664,11 @@
             ...(object.areaLabel?.style || {}), fontFamily: fontToken(session.form['area-label-font']),
             scale: areaScale, size: METRIC_BASE_SIZE * areaScale, fontSize: METRIC_BASE_SIZE * areaScale,
             rotation: finite(session.form['area-label-angle']), angle: finite(session.form['area-label-angle']),
-            vertical: Boolean(session.form['area-label-vertical']), color: session.form['area-label-color'] || '#172033'
+            vertical: Boolean(session.form['area-label-vertical']), color: session.form['area-label-color'] || '#172033',
+            decimals: finite(session.form['area-label-decimals'], 2), digits: finite(session.form['area-label-decimals'], 2),
+            rounding: session.form['area-label-rounding'] || 'round', adjustment: finite(session.form['area-label-adjustment']),
+            background: 'transparent', boxStyle: session.form['area-label-frame'] ? 'box' : (session.form['area-label-underline'] ? 'underline' : 'none'),
+            frame: Boolean(session.form['area-label-frame']), underline: Boolean(session.form['area-label-underline'])
           }
         }
         object.tsuboLabel = {
@@ -2444,7 +2677,11 @@
             ...(object.tsuboLabel?.style || {}), fontFamily: fontToken(session.form['tsubo-label-font']),
             scale: tsuboScale, size: METRIC_BASE_SIZE * tsuboScale, fontSize: METRIC_BASE_SIZE * tsuboScale,
             rotation: finite(session.form['tsubo-label-angle']), angle: finite(session.form['tsubo-label-angle']),
-            vertical: Boolean(session.form['tsubo-label-vertical']), color: session.form['tsubo-label-color'] || '#172033'
+            vertical: Boolean(session.form['tsubo-label-vertical']), color: session.form['tsubo-label-color'] || '#172033',
+            decimals: finite(session.form['tsubo-label-decimals'], 2), digits: finite(session.form['tsubo-label-decimals'], 2),
+            rounding: session.form['tsubo-label-rounding'] || 'round', adjustment: finite(session.form['tsubo-label-adjustment']),
+            background: 'transparent', boxStyle: session.form['tsubo-label-frame'] ? 'box' : (session.form['tsubo-label-underline'] ? 'underline' : 'none'),
+            frame: Boolean(session.form['tsubo-label-frame']), underline: Boolean(session.form['tsubo-label-underline'])
           }
         }
         object.visibility.area = object.areaLabel.visible
@@ -2473,7 +2710,9 @@
             ...(object.road?.widthLabelStyle || {}), fontFamily: fontToken(session.form['road-width-font']),
             scale: widthScale, size: ROAD_WIDTH_BASE_SIZE * widthScale, fontSize: ROAD_WIDTH_BASE_SIZE * widthScale,
             rotation: finite(session.form['road-width-angle']), angle: finite(session.form['road-width-angle']),
-            vertical: Boolean(session.form['text-vertical']), color: session.form['road-width-color'] || '#475569'
+            vertical: Boolean(session.form['road-width-vertical']), color: session.form['road-width-color'] || '#475569',
+            background: 'transparent', boxStyle: session.form['road-width-frame'] ? 'box' : (session.form['road-width-underline'] ? 'underline' : 'none'),
+            frame: Boolean(session.form['road-width-frame']), underline: Boolean(session.form['road-width-underline'])
           }
         }
         object.visibility.width = Boolean(session.form['road-width-visible'])
@@ -2528,7 +2767,7 @@
         boxStyle: object.style.boxStyle, frame: object.style.frame, underline: object.style.underline
       }
       object.dimensionStyle = {
-        ...(object.dimensionStyle || {}), visible: Boolean(session.form['dimension-visible']), approximate: Boolean(session.form['dimension-approximate']),
+        ...(object.dimensionStyle || {}), visible: Boolean(session.form['dimension-visible']), approximate: false,
         decimals: finite(session.form['dimension-decimals'], 2), digits: finite(session.form['dimension-decimals'], 2),
         scale: finite(session.form['dimension-size'], 1), size: DIMENSION_BASE_SIZE * finite(session.form['dimension-size'], 1), fontSize: DIMENSION_BASE_SIZE * finite(session.form['dimension-size'], 1),
         offset: finite(session.form['dimension-offset'], 14), color: session.form.dimensionColor || '#334155',
@@ -2634,7 +2873,7 @@
         }
         if (['lot', 'road', 'water'].includes(object.kind)) {
           for (const [prefix, property] of [['area-label', 'areaLabel'], ['tsubo-label', 'tsuboLabel']]) {
-            const fields = [`${prefix}-visible`, `${prefix}-text`, `${prefix}-font`, `${prefix}-size`, `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-color`, `${prefix}-frame`, `${prefix}-underline`, `${prefix}-approximate`, `${prefix}-decimals`, `${prefix}-rounding`, `${prefix}-adjustment`]
+            const fields = [`${prefix}-visible`, `${prefix}-text`, `${prefix}-font`, `${prefix}-size`, `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-color`, `${prefix}-frame`, `${prefix}-underline`, `${prefix}-decimals`, `${prefix}-rounding`, `${prefix}-adjustment`]
             if (!fields.some(touched)) continue
             const label = { ...(object[property] || {}), style: { ...(object[property]?.style || object.labelStyle || {}) } }
             if (touched(`${prefix}-visible`)) label.visible = Boolean(session.form[`${prefix}-visible`])
@@ -2653,7 +2892,6 @@
               label.style.frame = Boolean(session.form[`${prefix}-frame`])
               label.style.underline = Boolean(session.form[`${prefix}-underline`])
             }
-            if (touched(`${prefix}-approximate`)) label.style.approximate = Boolean(session.form[`${prefix}-approximate`])
             if (touched(`${prefix}-decimals`)) label.style.decimals = label.style.digits = K.clamp(Math.round(finite(session.form[`${prefix}-decimals`], 2)), 0, 3)
             if (touched(`${prefix}-rounding`)) label.style.rounding = session.form[`${prefix}-rounding`] || 'round'
             if (touched(`${prefix}-adjustment`)) label.style.adjustment = finite(session.form[`${prefix}-adjustment`])
@@ -2849,10 +3087,10 @@
           }
           object.options = { ...(object.options || {}), scale: finite(object.scale, 1) }
         }
-        if (measurement && anyTouched('dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-size', 'dimension-offset', 'dimensionColor', 'measurement-total', 'measurement-segments', 'measurement-area', 'measurement-tsubo')) {
+        if (measurement && anyTouched('dimension-visible', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-size', 'dimension-offset', 'dimensionColor', 'measurement-total', 'measurement-segments', 'measurement-area', 'measurement-tsubo')) {
           const style = { ...(object.dimensionStyle || {}) }
           if (touched('dimension-visible')) style.visible = Boolean(session.form['dimension-visible'])
-          if (touched('dimension-approximate')) style.approximate = Boolean(session.form['dimension-approximate'])
+          style.approximate = false
           if (touched('dimension-decimals')) style.decimals = style.digits = finite(session.form['dimension-decimals'], 2)
           if (touched('dimension-rounding')) style.rounding = session.form['dimension-rounding'] || 'round'
           if (touched('dimension-adjustment')) style.adjustment = finite(session.form['dimension-adjustment'])
@@ -3288,7 +3526,15 @@
       requestAnimationFrame(() => $('[data-field="note-text"]', dom.commandControls)?.focus({ preventScroll: true }))
       return false
     }
-    if (!canFinishCommand()) { setStatus('必要な点または対象がまだ揃っていません', 1600); return false }
+    if (!canFinishCommand()) {
+      // A native Enter used to close the distance input can be delivered once
+      // more after the successful calibration has already cleared its pair.
+      // Keep the success result and message instead of reporting a false
+      // "points missing" failure for that harmless trailing event.
+      if (command === 'calibrate' && hasScale() && session.points.length === 0) return false
+      setStatus('必要な点または対象がまだ揃っていません', 1600)
+      return false
+    }
     const points = session.points.map(K.point)
     const form = deepClone(session.form)
     try {
@@ -3391,7 +3637,7 @@
             scale: K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
             size: DIMENSION_BASE_SIZE * K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
             fontSize: DIMENSION_BASE_SIZE * K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
-            approximate: Boolean(form['dimension-approximate']),
+            approximate: false,
             decimals: finite(form['dimension-decimals'], 2), digits: finite(form['dimension-decimals'], 2),
             rounding: form['dimension-rounding'] || 'round', adjustment: finite(form['dimension-adjustment'])
           }
@@ -4187,7 +4433,17 @@
     const count = Math.max(1, background.pages?.length || background.pageCount || runtime.backgroundRuntime.pageCount || 1)
     const nextPage = K.clamp(Math.round(finite(pageNumber, 1)), 1, count)
     const previousPage = Math.max(1, finite(background.currentPage, 1))
-    if (nextPage !== previousPage) flushActiveEditor()
+    const pageChanged = nextPage !== previousPage
+    let currentCommand = session.command
+    if (pageChanged) {
+      flushActiveEditor()
+      // Clear old-page state before the asynchronous PDF render starts. If it
+      // is cleared after await, quick calibration clicks made while rendering
+      // are silently discarded when the render finishes.
+      cancelTransient(false)
+      ui.selectedIds = []
+      ui.registryIds.clear()
+    }
     setStatus(`下絵 ${nextPage}ページを描画中…`)
     try {
       // IO mutates currentPage and page dimensions while rendering. Delay those
@@ -4199,18 +4455,16 @@
       if (runtime.backgroundSource) renderer.setBackgroundSource(runtime.backgroundSource, 'default')
       updateUnderlayPageWithoutHistory(nextPage, renderedBackground)
       runtime.backgroundVisualState = underlayVisualState()
-      // Selection, edit drafts and command points belong to the old page.
-      let currentCommand = session.command
-      cancelTransient(false)
-      ui.selectedIds = []
-      ui.registryIds.clear()
-      if (!hasScale() && store.document.background?.type) {
-        currentCommand = 'calibrate'
-        if (nextPage !== previousPage) ui.scaleFlow = { reason: 'page-changed', returnCommand: null, returnTargetIds: [] }
-      }
-      if (COMMAND[currentCommand]) {
-        session.activate(currentCommand, defaultForm(currentCommand))
-        session.category = COMMAND[currentCommand].category
+      if (pageChanged) {
+        // Selection, edit drafts and command points were tied to the old page.
+        if (!hasScale() && store.document.background?.type) {
+          currentCommand = 'calibrate'
+          ui.scaleFlow = { reason: 'page-changed', returnCommand: null, returnTargetIds: [] }
+        }
+        if (COMMAND[currentCommand]) {
+          session.activate(currentCommand, defaultForm(currentCommand))
+          session.category = COMMAND[currentCommand].category
+        }
       }
       renderCommandSurface()
       const pageScale = resolvedMapScale()
@@ -4261,10 +4515,15 @@
         runtime.currentProjectPath = null
       }
       ui.documentName = file.name || ui.documentName
-      await showUnderlayPage(store.document.background.currentPage || 1)
+      // Enter calibration before waiting for the PDF raster. This makes the
+      // visible scale UI authoritative immediately and avoids resetting a
+      // point pair that the user starts while a large PDF is still rendering.
       ui.scaleFlow = { reason: 'underlay-loaded', returnCommand: null, returnTargetIds: [] }
       activateCommand('calibrate', { focusCanvas: false })
-      setStatus(`${file.name || '下絵'} を読み込みました。現在のページの縮尺を候補から選ぶか、既知寸法の2点で設定してください`, 0)
+      await showUnderlayPage(store.document.background.currentPage || 1)
+      if (session.command === 'calibrate' && session.points.length === 0 && !hasScale()) {
+        setStatus(`${file.name || '下絵'} を読み込みました。現在のページの縮尺を候補から選ぶか、既知寸法の2点で設定してください`, 0)
+      }
       return true
     } catch (error) {
       setStatus(error?.message || '下絵を読み込めませんでした', 3000)
@@ -4490,9 +4749,15 @@
       button.disabled = selectedCount === 0
       button.title = selectedCount ? `${selectedCount}件に実行` : '一覧で対象を選択してください'
     })
+    const activeLots = (active?.shapes || []).filter(shape => shape.kind === 'lot')
+    const needsRenumber = activeLots.length > 0 && K.lotNumbersNeedRenumber(store.document, active?.id)
     $$('[data-action="renumber-lots"]').forEach(button => {
-      button.disabled = lots < 2
-      button.title = lots < 2 ? '区画が2件以上あるときに使用できます' : '区画番号を1から振り直します'
+      button.disabled = activeLots.length === 0 || !needsRenumber
+      button.title = activeLots.length === 0
+        ? '現在のページに区画がありません'
+        : !needsRenumber
+          ? '区画番号は既に1からの連番です'
+          : `現在のページの${activeLots.length}区画を、現在番号の小さい順に1から振り直します`
     })
     $$('[data-action="place-area-table"]').forEach(button => {
       button.disabled = lots === 0
@@ -5430,7 +5695,7 @@
         syncControlState()
         render()
         if (ui.editDraft || ui.batchDrafts.length) commitPendingEdit()
-        setStatus(enable ? '約表示をON：-0.1m補正・小数1桁・切捨て' : '約表示を解除：補正なし・小数2桁・四捨五入', 2200)
+        setStatus(enable ? '約表示をON：小数1桁・切捨て・-0.1m補正' : '約表示をOFF：小数2桁・四捨五入・補正なし', 2200)
         break
       }
       case 'toggle-snap':
@@ -5517,6 +5782,26 @@
         setStatus(Number.isInteger(ui.editSegmentIndex) ? '区間寸法を線の上側へ戻しました' : '辺寸法の位置を自動位置へ戻しました', 1500)
         break
       }
+      case 'reset-dimension-part-overrides': {
+        const object = ui.editDraft
+        const isEdge = Number.isInteger(ui.editEdgeIndex)
+        const index = isEdge ? ui.editEdgeIndex : ui.editSegmentIndex
+        const part = isEdge ? object?.edges?.[index] : object?.segments?.[index]
+        if (!object || !part || !Number.isInteger(index)) { setStatus('共通へ戻す辺寸法を選んでください', 1600); break }
+        applyBatchFormToDrafts([object])
+        if (isEdge) setLotEdgeVisibility(object, index, true)
+        else delete part.hidden
+        part.customText = null
+        part.labelOffset = { x: 0, y: 0 }
+        part.rotationOffset = 0
+        part.style = null
+        ui.batchTouched.add('__dimension-part-overrides')
+        const id = commitPendingEdit()
+        if (id) selectObject(id, { openEditor: true, preserveSubselection: true })
+        render()
+        setStatus(`${isEdge ? '辺' : '区間'} ${index + 1} の個別設定を共通へ戻しました`, 1700)
+        break
+      }
       case 'restore-cutout': {
         const id = ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
         const cutout = id ? K.objectById(store.document, id)?.object : null
@@ -5556,35 +5841,78 @@
             : (drafts.length > 1 ? `${drafts.length}件の文字位置を中央へ戻しました` : '文字位置を中央へ戻しました'), 1400)
         }
         break
-      case 'reset-value-label-position':
-        if (ui.editDraft) {
-          applyBatchFormToDrafts([ui.editDraft])
-          const property = ui.valueLabelPanel === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
-          const legacyProperty = property === 'tsuboLabel' ? 'tsuboLabelPosition' : 'areaLabelPosition'
-          ui.editDraft[property] = { ...(ui.editDraft[property] || {}), position: null }
-          ui.editDraft[legacyProperty] = null
-          ui.batchTouched.add('__value-label-position')
-          commitPendingEdit()
-          render()
-          setStatus('表示位置を自動へ戻しました', 1400)
-        }
-        break
       case 'reset-text-role-position':
-        if (ui.editDraft) {
-          applyBatchFormToDrafts([ui.editDraft])
+        if (ui.editDraft || ui.batchDrafts.length) {
+          const drafts = ui.batchDrafts.length ? ui.batchDrafts : [ui.editDraft]
+          applyBatchFormToDrafts(drafts)
           const role = source?.dataset.textPositionRole || ui.textRole
-          if (role === 'width') {
-            ui.editDraft.road = { ...(ui.editDraft.road || {}), widthLabelPosition: null, widthLabelOffset: null }
-          } else if (role === 'area' || role === 'tsubo') {
-            const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
-            const legacy = role === 'tsubo' ? 'tsuboLabelPosition' : 'areaLabelPosition'
-            ui.editDraft[property] = { ...(ui.editDraft[property] || {}), position: null }
-            ui.editDraft[legacy] = null
-          }
+          drafts.forEach(draft => {
+            if (role === 'name') {
+              draft.labelPosition = null
+              if (draft.road) draft.road.namePosition = null
+              if (draft.labelStyle) {
+                delete draft.labelStyle.x
+                delete draft.labelStyle.y
+                delete draft.labelStyle.offsetX
+                delete draft.labelStyle.offsetY
+              }
+            } else if (role === 'width') {
+              draft.road = { ...(draft.road || {}), widthLabelPosition: null, widthLabelOffset: null }
+            } else if (role === 'area' || role === 'tsubo') {
+              const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
+              const legacy = role === 'tsubo' ? 'tsuboLabelPosition' : 'areaLabelPosition'
+              draft[property] = { ...(draft[property] || {}), position: null }
+              draft[legacy] = null
+            }
+          })
           ui.batchTouched.add('__text-role-position')
           commitPendingEdit()
+          renderCommandSurface()
           render()
-          setStatus('文字位置を自動へ戻しました', 1400)
+          const roleName = role === 'name' ? '名称' : role === 'width' ? '幅員' : role === 'tsubo' ? '坪' : '面積'
+          setStatus(`${drafts.length > 1 ? `${drafts.length}件の` : ''}${roleName}位置を自動へ戻しました`, 1400)
+        }
+        break
+      case 'reset-metric-hidden-style':
+        if (ui.editDraft || ui.batchDrafts.length) {
+          const drafts = ui.batchDrafts.length ? ui.batchDrafts : [ui.editDraft]
+          const role = source?.dataset.metricRole || ui.textRole
+          if (!['area', 'tsubo'].includes(role)) break
+          applyBatchFormToDrafts(drafts)
+          let changed = false
+          drafts.forEach(draft => {
+            if (!metricHiddenStyleNeedsReset(draft, role)) return
+            const property = role === 'tsubo' ? 'tsuboLabel' : 'areaLabel'
+            const label = { ...(draft[property] || {}) }
+            label.style = {
+              ...(label.style || {}),
+              rotation: 0,
+              angle: 0,
+              vertical: false,
+              background: 'transparent',
+              boxStyle: 'none',
+              frame: false,
+              underline: false,
+              borderColor: null,
+              borderWidth: 0,
+              decimals: 2,
+              digits: 2,
+              rounding: 'round',
+              adjustment: 0,
+              approximate: false
+            }
+            draft[property] = label
+            if (role === 'tsubo') draft.tsuboDigits = 2
+            else draft.areaDigits = 2
+            changed = true
+          })
+          if (changed) {
+            ui.batchTouched.add('__metric-hidden-style')
+            commitPendingEdit()
+            renderCommandSurface()
+            render()
+            setStatus(`${drafts.length > 1 ? `${drafts.length}件の` : ''}${role === 'tsubo' ? '坪' : '面積'}を標準表示へ戻しました`, 1700)
+          }
         }
         break
       case 'clear-guides': {
@@ -5602,7 +5930,18 @@
         byId('registry-search')?.focus({ preventScroll: true })
         break
       case 'paste': pasteClipboard(); break
-      case 'renumber-lots': store.commit('区画番号整理', documentModel => K.renumberLots(documentModel)); renderRegistry(); render(); break
+      case 'renumber-lots': {
+        const lotCount = (page(store.document)?.shapes || []).filter(shape => shape.kind === 'lot').length
+        const count = store.commit('区画番号整理', documentModel => K.renumberLots(documentModel, documentModel.activePageId))
+        renderRegistry()
+        render()
+        setStatus(count
+          ? `現在のページの区画番号を1から振り直しました（${count}件変更）`
+          : lotCount
+            ? '区画番号は既に1からの連番です'
+            : '振り直す区画がありません', 1800)
+        break
+      }
       case 'toggle-selected-visibility':
         store.commit('表示切替', documentModel => [...ui.registryIds].forEach(id => { const found = K.objectById(documentModel, id); if (found) found.object.visible = found.object.visible === false }))
         renderRegistry(); render(); break
@@ -5706,6 +6045,11 @@
     if (field.type === 'checkbox') field.indeterminate = false
     session.form[key] = fieldValue(field)
     if (key === 'scale-method') {
+      // The method selector is replaced as soon as its native `change` fires.
+      // End the transaction first; otherwise the removed select can later
+      // focus-out with its original value and switch the UI back to direct
+      // scale before the user can place the first calibration point.
+      runtime.inputTransaction = null
       session.form[key] = session.form[key] === 'two-point' ? 'two-point' : 'scale'
       session.points = []
       session.step = 0
@@ -5756,19 +6100,6 @@
     if (key === 'area-label-visible') { session.form['show-area'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('show-area') }
     if (key === 'show-tsubo') { session.form['tsubo-label-visible'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('tsubo-label-visible') }
     if (key === 'tsubo-label-visible') { session.form['show-tsubo'] = Boolean(session.form[key]); if (editingObjects) ui.batchTouched.add('show-tsubo') }
-    if (key === 'area-label-text') {
-      const manualArea = String(session.form[key] ?? '').trim()
-      if (!manualArea) {
-        session.form['tsubo-label-text'] = ''
-        if (editingObjects) ui.batchTouched.add('tsubo-label-text')
-      } else {
-        const squareMeters = numericTextValue(manualArea)
-        if (squareMeters != null && squareMeters >= 0) {
-          session.form['tsubo-label-text'] = `${(squareMeters / K.TSUBO_M2).toFixed(2)}坪`
-          if (editingObjects) ui.batchTouched.add('tsubo-label-text')
-        }
-      }
-    }
     const editingKind = ui.editDraft?.kind || selectedKind()
     if (key === 'text-size' && ['house', 'parking', 'north'].includes(editingKind)) {
       session.form['stamp-text-scale'] = session.form[key]
@@ -5831,6 +6162,36 @@
   }
 
   function handleDocumentClick(event) {
+    const colorSwatch = event.target.closest('[data-color-swatch]')
+    if (colorSwatch) {
+      event.preventDefault()
+      const select = runtime.activeColorSelect
+      const trigger = runtime.activeColorTrigger
+      const value = colorSwatch.dataset.colorValue || ''
+      closeColorPalette()
+      if (select?.isConnected && value) {
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+      return
+    }
+    const colorTrigger = event.target.closest('[data-color-trigger]')
+    if (colorTrigger) {
+      event.preventDefault()
+      const select = colorTrigger.closest('[data-color-control]')?.querySelector('select[data-color-select]')
+      openColorPalette(select, colorTrigger)
+      return
+    }
+    const colorField = event.target.closest('label.field-inline')
+    const colorFieldTrigger = colorField?.querySelector('[data-color-trigger]')
+    if (colorFieldTrigger) {
+      event.preventDefault()
+      const select = colorFieldTrigger.closest('[data-color-control]')?.querySelector('select[data-color-select]')
+      openColorPalette(select, colorFieldTrigger)
+      return
+    }
+    if (runtime.activeColorSelect) closeColorPalette()
     const typographyPresetButton = event.target.closest('[data-typography-preset]')
     if (typographyPresetButton) {
       const preset = TYPOGRAPHY_PRESETS[typographyPresetButton.dataset.typographyPreset]
@@ -5910,9 +6271,6 @@
     const specialPanel = event.target.closest('[data-special-panel]')
     if (specialPanel) { event.preventDefault(); ui.specialPanel = specialPanel.dataset.specialPanel; renderCommandSurface(); return }
 
-    const valueLabelPanel = event.target.closest('[data-value-label-panel]')
-    if (valueLabelPanel) { event.preventDefault(); ui.valueLabelPanel = valueLabelPanel.dataset.valueLabelPanel; renderCommandSurface(); return }
-
     const createCommandPage = event.target.closest('[data-create-command-page]')
     if (createCommandPage) {
       event.preventDefault()
@@ -5956,7 +6314,15 @@
 
   function handleDocumentInput(event) {
     const field = event.target.closest('#command-controls [data-field]')
-    if (field) { handleCommandFieldInput(field, false); return }
+    if (field) {
+      // A native select can emit `input` while its option list is still open.
+      // Rebuilding the whole command surface at that moment removes the select
+      // before `change`, so the user's 2-point choice is lost. Commit this
+      // structural switch only after the native selection has closed.
+      if (field.matches('select[data-field="scale-method"]')) return
+      handleCommandFieldInput(field, false)
+      return
+    }
     if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry(); return }
     if (event.target.matches('#registry-sort')) { renderRegistry(); return }
   }
@@ -6000,11 +6366,22 @@
     }, 0)
   }
 
-  function flushInputBeforeCanvasPointer() {
+  function flushInputBeforeCanvasPointer(event) {
     const transaction = runtime.inputTransaction
     if (!transaction) return
+    const completesTwoPointCalibration = transaction.field?.dataset?.field === 'calibration-distance' &&
+      session.command === 'calibrate' && session.points.length === 2 &&
+      parseNumeric(transaction.field.value) > 0
     runtime.inputTransaction = null
     commitInputElement(transaction.field)
+    if (completesTwoPointCalibration && hasScale() && session.points.length === 0) {
+      // The click was intended only to leave the distance field. Do not reuse
+      // that same pointerdown as point 1 of a new calibration (or of the
+      // command resumed after the required scale flow).
+      event?.preventDefault?.()
+      event?.stopImmediatePropagation?.()
+      dom.canvas.focus({ preventScroll: true })
+    }
   }
 
   function isTypingTarget(target) {
@@ -6013,6 +6390,22 @@
 
   function handleKeyDown(event) {
     if (event.key === 'Process' || event.keyCode === 229) return
+    const focusedColorSwatch = event.target.closest?.('[data-color-swatch]')
+    if (focusedColorSwatch && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault()
+      const swatches = [...focusedColorSwatch.closest('[data-color-palette]').querySelectorAll('[data-color-swatch]')]
+      const index = swatches.indexOf(focusedColorSwatch)
+      const columns = Math.max(1, parseInt(getComputedStyle(focusedColorSwatch.closest('[data-color-palette]')).getPropertyValue('--color-columns'), 10) || 5)
+      const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -columns : event.key === 'ArrowDown' ? columns : 0
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? swatches.length - 1 : Math.max(0, Math.min(swatches.length - 1, index + delta))
+      swatches[nextIndex]?.focus({ preventScroll: true })
+      return
+    }
+    if (event.key === 'Escape' && runtime.activeColorSelect) {
+      event.preventDefault()
+      closeColorPalette(true)
+      return
+    }
     if (event.key === 'Escape' && runtime.outputDrag) {
       event.preventDefault()
       cancelOutputDrag('出力配置の変更を取り消しました')
@@ -6048,9 +6441,18 @@
         runtime.inputTransaction = null
         if (event.target.matches('[data-field="manual-scale"]')) applyManualPageScale(event.target.value)
         else if (event.target.matches('[data-field="calibration-distance"]')) {
+          const hasCalibrationPair = session.points.length === 2
+          const validCalibrationDistance = parseNumeric(event.target.value) > 0
           commitInputElement(event.target)
-          if (session.points.length === 2) applyCalibration()
-          else { dom.canvas.focus({ preventScroll: true }); setStatus('図面上の既知の2点を指定してください', 1800) }
+          // commitInputElement() itself completes a ready 2-point calibration.
+          // Calling applyCalibration() again here used to see the already-cleared
+          // point pair and replace the success message with a false error.
+          if (!hasCalibrationPair) {
+            dom.canvas.focus({ preventScroll: true })
+            setStatus('図面上の既知の2点を指定してください', 1800)
+          } else if (!validCalibrationDistance) {
+            setStatus('0より大きい実距離を入力してください', 1800)
+          }
         }
         else commitInputElement(event.target)
       } else if (!typing) {

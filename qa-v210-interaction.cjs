@@ -136,6 +136,117 @@ async function runElectronSuite() {
         { before, opened, hasLegacyApplyButton: Boolean(applyRect), typedEnterValue, afterEnter, typedTabValue, afterTab })
     })
 
+    await runCase(win, 'two-point-calibration-completes-with-real-pointer-and-enter', async () => {
+      await setRealFileInput(win, '#underlay-input', pdfPath)
+      const loaded = await waitUntil(async () => (await readState(win)).background?.type === 'pdf', 20000, 100)
+      if (!loaded) throw new Error('PDF underlay did not load before two-point calibration')
+      if ((await readScaleState(win)).command !== 'calibrate') {
+        const statusScaleRect = await visibleRect(win, '#status-scale')
+        if (!statusScaleRect) throw new Error('visible scale status control was not found')
+        await mouseClick(win, center(statusScaleRect))
+        await wait(win, 100)
+      }
+      const selectedMethod = await chooseSelectOptionWithKeyboard(win, '[data-field="scale-method"]', 'two-point')
+      const points = await canvasTestPoints(win)
+      const undoBefore = (await readState(win)).undoDepth
+      const afterMethod = await readTwoPointCalibrationState(win)
+      await mouseClick(win, points[0])
+      const afterFirstPoint = await readTwoPointCalibrationState(win)
+      await mouseClick(win, points[1])
+      await wait(win, 100)
+      const ready = await readTwoPointCalibrationState(win)
+      const distanceRect = await visibleRect(win, '[data-field="calibration-distance"]')
+      if (!distanceRect) {
+        const surface = await win.webContents.executeJavaScript(`(()=>({
+          selected:document.querySelector('[data-field="scale-method"]')?.value??null,
+          panels:[...document.querySelectorAll('[data-scale-method-panel]')].map(node=>({method:node.dataset.scaleMethodPanel,hidden:node.hidden,display:getComputedStyle(node).display})),
+          controls:(document.getElementById('command-controls')?.textContent||'').replace(/\\s+/g,' ').trim()
+        }))()`, true)
+        add('two-point-calibration-completes-with-real-pointer-and-enter', false,
+          { stage: 'distance-input-hidden-after-two-points', selectedMethod, afterMethod, afterFirstPoint, ready, surface })
+        return
+      }
+      const typedDistance = await replaceTextInput(win, '[data-field="calibration-distance"]', '20')
+      await pressKey(win, 'ENTER')
+      await wait(win, 180)
+      const after = await readTwoPointCalibrationState(win)
+      const worldDistance = ready.points.length === 2
+        ? Math.hypot(ready.points[1].x - ready.points[0].x, ready.points[1].y - ready.points[0].y)
+        : 0
+      const expectedMpp = worldDistance > 0 ? 20 / worldDistance : 0
+      add('two-point-calibration-completes-with-real-pointer-and-enter',
+        selectedMethod === 'two-point' && ready.points.length === 2 && ready.distanceFocused &&
+        typedDistance === '20' && after.points.length === 0 && after.method === 'two-point' &&
+        Math.abs(after.mpp - expectedMpp) < 1e-9 && after.realDistanceM === 20 &&
+        Math.abs(after.pageMpp - expectedMpp) < 1e-9 && after.undoDepth === undoBefore + 1 &&
+        /縮尺を.*設定しました|このページの縮尺\s*1:/.test(after.status) && !/既知の2点を指定してください|必要な点または対象/.test(after.status),
+        { selectedMethod, undoBefore, ready, typedDistance, after, worldDistance, expectedMpp })
+    })
+
+    await runCase(win, 'two-point-calibration-distance-first-through-loaded-underlay-shortcut', async () => {
+      await setRealFileInput(win, '#underlay-input', pdfPath)
+      const loaded = await waitUntil(async () => {
+        const state = await readState(win)
+        return state.background?.type === 'pdf' && state.backgroundSource?.width > 0
+      }, 20000, 100)
+      if (!loaded) throw new Error('PDF underlay did not finish rendering before shortcut calibration')
+      await pressKey(win, 'V')
+      const beforeShortcut = await readTwoPointCalibrationState(win)
+      await pressKey(win, 'B')
+      await wait(win, 100)
+      const afterShortcut = await readTwoPointCalibrationState(win)
+      const selectedMethod = await chooseSelectOptionWithKeyboard(win, '[data-field="scale-method"]', 'two-point')
+      const typedDistance = await replaceTextInput(win, '[data-field="calibration-distance"]', '12')
+      await pressKey(win, 'TAB')
+      await wait(win, 100)
+      const afterTab = await readTwoPointCalibrationState(win)
+      const undoBefore = afterTab.undoDepth
+      const points = await canvasTestPoints(win)
+      await mouseClick(win, points[0])
+      const afterFirstPoint = await readTwoPointCalibrationState(win)
+      await mouseClick(win, points[1])
+      await wait(win, 180)
+      const after = await readTwoPointCalibrationState(win)
+      add('two-point-calibration-distance-first-through-loaded-underlay-shortcut',
+        beforeShortcut.command === 'select' && afterShortcut.command === 'calibrate' &&
+        selectedMethod === 'two-point' && typedDistance === '12' && afterTab.distanceValue === '12' &&
+        afterTab.points.length === 0 && afterFirstPoint.points.length === 1 && after.points.length === 0 &&
+        after.method === 'two-point' && after.realDistanceM === 12 && after.mpp > 0 &&
+        Math.abs(after.pageMpp - after.mpp) < 1e-9 && after.undoDepth === undoBefore + 1 &&
+        !/既知の2点を指定してください|必要な点または対象/.test(after.status),
+        { beforeShortcut, afterShortcut, selectedMethod, typedDistance, afterTab, undoBefore, afterFirstPoint, after })
+    })
+
+    await runCase(win, 'two-point-calibration-canvas-click-commits-without-reusing-click', async () => {
+      await setRealFileInput(win, '#underlay-input', pdfPath)
+      const loaded = await waitUntil(async () => {
+        const state = await readState(win)
+        return state.background?.type === 'pdf' && state.backgroundSource?.width > 0
+      }, 20000, 100)
+      if (!loaded) throw new Error('PDF underlay did not finish rendering before click-away calibration')
+      const selectedMethod = await chooseSelectOptionWithKeyboard(win, '[data-field="scale-method"]', 'two-point')
+      const points = await canvasTestPoints(win)
+      const undoBefore = (await readState(win)).undoDepth
+      await mouseClick(win, points[0])
+      await mouseClick(win, points[1])
+      await wait(win, 100)
+      const ready = await readTwoPointCalibrationState(win)
+      const typedDistance = await replaceTextInput(win, '[data-field="calibration-distance"]', '15')
+      await mouseClick(win, points[2])
+      await wait(win, 180)
+      const after = await readTwoPointCalibrationState(win)
+      const worldDistance = ready.points.length === 2
+        ? Math.hypot(ready.points[1].x - ready.points[0].x, ready.points[1].y - ready.points[0].y)
+        : 0
+      const expectedMpp = worldDistance > 0 ? 15 / worldDistance : 0
+      add('two-point-calibration-canvas-click-commits-without-reusing-click',
+        selectedMethod === 'two-point' && ready.points.length === 2 && typedDistance === '15' &&
+        after.points.length === 0 && after.method === 'two-point' && after.realDistanceM === 15 &&
+        Math.abs(after.mpp - expectedMpp) < 1e-9 && Math.abs(after.pageMpp - expectedMpp) < 1e-9 &&
+        after.undoDepth === undoBefore + 1 && !/既知の2点を指定してください|必要な点または対象/.test(after.status),
+        { selectedMethod, undoBefore, ready, typedDistance, after, worldDistance, expectedMpp })
+    })
+
     await runCase(win, 'lot-fill-named-select-applies-to-create-and-edit', async () => {
       const checkName = 'lot-fill-named-select-applies-to-create-and-edit'
       await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
@@ -247,26 +358,29 @@ async function runElectronSuite() {
         { selected, historyBeforeBlank, afterBlank, historyAfterBlank, clearButton: Boolean(clearRect) })
     })
 
-    await runCase(win, 'manual-area-change-auto-saves-linked-tsubo-warning-without-color-change', async () => {
+    await runCase(win, 'integrated-text-metric-editor-keeps-manual-area-and-tsubo-independent', async () => {
       await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
       const points = await canvasTestPoints(win)
       for (const point of points) await mouseClick(win, point)
       await pressKey(win, 'ENTER')
       await activateByShortcut(win, 'V', 'select', 'select')
       await mouseClick(win, { x: Math.round((points[0].x + points[2].x) / 2), y: Math.round((points[0].y + points[2].y) / 2) })
-      const valuesRect = await visibleRect(win, '[data-context-page="object-values"]')
-      if (!valuesRect) throw new Error('area/tsubo editor tab was not visible')
-      await mouseClick(win, center(valuesRect))
+      const textRect = await visibleRect(win, '[data-context-page="object-text"]')
+      if (!textRect) throw new Error('text/metric editor tab was not visible')
+      await mouseClick(win, center(textRect))
       await wait(win, 70)
+      const selectedRole = await chooseSelectOptionWithKeyboard(win, '[data-text-role]', 'area')
       const before = await readManualAreaState(win)
       const typed = await replaceTextInput(win, '[data-field="area-label-text"]', '165.28925㎡')
       await pressKey(win, 'TAB')
       await wait(win, 140)
       const after = await readManualAreaState(win)
-      add('manual-area-change-auto-saves-linked-tsubo-warning-without-color-change',
-        typed === '165.28925㎡' && after.warningVisible && /手入力|坪.*更新/.test(after.warningText) && Math.abs(Number.parseFloat(String(after.tsuboText)) - 50) < 0.01 && /坪/.test(String(after.tsuboText)) &&
+      const tabs = await win.webContents.executeJavaScript(`[...document.querySelectorAll('#command-pages [data-context-page]')].filter(button=>!button.hidden).map(button=>button.dataset.contextPage)`, true)
+      add('integrated-text-metric-editor-keeps-manual-area-and-tsubo-independent',
+        selectedRole === 'area' && typed === '165.28925㎡' && after.manualStateVisible && /手入力/.test(after.manualStateText) && after.tsuboText === before.tsuboText &&
+        JSON.stringify(tabs) === JSON.stringify(['object-basic','object-appearance','object-text','object-dimension','object-record']) &&
         after.areaColor === before.areaColor && after.tsuboColor === before.tsuboColor && !after.hasSave && !after.hasDiscard,
-        { before, typed, after })
+        { selectedRole, tabs, before, typed, after })
     })
 
     await runCase(win, 'dimension-tab-selects-one-edge-and-position-edits-reset-then-drag', async () => {
@@ -732,6 +846,27 @@ async function readScaleState(win) {
   })()`, true)
 }
 
+async function readTwoPointCalibrationState(win) {
+  return win.webContents.executeJavaScript(`(()=>{
+    const api=window.__KOZU_V210_TEST__||window.__KOZU_V210__;
+    const K=window.KozuV210;
+    const calibration=api?.store?.document?.calibration||{};
+    const active=K?.activePage?.(api?.store?.document)||null;
+    return {
+      command:api?.session?.command||null,
+      points:JSON.parse(JSON.stringify(api?.session?.points||[])),
+      distanceFocused:document.activeElement?.dataset?.field==='calibration-distance',
+      distanceValue:document.querySelector('[data-field="calibration-distance"]')?.value??null,
+      method:String(calibration.method||''),
+      mpp:Number(calibration.mpp||0),
+      pageMpp:Number(active?.calibration?.mpp||0),
+      realDistanceM:Number(calibration.realDistanceM||0),
+      undoDepth:Number(api?.store?.undoStack?.length||0),
+      status:document.getElementById('status-message')?.textContent?.trim()||''
+    };
+  })()`, true)
+}
+
 async function changeNamedColorSelect(win, labelText, excludedValues = []) {
   return win.webContents.executeJavaScript(`(()=>{
     const wanted=${JSON.stringify(String(labelText).replace(/\s+/g, ''))};
@@ -882,15 +1017,15 @@ async function readManualAreaState(win) {
     const api=window.__KOZU_V210_TEST__||window.__KOZU_V210__;
     const id=api?.ui?.selectedIds?.[0];
     const found=id&&window.KozuV210?.objectById?.(api.store.document,id)?.object;
-    const warning=document.querySelector('[data-area-manual-warning]');
+    const manualState=document.querySelector('[data-metric-manual-state]');
     const visible=node=>{if(!node)return false;const style=getComputedStyle(node),rect=node.getBoundingClientRect();return !node.hidden&&style.display!=='none'&&style.visibility!=='hidden'&&rect.width>0&&rect.height>0};
     return {
       areaText:found?.areaLabel?.text??found?.customAreaLabel??null,
       tsuboText:found?.tsuboLabel?.text??found?.customTsuboLabel??api?.session?.form?.['tsubo-label-text']??null,
       areaColor:found?.areaLabel?.style?.color??api?.session?.form?.['area-label-color']??null,
       tsuboColor:found?.tsuboLabel?.style?.color??api?.session?.form?.['tsubo-label-color']??null,
-      warningVisible:visible(warning),
-      warningText:warning?.textContent?.trim()||'',
+      manualStateVisible:visible(manualState),
+      manualStateText:manualState?.textContent?.trim()||'',
       hasSave:Boolean(document.querySelector('[data-action="save-edit"]')),
       hasDiscard:Boolean(document.querySelector('[data-action="cancel-edit"]'))
     };
