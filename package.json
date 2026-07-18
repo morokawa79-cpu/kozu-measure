@@ -1,6 +1,6 @@
 {
   "name": "kozu-measure-v210",
-  "version": "2.1.0-alpha.10",
+  "version": "2.1.0-alpha.11",
   "description": "公図・地図画像から区画図を作成するJw_cad型デスクトップアプリ",
   "main": "main-v210.js",
   "scripts": {

@@ -2,7 +2,7 @@
   'use strict'
 
   const K = window.KozuV210 = window.KozuV210 || {}
-  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.10'
+  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.11'
   const desktopVersion = typeof window.kozuDesktop?.version === 'string' ? window.kozuDesktop.version.trim() : ''
   const APP_VERSION = desktopVersion || WEB_APP_VERSION_FALLBACK
   const SCHEMA_VERSION = 7
@@ -1291,19 +1291,51 @@
       pageValue.entities = (Array.isArray(rawPage.entities) ? rawPage.entities : []).map(raw => normalizeEntity(fresh, raw)).filter(Boolean)
       fresh.pages.push(pageValue)
     }
-    fresh.activePageId = fresh.pages.some(pageValue => pageValue.id === source.activePageId) ? source.activePageId : fresh.pages[0].id
-    // document.calibration is the live value for activePageId. Synchronizing it
-    // here makes direct calibration edits safe across undo, save and reload.
-    const normalizedActivePage = activePage(fresh)
-    if (normalizedActivePage) normalizedActivePage.calibration = clone(fresh.calibration)
-    const allIds = fresh.pages.flatMap(pageValue => [
+    const requestedActivePage = fresh.pages.find(pageValue => pageValue.id === source.activePageId) || fresh.pages[0]
+    const idHolders = fresh.pages.flatMap(pageValue => [
+      pageValue,
       ...pageValue.shapes,
       ...pageValue.entities,
       ...pageValue.shapes.flatMap(shape => shape.edges || []),
       ...pageValue.entities.flatMap(entity => entity.segments || [])
-    ]).map(item => String(item.id || ''))
-    const largestNumericId = allIds.reduce((max, id) => Math.max(max, Number(id.match(/(\d+)$/)?.[1]) || 0), 0)
+    ])
+    const largestNumericId = idHolders.reduce((max, item) => {
+      const id = String(item?.id || '')
+      return Math.max(max, Number(id.match(/(\d+)$/)?.[1]) || 0)
+    }, 0)
     fresh.nextId = Math.max(largestNumericId + 1, Math.trunc(finite(source.nextId, 1)), 1)
+    // 旧版や途中の分割データに重複IDがあると、一覧で1件を選んだだけで
+    // 複数行が同時に選択され、表示切替も別の図形へ適用されてしまう。
+    // 最初のIDは維持し、2件目以降だけを読み込み時に一意なIDへ修復する。
+    const usedIds = new Set()
+    const claimUniqueId = (holder, prefix) => {
+      const current = typeof holder?.id === 'string' && holder.id.length ? holder.id : ''
+      if (current && !usedIds.has(current)) {
+        usedIds.add(current)
+        return current
+      }
+      let id = ''
+      do { id = allocId(fresh, prefix) } while (usedIds.has(id))
+      holder.id = id
+      usedIds.add(id)
+      return id
+    }
+    fresh.pages.forEach(pageValue => {
+      claimUniqueId(pageValue, 'page')
+      pageValue.shapes.forEach(shape => {
+        claimUniqueId(shape, shape.kind || 'shape')
+        ;(shape.edges || []).forEach(edge => claimUniqueId(edge, 'edge'))
+      })
+      pageValue.entities.forEach(entity => {
+        claimUniqueId(entity, entity.kind || 'entity')
+        ;(entity.segments || []).forEach(segment => claimUniqueId(segment, 'segment'))
+      })
+    })
+    fresh.activePageId = requestedActivePage?.id || fresh.pages[0].id
+    // document.calibration is the live value for activePageId. Synchronizing it
+    // here makes direct calibration edits safe across undo, save and reload.
+    const normalizedActivePage = activePage(fresh)
+    if (normalizedActivePage) normalizedActivePage.calibration = clone(fresh.calibration)
     return fresh
   }
 

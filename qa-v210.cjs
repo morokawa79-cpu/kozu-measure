@@ -324,7 +324,7 @@ async function runElectronSuite() {
     const report = {
       generatedAt: new Date().toISOString(),
       target: {
-        version: '2.1.0-alpha.10',
+        version: '2.1.0-alpha.11',
         entry: 'index-v210.html',
         installerBuilt: false
       },
@@ -481,7 +481,7 @@ function staticChecks(add) {
   ].sort()
   const allowedScripts = ['vendor/pdf.min.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js']
 
-  add('package-version-v210-alpha10', packageJson.version === '2.1.0-alpha.10', packageJson.version)
+  add('package-version-v210-alpha11', packageJson.version === '2.1.0-alpha.11', packageJson.version)
   add('package-main-v210-only', packageJson.main === 'main-v210.js', packageJson.main)
   add('main-loads-v210-entry', /loadFile\(['"]index-v210\.html['"]\)/.test(main) && !/loadFile\(['"]index\.html['"]\)/.test(main))
   add('main-title-uses-package-version', /const VERSION = app\.getVersion\(\)/.test(main) && /TITLE = `土地区画作成工房 v\$\{VERSION\}`/.test(main))
@@ -821,7 +821,7 @@ async function rendererSuite() {
   window.addEventListener('error', event => runtimeErrors.push(event.error?.stack || event.message))
   window.addEventListener('unhandledrejection', event => runtimeErrors.push(event.reason?.stack || String(event.reason)))
 
-  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.10', document.title)
+  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.11', document.title)
   add('core-api-loaded', Boolean(K?.createDocument && K?.DocumentStore && K?.CommandSession && K?.Renderer), Object.keys(K || {}))
   add('io-api-loaded', Boolean(IO?.serializeProject && IO?.deserializeProject && IO?.migrateLegacyV3 && IO?.loadUnderlayFile), Object.keys(IO || {}))
   add('application-debug-api-loaded', Boolean(api?.store && api?.session && api?.runtime && api?.renderer && api?.activateCommand && api?.setWorkspace), api ? Object.keys(api) : null)
@@ -1068,6 +1068,32 @@ async function rendererSuite() {
     K.addShape(doc, 'water', [{ x: 0, y: 170 }, { x: 100, y: 170 }, { x: 100, y: 190 }, { x: 0, y: 190 }], { label: '水路' })
     const summary = K.registrySummary(doc)
     return { pass: summary.rows.length === 4 && summary.totals.lotCount === 2 && summary.totals.roadCount === 1 && summary.totals.waterCount === 1 && summary.totals.includedCount === 4 && summary.totals.price === 5000 && Math.abs(summary.totals.lotAreaM2 - 200) < 1e-7 && Math.abs(summary.totals.roadAreaM2 - 100) < 1e-7 && Math.abs(summary.totals.waterAreaM2 - 20) < 1e-7 && Math.abs(summary.totals.includedAreaM2 - 320) < 1e-7 && Math.abs(summary.totals.includedTsubo - (320 / K.TSUBO_M2)) < 1e-7, details: summary }
+  })
+
+  await run('core-normalization-repairs-duplicate-object-edge-and-segment-ids', () => {
+    const doc = K.createDocument()
+    const first = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }])
+    const second = K.addShape(doc, 'lot', [{ x: 80, y: 0 }, { x: 140, y: 0 }, { x: 140, y: 40 }, { x: 80, y: 40 }])
+    const line = K.addEntity(doc, 'polyline', { points: [{ x: 0, y: 70 }, { x: 60, y: 70 }, { x: 120, y: 70 }] })
+    const originalFirstId = first.id
+    second.id = first.id
+    second.edges[0].id = first.edges[0].id
+    line.segments[0].id = first.edges[1].id
+    const normalized = K.normalizeDocument(doc)
+    const page = pageOf(normalized)
+    const ids = [
+      ...normalized.pages.map(item => item.id),
+      ...normalized.pages.flatMap(item => [
+        ...item.shapes.map(shape => shape.id),
+        ...item.entities.map(entity => entity.id),
+        ...item.shapes.flatMap(shape => (shape.edges || []).map(edge => edge.id)),
+        ...item.entities.flatMap(entity => (entity.segments || []).map(segment => segment.id))
+      ])
+    ]
+    return {
+      pass: new Set(ids).size === ids.length && page.shapes[0].id === originalFirstId && page.shapes[1].id !== originalFirstId && Boolean(K.objectById(normalized, page.shapes[1].id)?.object),
+      details: { ids, shapeIds: page.shapes.map(shape => shape.id), nextId: normalized.nextId }
+    }
   })
 
   await run('core-undo-redo-history', () => {
@@ -2424,6 +2450,58 @@ async function rendererSuite() {
         oneLot.focus === true && oneLot.visibility === true && oneLot.remove === true && oneLot.areaTable === false && oneLot.renumber === true &&
         twoLots.focus === true && twoLots.visibility === true && twoLots.remove === true && twoLots.areaTable === false && twoLots.renumber === true,
       details: { noLots, oneLot, twoLots }
+    }
+  })
+
+  await run('app-registry-checkboxes-keep-scroll-and-separate-selection-from-visibility', async () => {
+    if (!api?.store || !api?.ui) return { pass: false, details: 'registry API unavailable' }
+    const doc = K.createDocument()
+    doc.calibration = K.createCalibration({ method: 'scale', mpp: 0.1, mapScale: 100 })
+    for (let index = 0; index < 12; index += 1) {
+      const x = (index % 4) * 80
+      const y = Math.floor(index / 4) * 60
+      K.addShape(doc, 'lot', [{ x, y }, { x: x + 60, y }, { x: x + 60, y: y + 40 }, { x, y: y + 40 }], { number: index + 1 })
+    }
+    api.store.replace(doc, { clean: true })
+    api.ui.registryTab = 'lots'
+    api.ui.registryIds.clear()
+    api.selectObject(null, { openEditor: false })
+    const search = document.getElementById('registry-search')
+    const filter = document.getElementById('registry-filter')
+    const sort = document.getElementById('registry-sort')
+    if (search) search.value = ''
+    if (filter) filter.value = 'all'
+    if (sort) sort.value = 'number'
+    api.render?.(); await sleep(25)
+    const wrap = document.querySelector('.registry-table-wrap')
+    const rowsBefore = [...document.querySelectorAll('#registry-rows tr[data-object-id]')]
+    const targetId = rowsBefore[5]?.dataset.objectId
+    if (!wrap || !targetId) return { pass: false, details: { wrap: Boolean(wrap), rows: rowsBefore.length } }
+    const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight)
+    wrap.scrollTop = Math.min(180, maxScroll)
+    const scrollBefore = wrap.scrollTop
+    const select = document.querySelector(`[data-registry-select="${targetId}"]`)
+    if (select) {
+      select.checked = true
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await sleep(20)
+    const scrollAfterSelect = wrap.scrollTop
+    const selectedChecks = [...document.querySelectorAll('[data-registry-select]')].filter(field => field.checked)
+    const visible = document.querySelector(`[data-registry-field="visible"][data-object-id="${targetId}"]`)
+    if (visible) {
+      visible.checked = false
+      visible.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    await sleep(20)
+    const scrollAfterVisibility = wrap.scrollTop
+    const target = K.objectById(api.store.document, targetId)?.object
+    const otherVisibility = pageOf(api.store.document).shapes.filter(shape => shape.id !== targetId).every(shape => shape.visible !== false)
+    const selectLabel = document.querySelector(`[data-registry-select="${targetId}"]`)?.getAttribute('aria-label') || ''
+    const visibleLabel = document.querySelector(`[data-registry-field="visible"][data-object-id="${targetId}"]`)?.getAttribute('aria-label') || ''
+    return {
+      pass: maxScroll > 0 && Math.abs(scrollAfterSelect - scrollBefore) <= 1 && Math.abs(scrollAfterVisibility - scrollBefore) <= 1 && api.ui.selectedIds.length === 0 && api.ui.registryIds.size === 1 && api.ui.registryIds.has(targetId) && selectedChecks.length === 1 && target?.visible === false && otherVisibility && /一括操作/.test(selectLabel) && /図面に表示/.test(visibleLabel),
+      details: { maxScroll, scrollBefore, scrollAfterSelect, scrollAfterVisibility, selectedIds: api.ui.selectedIds, registryIds: [...api.ui.registryIds], selectedChecks: selectedChecks.length, targetVisible: target?.visible, otherVisibility, selectLabel, visibleLabel }
     }
   })
 

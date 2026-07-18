@@ -4684,8 +4684,13 @@
     return objects
   }
 
-  function renderRegistry() {
+  function renderRegistry(options = {}) {
     if (!dom.registryRows) return
+    const scrollContainer = dom.registryRows.closest('.registry-table-wrap')
+    const preserveScroll = options.preserveScroll !== false
+    const scrollPosition = scrollContainer
+      ? { top: scrollContainer.scrollTop, left: scrollContainer.scrollLeft }
+      : null
     const documentModel = store.document
     const active = page(documentModel)
     const objects = filteredRegistryObjects()
@@ -4763,6 +4768,10 @@
       button.disabled = lots === 0
       button.title = lots ? '現在の区画を面積表として配置' : '先に区画を作成してください'
     })
+    if (scrollContainer && scrollPosition) {
+      scrollContainer.scrollTop = preserveScroll ? scrollPosition.top : 0
+      scrollContainer.scrollLeft = preserveScroll ? scrollPosition.left : 0
+    }
   }
 
   function makeRegistryRow(object) {
@@ -4777,6 +4786,8 @@
     checkboxCell.className = 'col-check'
     const checkbox = document.createElement('input')
     checkbox.type = 'checkbox'; checkbox.checked = ui.registryIds.has(object.id); checkbox.dataset.registrySelect = object.id
+    checkbox.setAttribute('aria-label', `${kindName}${object.number ? ` ${object.number}` : ''}を一括操作の対象にする`)
+    checkbox.title = '一括操作の対象'
     checkboxCell.append(checkbox); cells.push(checkboxCell)
     const values = [object.number ?? '', kindName, [object.topLabel, object.label || object.text].filter(Boolean).join(' / '), formatArea(metrics.areaM2), formatArea(metrics.tsubo)]
     values.forEach(value => { const cell = document.createElement('td'); cell.textContent = String(value); cells.push(cell) })
@@ -4794,6 +4805,8 @@
     const visibleCell = document.createElement('td')
     const visible = document.createElement('input')
     visible.type = 'checkbox'; visible.checked = object.visible !== false; visible.dataset.registryField = 'visible'; visible.dataset.objectId = object.id
+    visible.setAttribute('aria-label', `${kindName}${object.number ? ` ${object.number}` : ''}を図面に表示`)
+    visible.title = '図面への表示・非表示'
     visibleCell.append(visible); cells.push(visibleCell)
     row.append(...cells)
     return row
@@ -4807,7 +4820,6 @@
       else if (field === 'memo') found.object.memo = String(value || '')
       else if (field === 'visible') found.object.visible = Boolean(value)
     })
-    renderRegistry()
     render()
   }
 
@@ -6323,8 +6335,8 @@
       handleCommandFieldInput(field, false)
       return
     }
-    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry(); return }
-    if (event.target.matches('#registry-sort')) { renderRegistry(); return }
+    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry({ preserveScroll: false }); return }
+    if (event.target.matches('#registry-sort')) { renderRegistry({ preserveScroll: false }); return }
   }
 
   function handleDocumentChange(event) {
@@ -6334,22 +6346,25 @@
     if (dimensionTarget) { selectDimensionTarget(dimensionTarget.value); return }
     const field = event.target.closest('#command-controls [data-field]')
     if (field) { handleCommandFieldInput(field, true); return }
-    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry(); return }
-    if (event.target.matches('#registry-sort')) { renderRegistry(); return }
+    if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry({ preserveScroll: false }); return }
+    if (event.target.matches('#registry-sort')) { renderRegistry({ preserveScroll: false }); return }
     const registrySelect = event.target.closest('[data-registry-select]')
     if (registrySelect) {
       commitPendingEdit()
       if (registrySelect.checked) ui.registryIds.add(registrySelect.dataset.registrySelect)
       else ui.registryIds.delete(registrySelect.dataset.registrySelect)
-      setObjectSelection([...ui.registryIds], { openEditor: true, syncRegistry: false }); return
+      renderRegistry(); return
     }
     const registryField = event.target.closest('[data-registry-field]')
-    if (registryField) { updateRegistryObject(registryField.dataset.objectId, registryField.dataset.registryField, registryField.type === 'checkbox' ? registryField.checked : registryField.value); return }
+    if (registryField) {
+      if (registryField.type === 'checkbox') runtime.inputTransaction = null
+      updateRegistryObject(registryField.dataset.objectId, registryField.dataset.registryField, registryField.type === 'checkbox' ? registryField.checked : registryField.value); return
+    }
     if (event.target.id === 'registry-check-all') {
       commitPendingEdit()
       const ids = filteredRegistryObjects().map(object => object.id)
       ids.forEach(id => event.target.checked ? ui.registryIds.add(id) : ui.registryIds.delete(id))
-      setObjectSelection([...ui.registryIds], { openEditor: true, syncRegistry: false }); return
+      renderRegistry(); return
     }
     if (event.target.matches(PAPER_INPUT_SELECTOR)) {
       updatePaperFromControls(); return

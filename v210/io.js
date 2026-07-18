@@ -5,7 +5,7 @@
   const FORMAT = 'kozu-measure';
   const PROJECT_VERSION = 7;
   const desktopVersion = typeof global.kozuDesktop?.version === 'string' ? global.kozuDesktop.version.trim() : '';
-  const APP_VERSION = K.APP_VERSION || desktopVersion || '2.1.0-alpha.10';
+  const APP_VERSION = K.APP_VERSION || desktopVersion || '2.1.0-alpha.11';
   const PDF_WORKER_SRC = 'vendor/pdf.worker.min.js';
   // 300dpi出力時にも下絵PDFが拡大ぼけしない解像度（72dpi × 4.2 ≒ 302dpi）。
   const PDF_RENDER_SCALE = 4.2;
