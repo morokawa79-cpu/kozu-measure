@@ -3,7 +3,7 @@
 
   const K = window.KozuV210 = window.KozuV210 || {}
   const APP_VERSION = '2.1.0-alpha.8'
-  const SCHEMA_VERSION = 5
+  const SCHEMA_VERSION = 6
   const TSUBO_M2 = 3.3057851239669422
   const EPS = 1e-7
   const HISTORY_LIMIT = 120
@@ -29,10 +29,10 @@
     roadStyle: Object.freeze({ fill: '#d8dde5', stroke: '#596579', opacity: 0.68, lineWidth: 1.2, lineStyle: 'solid' }),
     waterStyle: Object.freeze({ fill: '#bfe7f8', stroke: '#2f7898', opacity: 0.64, lineWidth: 1.2, lineStyle: 'solid' }),
     cutoutStyle: Object.freeze({ fill: '#e5e7eb', stroke: '#6b7280', opacity: 0.72, lineWidth: 1, lineStyle: 'dash' }),
-    labelStyle: Object.freeze({ fontFamily: 'Yu Gothic UI', size: 14, fontSize: 14, color: '#172033', rotation: 0, vertical: false, scale: 1, background: 'transparent', boxStyle: 'none' }),
-    dimensionStyle: Object.freeze({ visible: true, color: '#334155', fontFamily: 'Yu Gothic UI', size: 10, fontSize: 10, rotation: 'auto', offset: 14, decimals: 2, approximate: false, rounding: 'round', adjustment: 0, scale: 1 }),
+    labelStyle: Object.freeze({ fontFamily: 'gothic', size: 14, fontSize: 14, color: '#172033', rotation: 0, vertical: false, scale: 1, background: 'transparent', boxStyle: 'none' }),
+    dimensionStyle: Object.freeze({ visible: true, color: '#334155', fontFamily: 'gothic', size: 10, fontSize: 10, rotation: 'auto', offset: 14, decimals: 2, approximate: false, rounding: 'round', adjustment: 0, scale: 1 }),
     lineStyle: Object.freeze({ color: '#253858', lineWidth: 1.4, lineStyle: 'solid' }),
-    textStyle: Object.freeze({ fontFamily: 'Yu Gothic UI', size: 14, fontSize: 14, color: '#172033', background: 'transparent', boxStyle: 'none', vertical: false, rotation: 0 }),
+    textStyle: Object.freeze({ fontFamily: 'gothic', size: 14, fontSize: 14, color: '#172033', background: 'transparent', boxStyle: 'none', vertical: false, rotation: 0 }),
     typography: Object.freeze({ lot: 14, metric: 12, dimension: 10, road: 14, text: 14 }),
     snap: Object.freeze({ vertex: true, intersection: true, edge: true, grid: false, gridSize: 10 })
   })
@@ -508,8 +508,26 @@
       realDistanceM: Number.isFinite(Number(source.realDistanceM)) && Number(source.realDistanceM) > 0 ? Number(source.realDistanceM) : null
     }
   }
+  function createOutputLayout(source = {}, paper = {}) {
+    const requestedSize = source.paperSize ?? source.size
+    const size = requestedSize === 'A3' ? 'A3' : requestedSize === 'A4' ? 'A4' : paper.size === 'A3' ? 'A3' : 'A4'
+    const orientation = source.orientation === 'portrait' ? 'portrait' : source.orientation === 'landscape' ? 'landscape' : paper.orientation === 'portrait' ? 'portrait' : 'landscape'
+    const printScale = Number(source.printScale)
+    return {
+      paperSize: size,
+      orientation,
+      printScale: Number.isFinite(printScale) && printScale > 0 ? printScale : null,
+      offsetMmX: finite(source.offsetMmX, 0),
+      offsetMmY: finite(source.offsetMmY, 0),
+      showFrame: typeof source.showFrame === 'boolean' ? source.showFrame : paper.showFrame !== false,
+      showTitleFrame: typeof source.showTitleFrame === 'boolean' ? source.showTitleFrame : paper.showTitleFrame !== false,
+      includeUnderlay: typeof source.includeUnderlay === 'boolean' ? source.includeUnderlay : paper.includeUnderlay !== false,
+      includeGuides: source.includeGuides === true,
+      initialized: source.initialized === true
+    }
+  }
   function createPage(number = 1) {
-    return { id: `page-${number}`, name: `${number}ページ`, sourcePage: number, calibration: createCalibration(), shapes: [], entities: [] }
+    return { id: `page-${number}`, name: `${number}ページ`, sourcePage: number, calibration: createCalibration(), outputLayout: createOutputLayout(), shapes: [], entities: [] }
   }
   function createDocument() {
     const timestamp = nowIso()
@@ -527,6 +545,7 @@
         title: '', date: new Date().toISOString().slice(0, 10), author: '', note: '',
         showFrame: true, showTitleFrame: true, includeUnderlay: true
       },
+      outputDefaults: createOutputLayout(),
       preferences: {
         typography: clone(DEFAULTS.typography),
         lot: { style: clone(DEFAULTS.lotStyle), labelStyle: clone(DEFAULTS.labelStyle), dimensionStyle: clone(DEFAULTS.dimensionStyle) },
@@ -554,7 +573,7 @@
       let id = `page-${pageNumber}`
       let suffix = 2
       while (usedIds.has(id)) { id = `page-${pageNumber}-${suffix}`; suffix += 1 }
-      pageValue = { ...createPage(pageNumber), id }
+      pageValue = { ...createPage(pageNumber), id, outputLayout: createOutputLayout(document.outputDefaults, document.paper) }
       document.pages.push(pageValue)
       document.pages.sort((a, b) => a.sourcePage - b.sourcePage)
     }
@@ -577,6 +596,14 @@
     document.nextId = next + 1
     return `${prefix}-${next}`
   }
+  function normalizeFontToken(value) {
+    const text = String(value || '').trim().toLowerCase()
+    if (!text) return 'gothic'
+    if (['gothic', 'sans', 'sans-serif'].includes(text) || /gothic|ゴシック|meiryo|メイリオ/.test(text)) return 'gothic'
+    if (['mincho', 'serif'].includes(text) || /mincho|明朝/.test(text)) return 'mincho'
+    if (['mono', 'monospace'].includes(text) || /consolas|courier|等幅|mono/.test(text)) return 'mono'
+    return 'gothic'
+  }
   function normalizeStyle(style, fallback) {
     const source = style && typeof style === 'object' ? clone(style) : {}
     const result = { ...clone(fallback), ...source }
@@ -586,6 +613,7 @@
     if (source.angle != null && source.rotation == null) result.rotation = source.angle === 'auto' ? 'auto' : finite(source.angle)
     if (source.decimals != null && source.digits == null) result.digits = clamp(Math.trunc(finite(source.decimals, 2)), 0, 6)
     if (source.digits != null && source.decimals == null) result.decimals = clamp(Math.trunc(finite(source.digits, 2)), 0, 6)
+    if ('fontFamily' in result || 'fontFamily' in source) result.fontFamily = normalizeFontToken(result.fontFamily)
     if ('opacity' in result) result.opacity = clamp(finite(result.opacity, fallback.opacity ?? 1), 0, 1)
     if ('lineWidth' in result) result.lineWidth = clamp(finite(result.lineWidth, fallback.lineWidth ?? 1), 0.1, 20)
     return result
@@ -767,6 +795,9 @@
       labelPosition: attributes.labelPosition && isPoint(attributes.labelPosition) ? point(attributes.labelPosition) : null,
       edges: [], memo: String(attributes.memo || '')
     }
+    if (typeof attributes.parentShapeId === 'string' && attributes.parentShapeId) shape.parentShapeId = attributes.parentShapeId
+    if (Array.isArray(attributes.parentOriginalPoints)) shape.parentOriginalPoints = cleanPoints(attributes.parentOriginalPoints)
+    if (Array.isArray(attributes.parentOriginalEdges)) shape.parentOriginalEdges = clone(attributes.parentOriginalEdges)
     if (kind === 'lot') {
       shape.number = Number.isFinite(Number(attributes.number)) ? Number(attributes.number) : document.pages.flatMap(p => p.shapes).filter(s => s.kind === 'lot').length + 1
       shape.label = String(attributes.label || '')
@@ -814,25 +845,62 @@
       shape.visibility.area = shape.areaLabel.visible !== false
       shape.visibility.tsubo = shape.tsuboLabel.visible !== false
     } else if (kind === 'road' || kind === 'water') {
-      shape.label = String(attributes.label ?? preference.name ?? (kind === 'water' ? '水路' : '道路'))
       const roadAttributes = attributes.road && typeof attributes.road === 'object' ? attributes.road : {}
+      const defaultName = kind === 'water' ? '水路' : '道路'
+      const rawName = String(roadAttributes.name ?? attributes.label ?? preference.name ?? defaultName).trim()
+      const localizedName = /^(?:road|street)$/i.test(rawName) ? '道路' : /^(?:water|waterway)$/i.test(rawName) ? '水路' : (rawName || defaultName)
+      shape.label = localizedName
       shape.road = {
         type: kind === 'water' ? 'water' : String(roadAttributes.type || 'road'),
-        name: String(roadAttributes.name ?? attributes.label ?? preference.name ?? (kind === 'water' ? '水路' : '道路')),
+        name: localizedName,
         widthM: Number.isFinite(Number(roadAttributes.widthM ?? roadAttributes.width ?? attributes.widthM ?? preference.widthM)) ? Number(roadAttributes.widthM ?? roadAttributes.width ?? attributes.widthM ?? preference.widthM) : null,
         vertical: Boolean(roadAttributes.vertical ?? attributes.vertical ?? preference.vertical),
         namePosition: roadAttributes.namePosition && isPoint(roadAttributes.namePosition) ? point(roadAttributes.namePosition) : null,
         widthLabelPosition: roadAttributes.widthLabelPosition && isPoint(roadAttributes.widthLabelPosition) ? point(roadAttributes.widthLabelPosition) : null,
         widthLabelOffset: roadAttributes.widthLabelOffset && isPoint(roadAttributes.widthLabelOffset) ? point(roadAttributes.widthLabelOffset) : null,
-        nameStyle: roadAttributes.nameStyle && typeof roadAttributes.nameStyle === 'object' ? clone(roadAttributes.nameStyle) : null,
+        nameStyle: roadAttributes.nameStyle && typeof roadAttributes.nameStyle === 'object'
+          ? normalizeStyle(roadAttributes.nameStyle, shape.labelStyle)
+          : null,
         widthLabelStyle: roadAttributes.widthLabelStyle && typeof roadAttributes.widthLabelStyle === 'object'
-          ? clone(roadAttributes.widthLabelStyle)
-          : (preference.widthLabelStyle && typeof preference.widthLabelStyle === 'object' ? clone(preference.widthLabelStyle) : null),
+          ? normalizeStyle(roadAttributes.widthLabelStyle, DEFAULTS.dimensionStyle)
+          : normalizeStyle(preference.widthLabelStyle, DEFAULTS.dimensionStyle),
         widthText: typeof roadAttributes.widthText === 'string' ? roadAttributes.widthText : null,
-        widthPrefix: typeof roadAttributes.widthPrefix === 'string' ? roadAttributes.widthPrefix : '幅員 ',
+        widthPrefix: typeof roadAttributes.widthPrefix === 'string'
+          ? (kind === 'water' && /^\s*幅員/.test(roadAttributes.widthPrefix) ? '水路幅 ' : roadAttributes.widthPrefix)
+          : (kind === 'water' ? '水路幅 ' : '幅員 '),
         widthUnit: roadAttributes.widthUnit === false ? false : (typeof roadAttributes.widthUnit === 'string' ? roadAttributes.widthUnit : 'm'),
         widthDigits: clamp(Math.trunc(finite(roadAttributes.widthDigits, 1)), 0, 3)
       }
+      shape.areaLabel = normalizeIndependentLabel(
+        attributes.areaLabel,
+        attributes.customAreaLabel,
+        attributes.areaLabelPosition,
+        { ...shape.labelStyle, size: finite(document.preferences?.typography?.metric, 12), fontSize: finite(document.preferences?.typography?.metric, 12), scale: 1 },
+        shape.visibility.area !== false
+      )
+      shape.tsuboLabel = normalizeIndependentLabel(
+        attributes.tsuboLabel,
+        attributes.customTsuboLabel,
+        attributes.tsuboLabelPosition,
+        { ...shape.labelStyle, size: finite(document.preferences?.typography?.metric, 12), fontSize: finite(document.preferences?.typography?.metric, 12), scale: 1 },
+        shape.visibility.tsubo !== false
+      )
+      shape.areaLabel.visible = shape.visibility.area !== false && shape.areaLabel.visible !== false
+      shape.tsuboLabel.visible = shape.visibility.tsubo !== false && shape.tsuboLabel.visible !== false
+      shape.areaLabelPosition = isPoint(attributes.areaLabelPosition)
+        ? point(attributes.areaLabelPosition)
+        : (isPoint(shape.areaLabel.position) ? point(shape.areaLabel.position) : null)
+      shape.tsuboLabelPosition = isPoint(attributes.tsuboLabelPosition)
+        ? point(attributes.tsuboLabelPosition)
+        : (isPoint(shape.tsuboLabel.position) ? point(shape.tsuboLabel.position) : null)
+      shape.customAreaLabel = Object.prototype.hasOwnProperty.call(attributes, 'customAreaLabel')
+        ? (attributes.customAreaLabel == null ? null : String(attributes.customAreaLabel))
+        : shape.areaLabel.text
+      shape.customTsuboLabel = Object.prototype.hasOwnProperty.call(attributes, 'customTsuboLabel')
+        ? (attributes.customTsuboLabel == null ? null : String(attributes.customTsuboLabel))
+        : shape.tsuboLabel.text
+      shape.visibility.area = shape.areaLabel.visible !== false
+      shape.visibility.tsubo = shape.tsuboLabel.visible !== false
     } else {
       shape.label = String(attributes.label || '隅切り')
     }
@@ -870,9 +938,14 @@
     ]
     const structuredFields = ['dimensionStyle', 'textStyle', 'dimensions', 'columns', 'rows', 'anchor', 'segmentLabels', 'segmentLabelPositions', 'measurementVisibility']
     numericFields.forEach(key => { if (Number.isFinite(Number(attributes[key]))) entity[key] = Number(attributes[key]) })
-    stringFields.forEach(key => { if (typeof attributes[key] === 'string') entity[key] = attributes[key] })
+    stringFields.forEach(key => {
+      if (typeof attributes[key] !== 'string') return
+      entity[key] = key === 'fontFamily' ? normalizeFontToken(attributes[key]) : attributes[key]
+    })
     booleanFields.forEach(key => { if (typeof attributes[key] === 'boolean') entity[key] = attributes[key] })
     structuredFields.forEach(key => { if (attributes[key] != null) entity[key] = clone(attributes[key]) })
+    if (entity.dimensionStyle && typeof entity.dimensionStyle === 'object') entity.dimensionStyle = normalizeStyle(entity.dimensionStyle, DEFAULTS.dimensionStyle)
+    if (entity.textStyle && typeof entity.textStyle === 'object') entity.textStyle = normalizeStyle(entity.textStyle, DEFAULTS.textStyle)
     if (['distance', 'polyline', 'area', 'dimension'].includes(kind)) {
       const closed = kind === 'area' || attributes.closed === true || attributes.options?.closed === true
       entity.segments = segmentMetadata(document, entity.points, closed, attributes.segments, { freshIds: options.freshSegmentIds === true })
@@ -946,6 +1019,7 @@
         includeUnderlay: source.paper.includeUnderlay !== false
       }
     }
+    fresh.outputDefaults = createOutputLayout(source.outputDefaults, fresh.paper)
     if (source.preferences && typeof source.preferences === 'object') {
       const p = source.preferences
       if (p.typography && typeof p.typography === 'object') {
@@ -975,6 +1049,7 @@
         name: typeof rawPage.name === 'string' ? rawPage.name : `${pageIndex + 1}ページ`,
         sourcePage: Math.max(1, Math.trunc(finite(rawPage.sourcePage, pageIndex + 1))),
         calibration: createCalibration(rawPage.calibration),
+        outputLayout: createOutputLayout(rawPage.outputLayout || fresh.outputDefaults, fresh.paper),
         shapes: [], entities: []
       }
       pageValue.shapes = (Array.isArray(rawPage.shapes) ? rawPage.shapes : []).map(raw => normalizeShape(fresh, raw)).filter(Boolean)
@@ -1104,8 +1179,8 @@
     document.pages.forEach(pageValue => pageValue.shapes.filter(shape => shape.kind === 'lot').forEach(shape => { shape.number = number; number += 1 }))
     return number - 1
   }
-  function resetLotLabelLayout(shape) {
-    if (!shape || shape.kind !== 'lot') return shape
+  function resetShapeLabelLayout(shape) {
+    if (!shape || !SHAPE_KINDS.has(shape.kind)) return shape
     shape.labelPosition = null
     shape.areaLabelPosition = null
     shape.tsuboLabelPosition = null
@@ -1118,20 +1193,35 @@
     for (const key of ['areaLabel', 'tsuboLabel']) {
       if (shape[key] && typeof shape[key] === 'object') shape[key].position = null
     }
+    if (shape.road && typeof shape.road === 'object') {
+      shape.road.namePosition = null
+      shape.road.widthLabelPosition = null
+      shape.road.widthLabelOffset = null
+    }
     return shape
   }
   function splitShape(document, id, a, b, options = {}) {
     const found = objectById(document, id)
-    if (!found || found.type !== 'shape' || found.object.kind !== 'lot') return null
+    if (!found || found.type !== 'shape' || !['lot', 'road', 'water'].includes(found.object.kind)) return null
     const split = splitPolygonByLine(found.object.points, a, b)
     if (!split) return null
     const [firstPoints, secondPoints] = split
     const original = found.object
-    const first = createShape(document, 'lot', firstPoints, { ...original, number: original.number, price: options.copyPrice === true ? original.price : null, memo: original.memo })
-    resetLotLabelLayout(first)
+    const first = createShape(document, original.kind, firstPoints, {
+      ...original,
+      number: original.kind === 'lot' ? original.number : undefined,
+      price: original.kind === 'lot' && options.copyPrice === true ? original.price : null,
+      memo: original.memo
+    })
+    resetShapeLabelLayout(first)
     first.id = original.id
-    const second = createShape(document, 'lot', secondPoints, { ...original, number: found.page.shapes.filter(shape => shape.kind === 'lot').length + 1, price: options.copyPrice === true ? original.price : null, memo: original.memo })
-    resetLotLabelLayout(second)
+    const second = createShape(document, original.kind, secondPoints, {
+      ...original,
+      number: original.kind === 'lot' ? nextLotNumber(document) : undefined,
+      price: original.kind === 'lot' && options.copyPrice === true ? original.price : null,
+      memo: original.memo
+    })
+    resetShapeLabelLayout(second)
     const index = found.collection.indexOf(original)
     found.collection.splice(index, 1, first, second)
     return [first, second]
@@ -1143,10 +1233,10 @@
     const replacements = []
     for (const { shape, split } of candidates) {
       const first = createShape(document, 'lot', split[0], { ...shape, number: shape.number, price: options.copyPrice === true ? shape.price : null })
-      resetLotLabelLayout(first)
+      resetShapeLabelLayout(first)
       first.id = shape.id
       const second = createShape(document, 'lot', split[1], { ...shape, number: pageValue.shapes.filter(s => s.kind === 'lot').length + replacements.length + 1, price: options.copyPrice === true ? shape.price : null })
-      resetLotLabelLayout(second)
+      resetShapeLabelLayout(second)
       replacements.push({ shape, first, second })
     }
     for (const replacement of replacements) {
@@ -1156,26 +1246,26 @@
     renumberLots(document)
     return replacements.flatMap(value => [value.first, value.second])
   }
-  function applyLotPolylineSplit(document, id, polygons, options = {}) {
+  function applyShapePolylineSplit(document, id, polygons, options = {}) {
     const found = objectById(document, id)
-    if (!found || found.type !== 'shape' || found.object.kind !== 'lot' || !Array.isArray(polygons) || polygons.length !== 2) return null
+    if (!found || found.type !== 'shape' || !['lot', 'road', 'water'].includes(found.object.kind) || !Array.isArray(polygons) || polygons.length !== 2) return null
     const original = found.object
-    const price = options.copyPrice === true ? original.price : null
-    const first = createShape(document, 'lot', polygons[0], {
+    const price = original.kind === 'lot' && options.copyPrice === true ? original.price : null
+    const first = createShape(document, original.kind, polygons[0], {
       ...original,
-      number: original.number,
+      number: original.kind === 'lot' ? original.number : undefined,
       price,
       memo: original.memo
     })
-    resetLotLabelLayout(first)
+    resetShapeLabelLayout(first)
     first.id = original.id
-    const second = createShape(document, 'lot', polygons[1], {
+    const second = createShape(document, original.kind, polygons[1], {
       ...original,
-      number: found.page.shapes.filter(shape => shape.kind === 'lot').length + 1,
+      number: original.kind === 'lot' ? nextLotNumber(document) : undefined,
       price,
       memo: original.memo
     })
-    resetLotLabelLayout(second)
+    resetShapeLabelLayout(second)
     const index = found.collection.indexOf(original)
     if (index < 0) return null
     found.collection.splice(index, 1, first, second)
@@ -1183,18 +1273,20 @@
   }
   function splitShapeByPolyline(document, id, cutPoints, options = {}) {
     const found = objectById(document, id)
-    if (!found || found.type !== 'shape' || found.object.kind !== 'lot') return null
+    if (!found || found.type !== 'shape' || !['lot', 'road', 'water'].includes(found.object.kind)) return null
     const analysis = analyzePolygonSplitByPolyline(found.object.points, cutPoints, options)
     if (analysis.status !== 'split') return null
-    return applyLotPolylineSplit(document, id, analysis.polygons, options)
+    return applyShapePolylineSplit(document, id, analysis.polygons, options)
   }
   function splitAllLotsByPolyline(document, cutPoints, options = {}) {
     const pageValue = activePage(document)
     if (!pageValue) return null
     const cut = cleanOpenPolyline(cutPoints, Math.max(EPS * 10, finite(options.tolerance, 1e-5)))
     if (!simpleOpenPolyline(cut, Math.max(EPS * 10, finite(options.tolerance, 1e-5)))) return null
+    const requestedKinds = Array.isArray(options.kinds) && options.kinds.length ? options.kinds : ['lot']
+    const allowedKinds = new Set(requestedKinds.filter(kind => ['lot', 'road', 'water'].includes(kind)))
     const plans = []
-    for (const shape of pageValue.shapes.filter(value => value.kind === 'lot')) {
+    for (const shape of pageValue.shapes.filter(value => allowedKinds.has(value.kind))) {
       const analysis = analyzePolygonSplitByPolyline(shape.points, cut, options)
       if (analysis.status === 'invalid') return null
       if (analysis.status === 'split') plans.push({ id: shape.id, polygons: analysis.polygons })
@@ -1216,7 +1308,7 @@
     const replacements = []
     try {
       for (const plan of plans) {
-        const pair = applyLotPolylineSplit(draft, plan.id, plan.polygons, options)
+        const pair = applyShapePolylineSplit(draft, plan.id, plan.polygons, options)
         if (!pair) return null
         replacements.push(pair)
       }
@@ -1228,43 +1320,122 @@
     document.nextId = draft.nextId
     return replacements.flat()
   }
+  function convertShapeKind(document, id, targetKind) {
+    if (!['lot', 'road', 'water'].includes(targetKind)) return null
+    const found = objectById(document, id)
+    if (!found || found.type !== 'shape' || !['lot', 'road', 'water'].includes(found.object.kind)) return null
+    const source = found.object
+    if (source.kind === targetKind) return source
+    const preference = document.preferences?.[targetKind] || {}
+    const common = {
+      memo: source.memo,
+      visible: source.visible,
+      labelStyle: source.labelStyle,
+      dimensionStyle: source.dimensionStyle,
+      style: preference.style,
+      labelPosition: null
+    }
+    const attributes = targetKind === 'lot'
+      ? {
+          ...common,
+          number: nextLotNumber(document), label: '', topLabel: '', price: null,
+          visibility: {
+            label: true, number: true, topLabel: true,
+            area: preference.showArea !== false, tsubo: preference.showTsubo !== false,
+            price: true, memo: true, dimensions: preference.showLengths !== false,
+            approximate: false
+          }
+        }
+      : {
+          ...common,
+          label: targetKind === 'water' ? '水路' : '道路',
+          road: {
+            type: targetKind === 'water' ? 'water' : 'road',
+            name: targetKind === 'water' ? '水路' : '道路',
+            widthM: Number.isFinite(Number(preference.widthM)) ? Number(preference.widthM) : (targetKind === 'water' ? 0 : 4),
+            widthPrefix: targetKind === 'water' ? '水路幅 ' : '幅員 ',
+            widthLabelStyle: preference.widthLabelStyle
+          },
+          visibility: { label: true, number: false, topLabel: false, area: false, tsubo: false, price: false, memo: true, dimensions: false, width: true, approximate: false }
+        }
+    const converted = createShape(document, targetKind, source.points, attributes)
+    converted.id = source.id
+    resetShapeLabelLayout(converted)
+    const index = found.collection.indexOf(source)
+    if (index < 0) return null
+    found.collection.splice(index, 1, converted)
+    if (source.kind === 'lot' || targetKind === 'lot') renumberLots(document)
+    return converted
+  }
   function mergeLotShapes(document, firstId, secondId, options = {}) {
     const first = objectById(document, firstId)
     const second = objectById(document, secondId)
     if (!first || !second || first.page.id !== second.page.id || first.type !== 'shape' || second.type !== 'shape') return null
     const mergeKinds = new Set([first.object.kind, second.object.kind])
-    if (!mergeKinds.has('lot') || [...mergeKinds].some(kind => kind !== 'lot' && kind !== 'cutout')) return null
+    const sameKind = mergeKinds.size === 1 && ['lot', 'road', 'water'].includes(first.object.kind)
+    const lotCutout = mergeKinds.size === 2 && mergeKinds.has('lot') && mergeKinds.has('cutout')
+    if (!sameKind && !lotCutout) return null
+    if (lotCutout) {
+      const cutout = first.object.kind === 'cutout' ? first.object : second.object
+      const lot = first.object.kind === 'lot' ? first.object : second.object
+      if (cutout.parentShapeId === lot.id && Array.isArray(cutout.parentOriginalPoints) && cutout.parentOriginalPoints.length >= 3) {
+        return restoreCutout(document, cutout.id)
+      }
+    }
     const points = mergeAdjacentPolygons(first.object.points, second.object.points, finite(options.tolerance, 1e-3))
     if (!points) return null
-    const primary = first.object.kind === 'lot' ? first.object : second.object
+    const primary = lotCutout
+      ? (first.object.kind === 'lot' ? first.object : second.object)
+      : (options.primaryId === second.object.id ? second.object : first.object)
     const secondary = primary === first.object ? second.object : first.object
-    const merged = createShape(document, 'lot', points, {
+    const merged = createShape(document, primary.kind, points, {
       ...primary,
-      number: secondary.kind === 'lot'
+      number: primary.kind === 'lot' && secondary.kind === 'lot'
         ? Math.min(finite(primary.number, 1), finite(secondary.number, 1))
-        : finite(primary.number, 1),
-      price: secondary.kind === 'lot'
+        : (primary.kind === 'lot' ? finite(primary.number, 1) : undefined),
+      price: primary.kind === 'lot' && secondary.kind === 'lot'
         ? (options.price === 'sum' ? finite(primary.price) + finite(secondary.price) : null)
-        : (primary.price ?? null),
-      memo: secondary.kind === 'lot' ? [primary.memo, secondary.memo].filter(Boolean).join(' / ') : primary.memo
+        : (primary.kind === 'lot' ? (primary.price ?? null) : null),
+      memo: secondary.kind === primary.kind ? [primary.memo, secondary.memo].filter(Boolean).join(' / ') : primary.memo
     })
-    resetLotLabelLayout(merged)
+    resetShapeLabelLayout(merged)
     merged.id = primary.id
     first.page.shapes = first.page.shapes.filter(shape => shape.id !== firstId && shape.id !== secondId)
     first.page.shapes.push(merged)
-    renumberLots(document)
+    if (primary.kind === 'lot') renumberLots(document)
     return merged
   }
   function cutShapeCorner(document, id, vertexIndex, distanceWorld) {
     const found = objectById(document, id)
     if (!found || found.type !== 'shape' || found.object.kind !== 'lot') return null
+    const originalPoints = clone(found.object.points)
+    const originalEdges = clone(found.object.edges || [])
     const result = cornerCut(found.object.points, vertexIndex, distanceWorld)
     if (!result) return null
     found.object.points = result.polygon
     found.object.edges = edgeMetadata(document, result.polygon, found.object.edges)
-    const cutout = createShape(document, 'cutout', result.cutout, { label: '隅切り' })
+    const cutout = createShape(document, 'cutout', result.cutout, {
+      label: '隅切り',
+      parentShapeId: found.object.id,
+      parentOriginalPoints: originalPoints,
+      parentOriginalEdges: originalEdges,
+      visibility: { label: true, number: false, area: false, tsubo: false, price: false, memo: false, dimensions: true }
+    })
     found.page.shapes.push(cutout)
     return { lot: found.object, cutout, cutLength: result.cutLength }
+  }
+
+  function restoreCutout(document, cutoutId) {
+    const cutoutFound = objectById(document, cutoutId)
+    if (!cutoutFound || cutoutFound.type !== 'shape' || cutoutFound.object.kind !== 'cutout') return null
+    const cutout = cutoutFound.object
+    const parentFound = cutout.parentShapeId ? objectById(document, cutout.parentShapeId) : null
+    if (!parentFound || parentFound.type !== 'shape' || parentFound.page.id !== cutoutFound.page.id || parentFound.object.kind !== 'lot') return null
+    if (!Array.isArray(cutout.parentOriginalPoints) || !validPolygon(cutout.parentOriginalPoints)) return null
+    parentFound.object.points = cleanPoints(cutout.parentOriginalPoints)
+    parentFound.object.edges = edgeMetadata(document, parentFound.object.points, cutout.parentOriginalEdges || parentFound.object.edges)
+    cutoutFound.page.shapes = cutoutFound.page.shapes.filter(shape => shape.id !== cutout.id)
+    return parentFound.object
   }
 
   function objectSegments(object) {
@@ -1565,9 +1736,9 @@
     interpolate, normalizeAngle, rotatePoint, cleanPoints, polygonSignedArea, polygonArea, polygonCentroid, polylineLength,
     pointOnSegment, pointInPolygon, nearestPointOnSegment, segmentIntersection, polygonSelfIntersects, simplifyPolygon,
     validPolygon, splitPolygonByLine, splitPolygonByPolyline, analyzePolygonSplitByPolyline, mergeAdjacentPolygons, cornerCut, parallelLine, boundsOfPoints, unionBounds,
-    createPage, createDocument, normalizeDocument, activePage, ensurePage, setActivePage, allocId, edgeMetadata, createShape, createEntity, segmentMetadata, objectById,
+    createCalibration, createOutputLayout, createPage, createDocument, normalizeDocument, normalizeFontToken, activePage, ensurePage, setActivePage, allocId, edgeMetadata, createShape, createEntity, segmentMetadata, objectById,
     addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, duplicateObjects, nextLotNumber, renumberLots,
-    splitShape, splitAllLots, splitShapeByPolyline, splitAllLotsByPolyline, mergeLotShapes, cutShapeCorner, objectSegments, snapPoint, hitTestDocument,
+    splitShape, splitAllLots, splitShapeByPolyline, splitAllLotsByPolyline, convertShapeKind, mergeLotShapes, cutShapeCorner, restoreCutout, objectSegments, snapPoint, hitTestDocument,
     metersFromPixels, squareMetersFromPixels, squareMetersToTsubo, applyRounding, formatMeasurement,
     shapeMetrics, entityMetrics, registrySummary, documentBounds, DocumentStore, CommandSession
   })

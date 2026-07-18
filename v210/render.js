@@ -369,6 +369,7 @@
       this._cssHeight = 1;
       this._dpr = Math.max(1, finite(options.dpr, global.devicePixelRatio || 1));
       this._renderView = this.view;
+      this._fixedScale = 1;
       this._recordLabels = true;
       this._renderOptions = {};
       this._raf = 0;
@@ -487,6 +488,10 @@
       return finite(value, 0) / this._normalizedView(view).zoom;
     }
 
+    _screenWorld(value) {
+      return finite(value, 0) * Math.max(0.01, finite(this._fixedScale, 1)) / Math.max(0.0001, finite(this._renderView?.zoom, 1));
+    }
+
     getActivePage(documentModel = this.document) {
       return activePage(documentModel);
     }
@@ -518,6 +523,15 @@
         bounds = this._extendEntityBounds(bounds, entity, documentModel);
       }
       return bounds || { minX: 0, minY: 0, maxX: 1000, maxY: 700 };
+    }
+
+    computeObjectBounds(object, documentModel = this.document) {
+      if (!object) return null;
+      const points = normalizedPoints(object.points);
+      if (['lot', 'road', 'water', 'cutout'].includes(object.kind) && points.length) {
+        return points.reduce((bounds, vertex) => extendBounds(bounds, vertex.x, vertex.y), null);
+      }
+      return this._extendEntityBounds(null, object, documentModel);
     }
 
     calculateFitView(target = this.document, options = {}) {
@@ -684,6 +698,7 @@
       const width = Math.max(1, finite(size.width, 1));
       const height = Math.max(1, finite(size.height, 1));
       this._renderView = this._normalizedView(view);
+      this._fixedScale = Math.max(0.01, finite(options.fixedScale, 1));
       this._recordLabels = options.recordLabels !== false;
       this._renderOptions = options;
       try {
@@ -846,8 +861,8 @@
       }
       context.globalAlpha = state.preview ? 0.72 : 1;
       context.strokeStyle = style.stroke || base.stroke;
-      context.lineWidth = Math.max(0.45, finite(style.lineWidth, base.lineWidth)) / zoom;
-      context.setLineDash(lineDash(style.lineStyle, 1 / zoom));
+      context.lineWidth = this._screenWorld(Math.max(0.45, finite(style.lineWidth, base.lineWidth)));
+      context.setLineDash(lineDash(style.lineStyle, this._screenWorld(1)));
       if (!isArea && (shape.kind === 'road' || shape.kind === 'water')) {
         const mpp = Math.max(0, finite(documentModel?.calibration?.mpp, 0));
         const widthMeters = finite(shape.road?.widthM ?? shape.road?.width ?? shape.width, 0);
@@ -879,9 +894,9 @@
       for (let index = 1; index < points.length; index += 1) context.lineTo(points[index].x, points[index].y);
       context.closePath();
       context.clip();
-      const step = 10 / zoom;
+      const step = this._screenWorld(10);
       context.strokeStyle = colorWithAlpha(style.stroke || DEFAULTS.cutout.stroke, 0.34);
-      context.lineWidth = 0.65 / zoom;
+      context.lineWidth = this._screenWorld(0.65);
       for (let offset = bounds.minX - (bounds.maxY - bounds.minY); offset < bounds.maxX; offset += step) {
         context.beginPath();
         context.moveTo(offset, bounds.maxY);
@@ -892,7 +907,6 @@
     }
 
     _shapeShowsDimensions(shape) {
-      if (shape?.kind === 'road' || shape?.kind === 'water') return false;
       const visibility = shape.visibility || {};
       return visibility.dimensions === true || visibility.dimension === true || shape.showLengths === true;
     }
@@ -920,7 +934,7 @@
 
     _drawShapeLabel(context, shape, documentModel, state = {}) {
       if (shape.kind === 'road' || shape.kind === 'water') {
-        this._drawRoadLabels(context, shape, state);
+        this._drawRoadLabels(context, shape, documentModel, state);
         return;
       }
       const lines = this._shapeLabelLines(shape, documentModel);
@@ -974,8 +988,9 @@
         ? Number(shape.area)
         : (mpp > 0 ? polygonArea(shape.points) * mpp * mpp : null);
       const approx = shape.approximate || shape.yaku || shape.dimensionStyle?.approximate;
-      const areaDigits = clamp(Math.round(finite(shape.areaDigits ?? shape.decimals, 2)), 0, 3);
-      const tsuboDigits = clamp(Math.round(finite(shape.tsuboDigits, 2)), 0, 3);
+      const areaDigits = clamp(Math.round(finite(shape.areaDigits ?? shape.decimals ?? shape.dimensionStyle?.decimals, 2)), 0, 3);
+      const tsuboDigits = clamp(Math.round(finite(shape.tsuboDigits ?? shape.dimensionStyle?.decimals, 2)), 0, 3);
+      const metricFormat = { ...(shape.dimensionStyle || {}), adjustment: 0 };
       const inheritedSize = clamp(finite(primaryStyle?.size ?? primaryStyle?.fontSize, DEFAULTS.label.size), 4, 144);
       const metricSize = clamp(inheritedSize * 0.8, 8, 32);
       const primaryHeight = primaryLines.length ? finite(primaryBox?.height, primaryLines.length * inheritedSize * 1.18) : 0;
@@ -983,13 +998,13 @@
         {
           property: 'areaLabel', legacyPosition: shape.areaLabelPosition,
           visible: metricLabelIsVisible(shape, 'area'),
-          automaticText: areaSquareMeters == null ? null : `${approx ? '約' : ''}${formatNumber(areaSquareMeters, areaDigits)}㎡`,
+          automaticText: areaSquareMeters == null ? null : `${approx ? '約' : ''}${formatMeasuredValue(areaSquareMeters, { ...metricFormat, decimals: areaDigits, digits: areaDigits })}㎡`,
           kind: 'shape-area-label', key: 'area', id: `shape-area-label:${shape.id}`,
         },
         {
           property: 'tsuboLabel', legacyPosition: shape.tsuboLabelPosition,
           visible: metricLabelIsVisible(shape, 'tsubo'),
-          automaticText: areaSquareMeters == null ? null : `${formatNumber(areaSquareMeters / K.TSUBO_M2, tsuboDigits)}坪`,
+          automaticText: areaSquareMeters == null ? null : `${approx ? '約' : ''}${formatMeasuredValue(areaSquareMeters / K.TSUBO_M2, { ...metricFormat, decimals: tsuboDigits, digits: tsuboDigits })}坪`,
           kind: 'shape-tsubo-label', key: 'tsubo', id: `shape-tsubo-label:${shape.id}`,
         },
       ];
@@ -1031,7 +1046,7 @@
       }
     }
 
-    _drawRoadLabels(context, shape, state = {}) {
+    _drawRoadLabels(context, shape, documentModel, state = {}) {
       const visibility = shape.visibility || {};
       const center = polygonInteriorAnchor(shape.points);
       const road = shape.road || {};
@@ -1041,8 +1056,9 @@
         x: finite(nameStyle.x, center.x + finite(nameStyle.offsetX, 0)),
         y: finite(nameStyle.y, center.y + finite(nameStyle.offsetY, 0)),
       });
+      let nameBox = null;
       if (visibility.label !== false && name) {
-        this._drawTextBlock(context, nameAnchor, String(name), {
+        nameBox = this._drawTextBlock(context, nameAnchor, String(name), {
           ...nameStyle,
           color: state.preview ? colorWithAlpha(nameStyle.color || DEFAULTS.label.color, 0.72) : nameStyle.color,
         }, {
@@ -1054,7 +1070,8 @@
       }
 
       const width = finite(road.widthM ?? road.width, 0);
-      if (visibility.width === false || width <= 0) return;
+      let widthText = '';
+      if (visibility.width !== false && width > 0) {
       const widthStyle = mergeStyle({ ...DEFAULTS.label, size: 10, fontSize: 10 }, shape.widthLabelStyle, road.widthLabelStyle);
       // 道路名を縦書きにしたときは、幅員も同じ向きへそろえる。
       // 過去データは幅員側に vertical を持たないため、道路名の設定を継承する。
@@ -1064,7 +1081,7 @@
         x: center.x + finite(road.widthLabelOffset?.x, 0),
         y: center.y + finite(road.widthLabelOffset?.y, hasWidthOffset ? 0 : 26),
       });
-      const widthText = typeof road.widthText === 'string' && road.widthText.trim()
+      widthText = typeof road.widthText === 'string' && road.widthText.trim()
         ? road.widthText
         : `${road.widthPrefix == null ? '幅員 ' : String(road.widthPrefix)}${formatNumber(width, finite(road.widthDigits, 1))}${road.widthUnit === false ? '' : (road.widthUnit || 'm')}`;
       this._drawTextBlock(context, widthAnchor, widthText, {
@@ -1076,6 +1093,17 @@
         kind: 'shape-road-width',
         key: 'road-width',
       });
+      }
+      this._drawLotMetricLabels(
+        context,
+        shape,
+        documentModel,
+        state,
+        nameAnchor,
+        [visibility.label !== false && name ? String(name) : '', widthText].filter(Boolean),
+        nameStyle,
+        nameBox,
+      );
     }
 
     _drawShapeDimensions(context, shape, documentModel, state = {}) {
@@ -1201,12 +1229,11 @@
     }
 
     _applyStroke(context, style) {
-      const zoom = this._renderView.zoom;
       context.strokeStyle = style.color || DEFAULTS.entity.color;
-      context.lineWidth = Math.max(0.4, finite(style.lineWidth, DEFAULTS.entity.lineWidth)) / zoom;
+      context.lineWidth = this._screenWorld(Math.max(0.4, finite(style.lineWidth, DEFAULTS.entity.lineWidth)));
       context.lineCap = style.lineCap || 'round';
       context.lineJoin = style.lineJoin || 'round';
-      context.setLineDash(lineDash(style.lineStyle, 1 / zoom));
+      context.setLineDash(lineDash(style.lineStyle, this._screenWorld(1)));
     }
 
     _drawPath(context, points, style, close = false, fill = false) {
@@ -1226,7 +1253,7 @@
     }
 
     _drawEndpoint(context, target, style, radiusPx = 1.7) {
-      const radius = radiusPx / this._renderView.zoom;
+      const radius = this._screenWorld(radiusPx);
       context.save();
       context.beginPath();
       context.arc(target.x, target.y, radius, 0, TAU);
@@ -1237,7 +1264,7 @@
 
     _drawArrowHead(context, from, to, style, sizePx = 8) {
       const angle = Math.atan2(to.y - from.y, to.x - from.x);
-      const length = sizePx / this._renderView.zoom;
+      const length = this._screenWorld(sizePx);
       const spread = Math.PI / 7;
       context.save();
       context.beginPath();
@@ -1597,12 +1624,14 @@
         context.save();
         context.clip();
         context.strokeStyle = colorWithAlpha(style.hatchColor || style.stroke || style.color, 0.32);
-        context.lineWidth = 0.6 / this._renderView.zoom;
-        const step = 9 / this._renderView.zoom;
-        for (let offset = -dimensions.width - dimensions.height; offset < dimensions.width; offset += step) {
+        context.lineWidth = this._screenWorld(0.6);
+        const step = this._screenWorld(clamp(finite(entity.options?.hatchSpacing, 9), 2, 40));
+        const extent = Math.hypot(dimensions.width, dimensions.height);
+        context.rotate(radians(finite(entity.options?.hatchAngle, 45)));
+        for (let offset = -extent; offset <= extent; offset += step) {
           context.beginPath();
-          context.moveTo(offset, dimensions.height / 2);
-          context.lineTo(offset + dimensions.height, -dimensions.height / 2);
+          context.moveTo(-extent, offset);
+          context.lineTo(extent, offset);
           context.stroke();
         }
         context.restore();
@@ -1667,7 +1696,7 @@
       const headerHeight = Math.max(14, finite(entity.headerHeight, 23)) * tableScale;
       const width = columns.reduce((sum, column) => sum + column.width, 0);
       const height = titleHeight + headerHeight + rowHeight * (Math.max(1, lots.length) + 1);
-      const fontSize = clamp(finite(entity.fontSize, 10.5), 7, 20) * tableScale;
+      const fontSize = clamp(finite(entity.fontSize ?? entity.textStyle?.fontSize ?? style.fontSize, 10.5), 7, 60) * tableScale;
       const mpp = Math.max(0, finite(documentModel?.calibration?.mpp, 0));
       context.save();
       context.translate(anchor.x, anchor.y);
@@ -1675,7 +1704,7 @@
       context.fillStyle = entity.background || 'rgba(255,255,255,0.94)';
       context.fillRect(0, 0, width, height);
       context.strokeStyle = style.color;
-      context.lineWidth = 0.75;
+      context.lineWidth = clamp(finite(style.lineWidth, 0.75), 0.5, 5);
       context.strokeRect(0, 0, width, height);
       let y = 0;
       context.textBaseline = 'middle';
@@ -1795,7 +1824,7 @@
         const length = distance(start, end);
         if (length > 1e-7) {
           const direction = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
-          const extension = Math.max(length * 4, 600 / Math.max(0.005, this._renderView.zoom));
+          const extension = Math.max(length * 4, this._screenWorld(600));
           points = [
             { x: start.x - direction.x * extension, y: start.y - direction.y * extension },
             { x: end.x + direction.x * extension, y: end.y + direction.y * extension },
@@ -1808,10 +1837,10 @@
         const start = points[0];
         const end = points[points.length - 1];
         const divisions = clamp(Math.round(finite(entity.options?.divisions, 2)), 2, 20);
-        const markerSize = 3.25 / this._renderView.zoom;
+        const markerSize = this._screenWorld(3.25);
         context.save();
         context.strokeStyle = style.color;
-        context.lineWidth = Math.max(0.65, finite(style.lineWidth, 0.9)) / this._renderView.zoom;
+        context.lineWidth = this._screenWorld(Math.max(0.65, finite(style.lineWidth, 0.9)));
         context.setLineDash([]);
         for (let index = 1; index < divisions; index += 1) {
           const marker = {
@@ -1834,14 +1863,15 @@
       const style = mergeStyle(DEFAULTS.label, styleValue);
       const zoom = this._renderView.zoom;
       const screenFixed = style.screenFixed === true && style.worldSize !== true;
-      const size = clamp(finite(style.size ?? style.fontSize, 12), 4, 144) / (screenFixed ? zoom : 1);
+      const fixedWorld = screenFixed ? Math.max(0.01, finite(this._fixedScale, 1)) / zoom : 1;
+      const size = clamp(finite(style.size ?? style.fontSize, 12), 4, 144) * fixedWorld;
       const family = fontFamily(style.fontFamily || style.font);
       const weight = style.fontWeight || style.weight || 500;
       const italic = style.italic ? 'italic ' : '';
       const lineHeight = size * clamp(finite(style.lineHeight, 1.18), 0.8, 2.5);
       const lines = Array.isArray(content) ? content.map(String) : String(content ?? '').split(/\r?\n/);
       const vertical = style.vertical === true;
-      const padding = Math.max(0, finite(style.padding, 0)) / (screenFixed ? zoom : 1);
+      const padding = Math.max(0, finite(style.padding, 0)) * fixedWorld;
       context.save();
       context.font = `${italic}${weight} ${size}px ${family}`;
       context.textBaseline = 'middle';
@@ -1868,8 +1898,8 @@
       const hasFrame = style.frame === true || ['box', 'frame', 'border', '枠'].includes(boxStyle);
       if (hasFrame || style.borderColor || finite(style.borderWidth, 0) > 0) {
         context.strokeStyle = style.borderColor || style.color || DEFAULTS.label.color;
-        context.lineWidth = Math.max(0.5, finite(style.borderWidth, 0.75)) / (screenFixed ? zoom : 1);
-        context.setLineDash(lineDash(style.borderStyle, screenFixed ? 1 / zoom : 1));
+        context.lineWidth = Math.max(0.5, finite(style.borderWidth, 0.75)) * fixedWorld;
+        context.setLineDash(lineDash(style.borderStyle, fixedWorld));
         context.strokeRect(localX, localY, boxWidth, boxHeight);
       }
       context.fillStyle = style.color || DEFAULTS.label.color;
@@ -1896,7 +1926,7 @@
       if (style.underline === true || ['underline', '下線'].includes(boxStyle)) {
         context.beginPath();
         context.strokeStyle = style.color || DEFAULTS.label.color;
-        context.lineWidth = Math.max(0.6, finite(style.underlineWidth, 0.9)) / (screenFixed ? zoom : 1);
+        context.lineWidth = Math.max(0.6, finite(style.underlineWidth, 0.9)) * fixedWorld;
         context.moveTo(localX + padding, localY + boxHeight - Math.max(0.5, padding * 0.45));
         context.lineTo(localX + boxWidth - padding, localY + boxHeight - Math.max(0.5, padding * 0.45));
         context.stroke();
@@ -1986,6 +2016,23 @@
           const edgeId = String(overlay.edgeSelectionGuide.id);
           const shape = replacementMap.get(edgeId) || shapes.find((item) => String(item?.id) === edgeId);
           if (shape) this._drawEdgeSelectionGuide(context, shape, overlay.edgeSelectionGuide.index, overlay.edgeSelectionGuide);
+        }
+        if (overlay.marquee?.start && overlay.marquee?.end) {
+          const start = point(overlay.marquee.start);
+          const end = point(overlay.marquee.end);
+          const x = Math.min(start.x, end.x);
+          const y = Math.min(start.y, end.y);
+          const width = Math.abs(end.x - start.x);
+          const height = Math.abs(end.y - start.y);
+          const zoom = Math.max(0.005, this._renderView.zoom);
+          context.save();
+          context.fillStyle = 'rgba(22,119,210,0.10)';
+          context.strokeStyle = this.theme.selection;
+          context.lineWidth = 1.25 / zoom;
+          context.setLineDash([6 / zoom, 3 / zoom]);
+          context.fillRect(x, y, width, height);
+          context.strokeRect(x, y, width, height);
+          context.restore();
         }
       }
       if (options.includePreview) {
@@ -2323,9 +2370,14 @@
         bounds = extendBounds(bounds, anchor.x + halfDiagonal, anchor.y + halfDiagonal);
       } else if (entity.kind === 'lot-table') {
         const columns = Array.isArray(entity.columns) && entity.columns.length ? entity.columns : this._defaultLotTableColumns(entity);
-        const width = finite(entity.worldWidth, columns.reduce((sum, column) => sum + finite(column.width, 70), 0));
-        const height = finite(entity.worldHeight, 80 + finite(entity.rowHeight, 24) * 5);
-        bounds = extendBounds(bounds, anchor.x + width, anchor.y + height);
+        const tableScale = clamp(finite(entity.scale ?? entity.options?.scale ?? entity.worldScale, 1), 0.3, 5);
+        const width = finite(entity.worldWidth, columns.reduce((sum, column) => sum + finite(column.width, 70), 0) * tableScale);
+        const height = finite(entity.worldHeight, (80 + finite(entity.rowHeight, 24) * 5) * tableScale);
+        const angle = radians(entity.rotation ?? entity.angle);
+        for (const corner of [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }]) {
+          const rotated = rotatePoint(corner, angle);
+          bounds = extendBounds(bounds, anchor.x + rotated.x, anchor.y + rotated.y);
+        }
       } else if (entity.kind === 'north') {
         const scale = clamp(finite(entity.stampScale ?? entity.options?.scale, 1), 0.2, 5);
         const size = finite(entity.worldSize, finite(entity.size, 54)) * scale;

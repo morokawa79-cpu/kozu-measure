@@ -4,7 +4,7 @@
 
 ## 現在の版
 
-- バージョン: 2.1.0-alpha.8
+- バージョン: 2.1.0-alpha.9
 - 対応OS: Windows 64bit
 - 実行基盤: Electron
 

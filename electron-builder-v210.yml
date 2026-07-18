@@ -40,7 +40,7 @@ nsis:
   createStartMenuShortcut: true
   artifactName: kozu-measure-v210-Setup-${version}-${arch}.${ext}
   shortcutName: 土地区画作成工房 v2.1
-  uninstallDisplayName: 土地区画作成工房 v2.1.0-alpha.8
+  uninstallDisplayName: 土地区画作成工房 v2.1.0-alpha.9
   deleteAppDataOnUninstall: false
   installerLanguages:
     - ja

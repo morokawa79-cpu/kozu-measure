@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('kozuDesktop', {
   },
   respondClose(action) { ipcRenderer.send('app-close-response', action) },
   notifySaveComplete(success) { ipcRenderer.send('app-save-complete', Boolean(success)) },
+  openProject() { return ipcRenderer.invoke('open-project-v210') },
   saveProjectBeforeClose(payload) { return ipcRenderer.invoke('save-project-before-close', payload) },
   saveProject(payload) { return ipcRenderer.invoke('save-project-v210', payload) },
   exportPng(payload) { return ipcRenderer.invoke('export-png-v210', payload) },

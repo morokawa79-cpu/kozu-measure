@@ -1178,6 +1178,8 @@ body[data-workspace="output"] [data-workspace-target="output"] {
 .sheet-button.danger { color: #fff; border-color: var(--danger-dark); background: var(--danger); }
 .sheet-button.primary:hover:not(:disabled) { color: #fff; border-color: var(--active-dark); background: #1a68b8; }
 .sheet-button.danger:hover:not(:disabled) { color: #fff; border-color: var(--danger-dark); background: #b82b2b; }
+.sheet-button.active,
+.sheet-button[aria-pressed="true"] { color: #fff; border-color: var(--active-dark); background: var(--active); }
 .sheet-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
@@ -1575,6 +1577,44 @@ body[data-workspace="output"] [data-workspace-target="output"] {
 .paper-scale-summary span,
 .paper-scale-summary small { color: #5c6672; font-size: 10px; }
 .paper-scale-summary strong { color: #172033; font-size: 13px; }
+.paper-output-readiness {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #d2a53a;
+  background: #fff8df;
+  color: #6d4d00;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.paper-output-readiness[data-state="ready"] {
+  border-color: #7eaa8a;
+  background: #edf8f0;
+  color: #205d32;
+}
+.paper-fit-status {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid #cbd3dc;
+  background: #f7f9fb;
+  color: #53606d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.paper-fit-status[data-state="fit"] {
+  border-color: #9bc8a8;
+  background: #eef8f1;
+  color: #215d36;
+}
+.paper-fit-status[data-state="small"] {
+  border-color: #d8bd6c;
+  background: #fff9e7;
+  color: #705515;
+}
+.paper-fit-status[data-state="overflow"] {
+  border-color: #d79b96;
+  background: #fff0ef;
+  color: #8a2f28;
+}
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1601,6 +1641,8 @@ body[data-workspace="output"] [data-workspace-target="output"] {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
   image-rendering: auto;
 }
+#output-preview-canvas.placement-enabled { cursor: grab; touch-action: none; }
+#output-preview-canvas.is-dragging { cursor: grabbing; }
 
 .wide-card {
   width: min(720px, 100%);

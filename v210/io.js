@@ -3,7 +3,7 @@
 
   const K = global.KozuV210 = global.KozuV210 || {};
   const FORMAT = 'kozu-measure';
-  const PROJECT_VERSION = 5;
+  const PROJECT_VERSION = 6;
   const APP_VERSION = '2.1.0-alpha.8';
   const PDF_WORKER_SRC = 'vendor/pdf.worker.min.js';
   // 300dpi出力時にも下絵PDFが拡大ぼけしない解像度（72dpi × 4.2 ≒ 302dpi）。
@@ -152,9 +152,16 @@
         date: timestamp.slice(0, 10),
         author: '',
         showFrame: true,
+        showTitleFrame: true,
+        includeUnderlay: true,
       },
+      outputDefaults: { paperSize: 'A4', orientation: 'landscape', printScale: null, offsetMmX: 0, offsetMmY: 0, showFrame: true, showTitleFrame: true, includeUnderlay: true, includeGuides: false, initialized: false },
       preferences: { snap: { vertex: true, intersection: true, edge: true, grid: false, gridSize: 10 } },
-      pages: [{ id: 'page-1', name: '図面 1', sourcePage: 1, calibration: null, shapes: [], entities: [] }],
+      pages: [{
+        id: 'page-1', name: '図面 1', sourcePage: 1, calibration: null,
+        outputLayout: { paperSize: 'A4', orientation: 'landscape', printScale: null, offsetMmX: 0, offsetMmY: 0, showFrame: true, showTitleFrame: true, includeUnderlay: true, includeGuides: false, initialized: false },
+        shapes: [], entities: []
+      }],
       activePageId: 'page-1',
       nextId: 1,
     };
@@ -199,6 +206,25 @@
     return result;
   }
 
+  function normalizedOutputLayout(value, paper = {}) {
+    if (typeof K.createOutputLayout === 'function') return K.createOutputLayout(value || {}, paper);
+    const source = isObject(value) ? value : {};
+    const requestedSize = source.paperSize ?? source.size;
+    const printScale = positiveOrNull(source.printScale);
+    return {
+      paperSize: requestedSize === 'A3' ? 'A3' : requestedSize === 'A4' ? 'A4' : paper.size === 'A3' ? 'A3' : 'A4',
+      orientation: source.orientation === 'portrait' ? 'portrait' : source.orientation === 'landscape' ? 'landscape' : paper.orientation === 'portrait' ? 'portrait' : 'landscape',
+      printScale,
+      offsetMmX: finiteOr(source.offsetMmX, 0),
+      offsetMmY: finiteOr(source.offsetMmY, 0),
+      showFrame: typeof source.showFrame === 'boolean' ? source.showFrame : paper.showFrame !== false,
+      showTitleFrame: typeof source.showTitleFrame === 'boolean' ? source.showTitleFrame : paper.showTitleFrame !== false,
+      includeUnderlay: typeof source.includeUnderlay === 'boolean' ? source.includeUnderlay : paper.includeUnderlay !== false,
+      includeGuides: source.includeGuides === true,
+      initialized: source.initialized === true,
+    };
+  }
+
   function mergeFreshDocument(source) {
     const fresh = createFreshDocument();
     const clean = cleanSerializable(source) || {};
@@ -208,10 +234,14 @@
       name: stringOr(page?.name, `図面 ${index + 1}`),
       sourcePage: integerInRange(page?.sourcePage, index + 1, 1, 100_000),
       calibration: isObject(page?.calibration) ? page.calibration : null,
+      outputLayout: isObject(page?.outputLayout) ? page.outputLayout : null,
       shapes: Array.isArray(page?.shapes) ? page.shapes : [],
       entities: Array.isArray(page?.entities) ? page.entities : [],
     }));
-    if (pages.length === 0) pages.push({ id: 'page-1', name: '図面 1', sourcePage: 1, calibration: null, shapes: [], entities: [] });
+    if (pages.length === 0) pages.push({
+      id: 'page-1', name: '図面 1', sourcePage: 1, calibration: null,
+      outputLayout: null, shapes: [], entities: []
+    });
 
     const result = {
       format: FORMAT,
@@ -226,6 +256,7 @@
       background: { ...fresh.background, ...(isObject(clean.background) ? clean.background : {}) },
       calibration: { ...fresh.calibration, ...(isObject(clean.calibration) ? clean.calibration : {}) },
       paper: { ...fresh.paper, ...(isObject(clean.paper) ? clean.paper : {}) },
+      outputDefaults: normalizedOutputLayout(clean.outputDefaults || fresh.outputDefaults, clean.paper || fresh.paper),
       preferences: { ...fresh.preferences, ...(isObject(clean.preferences) ? clean.preferences : {}) },
       nextId: clean.nextId ?? fresh.nextId,
     };
@@ -234,6 +265,7 @@
     result.background.currentPage = integerInRange(result.background.currentPage, 1, 1, Math.max(1, result.background.pageCount));
     result.background.metadata = isObject(result.background.metadata) ? result.background.metadata : {};
     result.background.imageRotation = normalizedQuarterTurn(result.background.imageRotation);
+    result.pages = result.pages.map(page => ({ ...page, outputLayout: normalizedOutputLayout(page.outputLayout, result.paper) }));
     return result;
   }
 
@@ -743,6 +775,12 @@
       }
     }
     if (!isObject(documentValue.preferences)) errors.push('document.preferences: オブジェクトではありません');
+    if (!isObject(documentValue.outputDefaults)) errors.push('document.outputDefaults: オブジェクトではありません');
+    else {
+      if (!PAPER_SIZES.has(documentValue.outputDefaults.paperSize)) errors.push('document.outputDefaults.paperSize: 未対応です');
+      if (!PAPER_ORIENTATIONS.has(documentValue.outputDefaults.orientation)) errors.push('document.outputDefaults.orientation: 未対応です');
+      if (documentValue.outputDefaults.printScale !== null && (!isFiniteNumber(documentValue.outputDefaults.printScale) || documentValue.outputDefaults.printScale <= 0)) errors.push('document.outputDefaults.printScale: nullまたは正の有限数ではありません');
+    }
     if (!Number.isSafeInteger(documentValue.nextId) || documentValue.nextId < 1) errors.push('document.nextId: 1以上の整数ではありません');
     if (!Array.isArray(documentValue.pages) || documentValue.pages.length === 0) errors.push('document.pages: 1ページ以上必要です');
 
@@ -770,6 +808,14 @@
       if (page.calibration !== null && page.calibration !== undefined) {
         if (!isObject(page.calibration)) errors.push(`${pagePath}.calibration: nullまたはオブジェクトではありません`);
         else if (Array.isArray(page.calibration.points)) page.calibration.points.forEach((point, pointIndex) => validatePoint(point, `${pagePath}.calibration.points[${pointIndex}]`, errors));
+      }
+      if (!isObject(page.outputLayout)) errors.push(`${pagePath}.outputLayout: オブジェクトではありません`);
+      else {
+        if (!PAPER_SIZES.has(page.outputLayout.paperSize)) errors.push(`${pagePath}.outputLayout.paperSize: 未対応です`);
+        if (!PAPER_ORIENTATIONS.has(page.outputLayout.orientation)) errors.push(`${pagePath}.outputLayout.orientation: 未対応です`);
+        if (page.outputLayout.printScale !== null && (!isFiniteNumber(page.outputLayout.printScale) || page.outputLayout.printScale <= 0)) errors.push(`${pagePath}.outputLayout.printScale: nullまたは正の有限数ではありません`);
+        for (const key of ['offsetMmX', 'offsetMmY']) if (!isFiniteNumber(page.outputLayout[key])) errors.push(`${pagePath}.outputLayout.${key}: 有限数ではありません`);
+        for (const key of ['showFrame', 'showTitleFrame', 'includeUnderlay', 'includeGuides', 'initialized']) if (typeof page.outputLayout[key] !== 'boolean') errors.push(`${pagePath}.outputLayout.${key}: 真偽値ではありません`);
       }
       if (!Array.isArray(page.shapes)) errors.push(`${pagePath}.shapes: 配列ではありません`);
       else page.shapes.forEach((shape, shapeIndex) => {
@@ -910,6 +956,49 @@
       divguide: 'guide',
     };
     return mapping[value] || (ENTITY_KINDS.has(value) ? value : null);
+  }
+
+  function migrateV5(raw) {
+    if (!isObject(raw)) throw new ProjectValidationError(['v5 project: オブジェクトではありません']);
+    const wrapper = cloneValue(raw);
+    const documentValue = cloneValue(extractDocumentCandidate(wrapper));
+    const paper = isObject(documentValue.paper) ? documentValue.paper : {};
+    const activePageId = documentValue.activePageId;
+    const pages = Array.isArray(documentValue.pages) ? documentValue.pages : [];
+    documentValue.schemaVersion = PROJECT_VERSION;
+    documentValue.outputDefaults = normalizedOutputLayout(documentValue.outputDefaults || {
+      paperSize: paper.size, orientation: paper.orientation, printScale: null,
+      showFrame: paper.showFrame !== false, showTitleFrame: paper.showTitleFrame !== false,
+      includeUnderlay: paper.includeUnderlay !== false, includeGuides: false, initialized: false,
+      offsetMmX: 0, offsetMmY: 0,
+    }, paper);
+    documentValue.pages = pages.map((page, index) => {
+      const pageCalibration = isObject(page?.calibration)
+        ? page.calibration
+        : page?.id === activePageId && isObject(documentValue.calibration) ? documentValue.calibration : {};
+      const existingLayout = isObject(page?.outputLayout) ? page.outputLayout : null;
+      const migratedLayout = existingLayout || {
+        paperSize: paper.size,
+        orientation: paper.orientation,
+        printScale: positiveOrNull(pageCalibration.mapScale),
+        offsetMmX: 0,
+        offsetMmY: 0,
+        showFrame: paper.showFrame !== false,
+        showTitleFrame: paper.showTitleFrame !== false,
+        includeUnderlay: paper.includeUnderlay !== false,
+        includeGuides: false,
+        initialized: false,
+      };
+      return { ...page, outputLayout: normalizedOutputLayout(migratedLayout, paper), sourcePage: integerInRange(page?.sourcePage, index + 1, 1, 100_000) };
+    });
+    const normalized = normalizeDocument(documentValue);
+    return {
+      document: normalized,
+      view: normalizedView(wrapper.view),
+      meta: { ...(isObject(wrapper.meta) ? wrapper.meta : {}), name: stringOr(wrapper.meta?.name, '') },
+      migratedFrom: 5,
+      warnings: ['旧版で「用紙中央へ」を実行済みの場合、移動前の作図座標は保存されていないため自動復元できません。'],
+    };
   }
 
   function migrateLegacyV3(raw) {
@@ -1346,6 +1435,7 @@
       background: normalized.background,
       calibration: normalized.calibration,
       paper: normalized.paper,
+      outputDefaults: normalized.outputDefaults,
       preferences: normalized.preferences,
       nextId: normalized.nextId,
     });
@@ -1389,6 +1479,13 @@
     catch (error) { throw new ProjectValidationError([`JSONを解析できません: ${error.message}`]); }
     if (!isObject(raw)) throw new ProjectValidationError(['project: オブジェクトではありません']);
     const version = Number(raw.version ?? raw.schemaVersion ?? raw.document?.schemaVersion);
+    if (version === 5) {
+      if (options.allowLegacy === false) throw new ProjectValidationError(['v5形式の読込は無効です']);
+      const migrated = migrateV5(raw);
+      const check = validateDocument(migrated.document);
+      if (!check.valid) throw new ProjectValidationError(check.errors);
+      return migrated;
+    }
     if (version === 3 || version === 4 || (version === 0 && (raw.lots || raw.items || raw.texts))) {
       if (options.allowLegacy === false) throw new ProjectValidationError(['旧形式の読込は無効です']);
       const migrated = migrateLegacyV3(raw);
@@ -1611,6 +1708,7 @@ img { display:block; width:100%; height:100%; object-fit:contain; image-renderin
     validateDocument,
     validateProject,
     migrateLegacyV3,
+    migrateV5,
     serializeProject,
     deserializeProject,
     importProject: deserializeProject,

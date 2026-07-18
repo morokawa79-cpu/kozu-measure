@@ -19,7 +19,7 @@ const screenshotDir = path.join(root, 'qa-v210-screens')
 
 if (!process.versions.electron) {
   const electronBinary = require('electron')
-  const child = spawnSync(electronBinary, [__filename, '--electron-child'], {
+  const child = spawnSync(electronBinary, ['--disable-gpu', __filename, '--electron-child'], {
     cwd: root,
     stdio: 'inherit',
     windowsHide: true,
@@ -35,12 +35,14 @@ if (!process.versions.electron) {
 
 async function runElectronSuite() {
   const { app, BrowserWindow } = require('electron')
+  app.disableHardwareAcceleration()
   const tempRoot = path.join(os.tmpdir(), `kozu-v210-qa-${process.pid}-${Date.now()}`)
   fs.mkdirSync(tempRoot, { recursive: true })
   fs.mkdirSync(screenshotDir, { recursive: true })
   app.setPath('userData', path.join(tempRoot, 'userData'))
   app.setPath('sessionData', path.join(tempRoot, 'sessionData'))
   app.commandLine.appendSwitch('disable-http-cache')
+  app.commandLine.appendSwitch('disable-gpu')
 
   const checks = []
   const consoleErrors = []
@@ -88,6 +90,9 @@ async function runElectronSuite() {
   try {
     await win.loadFile(path.join(root, 'index-v210.html'))
     await waitForReady(win)
+
+    const physicalPdf = await verifyPhysicalPdfMediaBoxes(BrowserWindow)
+    add('electron-pdf-mediabox-matches-a4-and-a3-landscape', physicalPdf.pass, physicalPdf)
 
     dynamic = await win.webContents.executeJavaScript(`(${rendererSuite.toString()})()`, true)
     for (const check of dynamic.checks || []) add(check.name, check.pass, check.details)
@@ -194,7 +199,7 @@ async function runElectronSuite() {
       const api=window.__KOZU_V210__;
       const names=[
         'underlay-open','underlay-replace','underlay-page','underlay-transform','calibrate','paper-blank',
-        'select','move','move-all','vertex-edit','label-edit','copy','delete','lot-draw','road-draw',
+        'select','move','move-all','vertex-edit','copy','delete','lot-draw','road-draw',
         'split','split-all','merge','corner-cut','division-guide','lot-division-guide','parallel-guide',
         'distance','polyline','area','line','arrow','text','callout','north','house','parking','lot-table','display-settings'
       ];
@@ -238,7 +243,7 @@ async function runElectronSuite() {
     const compactShortcutPages = await win.webContents.executeJavaScript(`(async()=>{
       document.querySelector('[data-action="show-help"]')?.click();
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      const rows=[]; const expected={basic:8,process:7,measure:4,note:6};
+      const rows=[]; const expected={basic:7,process:7,measure:4,note:6};
       for(const [name,count] of Object.entries(expected)){
         document.querySelector('[data-help-page="'+name+'"]')?.click();
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -254,12 +259,12 @@ async function runElectronSuite() {
     const compactObjectPages = await win.webContents.executeJavaScript(`(async()=>{
       const api=window.__KOZU_V210_TEST__; const page=api.document.pages.find(p=>p.id===api.document.activePageId)||api.document.pages[0];
       const objects=[
-        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-appearance','object-values','object-text','object-dimension']},
-        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-appearance','object-text','object-special']},
+        {name:'lot',object:page.shapes.find(o=>o.kind==='lot'),pages:['object-basic','object-values','object-dimension','object-appearance','object-text','object-record']},
+        {name:'road',object:page.shapes.find(o=>o.kind==='road'),pages:['object-basic','object-special','object-dimension','object-appearance','object-text','object-record']},
         {name:'polyline',object:page.entities.find(o=>o.kind==='polyline'),pages:['object-basic','object-text','object-dimension','object-special'],segment:0},
-        {name:'line',object:page.entities.find(o=>o.kind==='line'),pages:['object-basic','object-special']},
-        {name:'house',object:page.entities.find(o=>o.kind==='house'),pages:['object-basic','object-text','object-special']},
-        {name:'north',object:page.entities.find(o=>o.kind==='north'),pages:['object-basic','object-text','object-special']}
+        {name:'line',object:page.entities.find(o=>o.kind==='line'),pages:['object-special']},
+        {name:'house',object:page.entities.find(o=>o.kind==='house'),pages:['object-basic','object-special','object-text','object-dimension']},
+        {name:'north',object:page.entities.find(o=>o.kind==='north'),pages:['object-special','object-text']}
       ]; const rows=[];
       const visible=n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return !n.hidden&&s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
       api.activateCommand('select',{focusCanvas:false});
@@ -324,7 +329,7 @@ async function runElectronSuite() {
     const report = {
       generatedAt: new Date().toISOString(),
       target: {
-        version: '2.1.0-alpha.8',
+        version: '2.1.0-alpha.9',
         entry: 'index-v210.html',
         installerBuilt: false
       },
@@ -348,13 +353,47 @@ async function runElectronSuite() {
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8')
     console.log(JSON.stringify(report.summary))
     const exitCode = failed.length ? 1 : 0
-    // Electron/V8 のバックグラウンド最適化が終わる前に強制破棄すると、
-    // Windows 版で DisallowJavascriptExecutionScope の終了時クラッシュが起きる。
-    await new Promise(resolve => setTimeout(resolve, 250))
-    if (!win.isDestroyed()) win.destroy()
+    // Windows版Electron 36は、全検査後のgraceful shutdown中にV8の
+    // DisallowJavascriptExecutionScopeで落ちることがある。レポートを書き終えた
+    // QA専用プロセスなので、rendererを再実行させず終了コードを直接返す。
+    if (!win.isDestroyed()) win.hide()
     try { fs.rmSync(tempRoot, { recursive: true, force: true }) } catch (_) {}
-    process.exitCode = exitCode
-    app.quit()
+    process.exit(exitCode)
+  }
+}
+
+async function verifyPhysicalPdfMediaBoxes(BrowserWindow) {
+  const output = new BrowserWindow({
+    show: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false }
+  })
+  const readBox = buffer => {
+    const text = Buffer.from(buffer).toString('latin1')
+    const match = text.match(/\/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/)
+    if (!match) return null
+    return { width: Number(match[3]) - Number(match[1]), height: Number(match[4]) - Number(match[2]) }
+  }
+  const makePdf = async size => {
+    const html = `<!doctype html><meta charset="utf-8"><style>@page{size:${size} landscape;margin:0}html,body{margin:0;width:100%;height:100%}body{background:#fff}</style>`
+    await output.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    const buffer = await output.webContents.printToPDF({
+      printBackground: true, landscape: true, pageSize: size,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 }, preferCSSPageSize: true
+    })
+    return readBox(buffer)
+  }
+  try {
+    const a4 = await makePdf('A4')
+    const a3 = await makePdf('A3')
+    const near = (actual, expected) => Number.isFinite(actual) && Math.abs(actual - expected) < 1
+    return {
+      pass: Boolean(a4 && a3) && near(a4.width, 841.89) && near(a4.height, 595.28) && near(a3.width, 1190.55) && near(a3.height, 841.89),
+      a4, a3
+    }
+  } catch (error) {
+    return { pass: false, error: error?.stack || String(error) }
+  } finally {
+    if (!output.isDestroyed()) output.destroy()
   }
 }
 
@@ -413,17 +452,17 @@ function staticChecks(add) {
   ))
   const expectedDataCommands = [
     'area', 'arrow', 'blank-paper', 'calibrate', 'callout', 'copy', 'corner-cut', 'delete', 'display-settings',
-    'distance', 'division-guide', 'house-stamp', 'label', 'line', 'lot-division-guide', 'lot-table', 'merge', 'move', 'move-all', 'north-arrow',
+    'distance', 'division-guide', 'house-stamp', 'line', 'lot-division-guide', 'lot-table', 'merge', 'move', 'move-all', 'north-arrow',
     'parallel', 'parcel', 'parking-stamp', 'polyline', 'road', 'select', 'split', 'split-all', 'text', 'typography-settings',
     'underlay', 'underlay-adjust', 'underlay-replace', 'vertex'
   ].sort()
   const allowedScripts = ['vendor/pdf.min.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js']
 
-  add('package-version-v210-alpha8', packageJson.version === '2.1.0-alpha.8', packageJson.version)
+  add('package-version-v210-alpha9', packageJson.version === '2.1.0-alpha.9', packageJson.version)
   add('package-main-v210-only', packageJson.main === 'main-v210.js', packageJson.main)
   add('main-loads-v210-entry', /loadFile\(['"]index-v210\.html['"]\)/.test(main) && !/loadFile\(['"]index\.html['"]\)/.test(main))
-  add('main-title-has-version', /2\.1\.0-alpha\.8/.test(main) && /TITLE/.test(main))
-  add('html-version-visible', /v2\.1\.0-alpha\.8/.test(html))
+  add('main-title-has-version', /2\.1\.0-alpha\.9/.test(main) && /TITLE/.test(main))
+  add('html-version-visible', /v2\.1\.0-alpha\.9/.test(html))
   add('current-command-name-is-display-only', /<div\s+id=["']command-name["'][^>]*aria-label=["']現在のコマンド["']/.test(html) && !/<(?:button|div)\s+id=["']command-name["'][^>]*data-action/.test(html))
   add('calibration-has-no-defer-and-has-explicit-retry', !/data-action=["']defer-scale["']|case\s+["']defer-scale["']|>後で</.test(`${html}\n${appSource}`) && /data-action=["']reset-calibration-points["']/.test(html) && /case\s+["']reset-calibration-points["']/.test(appSource))
   add('calibration-second-point-stops-rubber-band', /command === ["']calibrate["'] && session\.points\.length >= 2/.test(appSource) && /pointer:[\s\S]{0,220}command === ["']calibrate["'][\s\S]{0,100}session\.points\.length >= 2/.test(appSource))
@@ -448,6 +487,16 @@ function staticChecks(add) {
   add('legacy-right-click-draft-back-is-wired', /function handleContextMenu/.test(appSource) && /backCurrentDraftPoint\(['"]右クリック/.test(appSource) && /addEventListener\(['"]contextmenu['"], handleContextMenu\)/.test(appSource))
   add('obsolete-context-tabs-removed', !/data-context-page=["'](?:parcel-|note-|stamp-|display-)/.test(html))
   add('object-editor-has-exactly-six-consolidated-tabs', sameJson(objectEditTabs, expectedObjectEditTabs), { actual: objectEditTabs, expected: expectedObjectEditTabs })
+  add('object-editor-has-one-router-for-all-18-kinds-and-no-orphan-pages',
+    ['lot', 'road', 'water', 'cutout', 'distance', 'polyline', 'area', 'dimension', 'line', 'arrow', 'text', 'callout', 'north', 'house', 'parking', 'lot-table', 'guide', 'parallel']
+      .every(kind => new RegExp(`(?:['"]${kind}['"]|\\b${kind}):\\s*Object\\.freeze\\(\\[`).test(appSource)) &&
+    /function configureObjectEditorPages\(/.test(appSource) && /configureObjectEditorPages\(kind\)/.test(appSource) && /configureObjectEditorPages\(object\.kind\)/.test(appSource) &&
+    !/controls-object-(?:visibility|decoration|dimension-value)/.test(html) && !/label-edit|data-command=["']label["']/.test(`${html}\n${appSource}`))
+  add('font-controls-use-three-canonical-tokens-with-visible-gothic-default',
+    /function normalizeFontToken\(/.test(coreSource) && /fontFamily:\s*['"]gothic['"]/.test(coreSource) &&
+    !/fontFamily:\s*['"]Yu Gothic UI['"]/.test(coreSource) &&
+    /value=["']gothic["']>ゴシック/.test(`${html}\n${appSource}`) && /value=["']mincho["']>明朝/.test(`${html}\n${appSource}`) &&
+    /value=["']mono["']>均等（等幅）/.test(`${html}\n${appSource}`) && !/value=["']mono["']>等幅</.test(`${html}\n${appSource}`))
   add('usability-review-safety-and-shortcuts-are-wired',
     /function confirmBeforeReplacingDocument/.test(appSource) &&
     /loadUnderlay[\s\S]{0,420}confirmBeforeReplacingDocument/.test(appSource) &&
@@ -478,17 +527,20 @@ function staticChecks(add) {
     /区間寸法を線の上側へ戻しました/.test(appSource) && /寸法を線の上側の自動位置へ戻しました/.test(appSource))
   add('output-paper-size-is-physical-title-frame-is-slim-and-redundant-list-button-is-removed',
     /const outputScale = Math\.min\(size\.width \/ fullPaperSize\.width, size\.height \/ fullPaperSize\.height\)/.test(appSource) &&
-    /view, includeBackground: true, includePaper: false/.test(appSource) &&
+    /view,[\s\S]{0,80}includeBackground: true, includePaper: false/.test(appSource) &&
     /const a3Reference[\s\S]{0,350}maxWidth \/ a3Reference\.width/.test(appSource) &&
     /const boxHeight = Math\.max\(22, Math\.round\(56 \* outputScale\)\)/.test(appSource) &&
     !/<button[^>]*data-workspace-target=["']registry["'][^>]*title=["']右側の一覧・台帳へ/.test(html))
   add('all-output-paths-use-high-resolution-physical-scale-and-save-dialogs',
     /const OUTPUT_DPI = 300/.test(appSource) && /const PREVIEW_MIN_DPR = 2/.test(appSource) &&
-    /return \(mpp \/ mapScale\) \* \(targetDpi \/ 0\.0254\)/.test(appSource) &&
-    /paperPixelSize\(store\.document\.paper, OUTPUT_DPI\)/.test(appSource) &&
+    /return \(mpp \/ printScale\) \* \(targetDpi \/ 0\.0254\)/.test(appSource) &&
+    /paperPixelSize\(outputPaperModel\(store\.document\), OUTPUT_DPI\)/.test(appSource) &&
     /scale: background\.type === ['"]pdf['"] \? 4\.2 : 1/.test(appSource) &&
     /const PDF_RENDER_SCALE = 4\.2/.test(ioSource) &&
     /paper\.showFrame !== false && paper\.showTitleFrame !== false/.test(appSource) &&
+    /id=["']paper-print-scale-preset["']/.test(html) && /data-action=["']toggle-output-placement["']/.test(html) &&
+    /function outputFitStatus\(/.test(appSource) && !/outputLayout\.printScale\s*=\s*(?:mapScale|scale)/.test(appSource) &&
+    /fixedScale: outputScale/.test(appSource) && /_screenWorld\(Math\.max\(0\.4/.test(renderSource) &&
     /ipcMain\.handle\(['"]export-png-v210['"]/.test(main) && /ipcMain\.handle\(['"]export-pdf-v210['"]/.test(main) &&
     /ipcMain\.handle\(['"]save-project-v210['"]/.test(main) && /showSaveDialog/.test(main) &&
     /exportPng\(payload\).*export-png-v210/.test(preload) && /saveProject\(payload\).*save-project-v210/.test(preload) &&
@@ -530,9 +582,12 @@ function staticChecks(add) {
     /command === ['"]callout['"] \? ['"]注記['"] : ['"]文字['"]/.test(appSource) &&
     /activeField[\s\S]{0,180}handleCommandFieldInput\(activeField, false\)/.test(appSource) &&
     /compositionend[\s\S]{0,260}handleCommandFieldInput\(field, false\)/.test(appSource))
-  add('road-and-water-use-width-not-outer-dimension-editor',
-    /hasShapeDimensions\s*=\s*isShape\s*&&\s*!isRoadLike/.test(appSource) && /road-width-visible/.test(appSource) &&
-    /_shapeShowsDimensions[\s\S]{0,260}(?:road|water)[\s\S]{0,120}return false/.test(renderSource))
+  add('road-and-water-have-separate-width-and-optional-edge-dimension-controls',
+    /road-width-visible/.test(appSource) && /水路幅/.test(appSource) &&
+    /road:[\s\S]{0,360}\['object-dimension', '辺寸法'\][\s\S]{0,120}\['object-values', '面積・坪'\]/.test(appSource) &&
+    /water:[\s\S]{0,360}\['object-dimension', '辺寸法'\][\s\S]{0,120}\['object-values', '面積・坪'\]/.test(appSource) &&
+    /_shapeShowsDimensions[\s\S]{0,180}visibility\.dimensions === true/.test(renderSource) &&
+    !/_shapeShowsDimensions[\s\S]{0,160}(?:road|water)[\s\S]{0,80}return false/.test(renderSource))
   add('copy-number-allocation-uses-document-max-plus-one',
     /function nextLotNumber\(document\)/.test(coreSource) && /Math\.max\(\.\.\.used\)[\s\S]{0,40}\+\s*1/.test(coreSource) &&
     /copy\.number\s*=\s*nextLotNumber\(document\)/.test(coreSource))
@@ -548,6 +603,20 @@ function staticChecks(add) {
     mainSavingState: /action === ['"]save['"][^\n]*closeState = ['"]saving['"]/.test(main),
     mainAcceptsWaitingOrSaving: /\[['"]waiting['"],\s*['"]saving['"]\]\.includes\(closeState\)/.test(main)
   })
+  add('project-save-open-keeps-native-path-and-commits-pending-edit',
+    /async function saveProject[\s\S]{0,180}commitPendingEdit\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource) &&
+    /currentProjectPath/.test(appSource) && /payload\.outputPath\s*=\s*runtime\.currentProjectPath/.test(appSource) &&
+    /save-project-as/.test(`${html}\n${appSource}`) &&
+    /ipcMain\.handle\(['"]open-project-v210['"]/.test(main) && /showOpenDialog/.test(main) &&
+    /openProject\(\)\s*\{\s*return ipcRenderer\.invoke\(['"]open-project-v210['"]\)/.test(preload) &&
+    /key === ['"]o['"] && event\.shiftKey[\s\S]{0,100}open-project/.test(appSource) &&
+    !/uniqueDownloadPath|app\.getPath\(['"]downloads['"]\)/.test(main), {
+      commitBeforeSerialize: /commitPendingEdit\(\)[\s\S]{0,260}serializeCurrentProject\(\)/.test(appSource),
+      nativeOpen: /ipcMain\.handle\(['"]open-project-v210['"]/.test(main),
+      nativePathReuse: /payload\.outputPath\s*=\s*runtime\.currentProjectPath/.test(appSource),
+      saveAs: /save-project-as/.test(`${html}\n${appSource}`),
+      noDownloadsCloseSave: !/uniqueDownloadPath|app\.getPath\(['"]downloads['"]\)/.test(main)
+    })
   add('v210-files-present', ['index-v210.html', 'jww-v210.css', 'main-v210.js', 'preload-v210.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js'].every(file => fs.existsSync(path.join(root, file))))
 }
 
@@ -709,7 +778,7 @@ async function rendererSuite() {
   window.addEventListener('error', event => runtimeErrors.push(event.error?.stack || event.message))
   window.addEventListener('unhandledrejection', event => runtimeErrors.push(event.reason?.stack || String(event.reason)))
 
-  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.8', document.title)
+  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.9', document.title)
   add('core-api-loaded', Boolean(K?.createDocument && K?.DocumentStore && K?.CommandSession && K?.Renderer), Object.keys(K || {}))
   add('io-api-loaded', Boolean(IO?.serializeProject && IO?.deserializeProject && IO?.migrateLegacyV3 && IO?.loadUnderlayFile), Object.keys(IO || {}))
   add('application-debug-api-loaded', Boolean(api?.store && api?.session && api?.runtime && api?.renderer && api?.activateCommand && api?.setWorkspace), api ? Object.keys(api) : null)
@@ -718,9 +787,20 @@ async function rendererSuite() {
   add('retired-dom-absent', !document.querySelector('[data-field*=setback],[data-command*=setback],[data-action*=estimate],[data-output-tab=estimate],[data-action*=kaitori]'))
   add('pdf-image-file-input-accepts-both', [...document.querySelectorAll('input[type=file]')].some(input => /application\/pdf/.test(input.accept || '') && /image\//.test(input.accept || '')), [...document.querySelectorAll('input[type=file]')].map(input => ({ id: input.id, accept: input.accept })))
 
-  await run('core-clean-document-v5', () => {
+  await run('core-clean-document-v6', () => {
     const doc = K.createDocument()
-    return { pass: doc.schemaVersion === 5 && doc.format === 'kozu-measure' && doc.pages.length === 1 && !banned(doc), details: doc }
+    return { pass: doc.schemaVersion === 6 && doc.format === 'kozu-measure' && doc.pages.length === 1 && doc.outputDefaults?.paperSize === 'A4' && doc.pages[0].outputLayout?.paperSize === 'A4' && doc.pages[0].outputLayout?.printScale === null && !banned(doc), details: doc }
+  })
+
+  await run('core-new-page-copies-output-defaults-without-changing-existing-page', () => {
+    const doc = K.createDocument()
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, paperSize: 'A4', printScale: 100 }
+    doc.outputDefaults = { ...doc.outputDefaults, paperSize: 'A3', orientation: 'portrait', printScale: 500, includeUnderlay: false }
+    const second = K.ensurePage(doc, 2)
+    return {
+      pass: doc.pages[0].outputLayout.paperSize === 'A4' && doc.pages[0].outputLayout.printScale === 100 && second.outputLayout.paperSize === 'A3' && second.outputLayout.orientation === 'portrait' && second.outputLayout.printScale === 500 && second.outputLayout.includeUnderlay === false && second.outputLayout.initialized === false,
+      details: { first: doc.pages[0].outputLayout, second: second.outputLayout, defaults: doc.outputDefaults }
+    }
   })
 
   await run('core-lot-road-water-models', () => {
@@ -731,6 +811,37 @@ async function rendererSuite() {
     return {
       pass: pageOf(doc).shapes.length === 3 && lot.style.fill === K.DEFAULTS.lotStyle.fill && road.style.fill === K.DEFAULTS.roadStyle.fill && water.style.fill === K.DEFAULTS.waterStyle.fill && road.road.widthM === 4 && water.road.vertical === true,
       details: pageOf(doc).shapes
+    }
+  })
+
+  await run('core-explicit-shape-kind-conversion-keeps-geometry-and-localizes-labels', () => {
+    const doc = K.createDocument()
+    const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }], { number: 7, price: 3500, memo: '保持' })
+    const points = JSON.stringify(lot.points)
+    const road = K.convertShapeKind(doc, lot.id, 'road')
+    const water = K.convertShapeKind(doc, lot.id, 'water')
+    const restoredLot = K.convertShapeKind(doc, lot.id, 'lot')
+    return {
+      pass: road?.id === lot.id && road?.kind === 'road' && road?.label === '道路' && road?.number == null && road?.price == null && road?.visibility?.area === false &&
+        water?.id === lot.id && water?.kind === 'water' && water?.label === '水路' && water?.road?.widthPrefix === '水路幅 ' &&
+        restoredLot?.id === lot.id && restoredLot?.kind === 'lot' && Number.isFinite(restoredLot?.number) && JSON.stringify(restoredLot?.points) === points && restoredLot?.memo === '保持',
+      details: { road, water, restoredLot }
+    }
+  })
+
+  await run('core-road-water-metrics-default-off-and-persist-when-enabled', () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    const road = K.addShape(doc, 'road', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 40 }, { x: 0, y: 40 }], { label: '私道' })
+    const water = K.addShape(doc, 'water', [{ x: 120, y: 0 }, { x: 150, y: 0 }, { x: 150, y: 40 }, { x: 120, y: 40 }], { label: '水路' })
+    road.visibility.area = true; road.visibility.tsubo = true; road.visibility.dimensions = true
+    road.areaLabel.visible = true; road.tsuboLabel.visible = true; road.dimensionStyle.approximate = true
+    const normalized = K.normalizeDocument(doc)
+    const normalizedRoad = pageOf(normalized).shapes.find(shape => shape.id === road.id)
+    const normalizedWater = pageOf(normalized).shapes.find(shape => shape.id === water.id)
+    return {
+      pass: normalizedRoad?.visibility?.area === true && normalizedRoad?.visibility?.tsubo === true && normalizedRoad?.visibility?.dimensions === true && normalizedRoad?.areaLabel?.visible === true && normalizedRoad?.dimensionStyle?.approximate === true &&
+        normalizedWater?.visibility?.area === false && normalizedWater?.visibility?.tsubo === false && normalizedWater?.visibility?.dimensions === false,
+      details: { normalizedRoad, normalizedWater }
     }
   })
 
@@ -795,6 +906,39 @@ async function rendererSuite() {
     return {
       pass: result?.length === 4 && lots.length === 4 && Math.abs(area - 16000) < 1e-6 && rejected === null && unchanged,
       details: { resultCount: result?.length, lotCount: lots.length, area, rejected, unchanged }
+    }
+  })
+
+  await run('core-split-road-and-water-by-selected-kinds', () => {
+    const doc = K.createDocument()
+    K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 100 }, { x: 0, y: 100 }])
+    K.addShape(doc, 'road', [{ x: 100, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 100 }, { x: 100, y: 100 }], { label: '公道', road: { type: 'public', widthM: 6 } })
+    K.addShape(doc, 'water', [{ x: 200, y: 0 }, { x: 260, y: 0 }, { x: 260, y: 100 }, { x: 200, y: 100 }], { label: '水路', road: { type: 'water', widthM: 1.2 } })
+    const result = K.splitAllLotsByPolyline(doc, [{ x: -20, y: 50 }, { x: 280, y: 50 }], { kinds: ['road', 'water'] })
+    const shapes = pageOf(doc).shapes
+    const roads = shapes.filter(shape => shape.kind === 'road')
+    const waters = shapes.filter(shape => shape.kind === 'water')
+    const lots = shapes.filter(shape => shape.kind === 'lot')
+    return {
+      pass: result?.length === 4 && roads.length === 2 && waters.length === 2 && lots.length === 1 && roads.every(shape => shape.road?.widthM === 6 && shape.label === '公道') && waters.every(shape => shape.road?.widthM === 1.2),
+      details: { result, roads, waters, lots }
+    }
+  })
+
+  await run('core-same-kind-road-merge-keeps-primary-and-cutout-restores-exact-metadata', () => {
+    const doc = K.createDocument()
+    const first = K.addShape(doc, 'road', [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 100 }, { x: 0, y: 100 }], { label: '公道', style: { fill: '#cccccc' }, road: { type: 'public', widthM: 6 } })
+    const second = K.addShape(doc, 'road', [{ x: 50, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 50, y: 100 }], { label: '私道', style: { fill: '#eeeeee' }, road: { type: 'private', widthM: 4 } })
+    const merged = K.mergeLotShapes(doc, first.id, second.id, { primaryId: first.id })
+    const lot = K.addShape(doc, 'lot', [{ x: 120, y: 0 }, { x: 220, y: 0 }, { x: 220, y: 100 }, { x: 120, y: 100 }])
+    lot.edges[0].customText = '100.00m'; lot.edges[0].hidden = true
+    const originalPoints = JSON.stringify(lot.points); const originalEdges = JSON.stringify(lot.edges)
+    const cut = K.cutShapeCorner(doc, lot.id, 0, 10)
+    const restored = cut ? K.restoreCutout(doc, cut.cutout.id) : null
+    return {
+      pass: merged?.kind === 'road' && merged?.id === first.id && merged?.label === '公道' && merged?.road?.widthM === 6 && merged?.style?.fill === '#cccccc' &&
+        restored?.id === lot.id && JSON.stringify(restored?.points) === originalPoints && JSON.stringify(restored?.edges) === originalEdges && !pageOf(doc).shapes.some(shape => shape.kind === 'cutout'),
+      details: { merged, restored }
     }
   })
 
@@ -1022,8 +1166,10 @@ async function rendererSuite() {
     }
   })
 
-  await run('io-v5-save-roundtrip-all-content', () => {
+  await run('io-v6-save-roundtrip-all-content', () => {
     const doc = K.createDocument(); doc.title = 'QA'; doc.calibration.mpp = 0.125; doc.paper = { ...doc.paper, enabled: true, note: '出力備考', showTitleFrame: false, includeUnderlay: false }
+    doc.pages[0].calibration = clone(doc.calibration)
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, paperSize: 'A3', orientation: 'portrait', printScale: 250, offsetMmX: 12.5, offsetMmY: -4.25, showTitleFrame: false, includeUnderlay: false, initialized: true }
     K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }], { label: 'A', price: 3500, memo: '南向き' })
     K.addShape(doc, 'road', [{ x: 0, y: 110 }, { x: 100, y: 110 }, { x: 100, y: 130 }, { x: 0, y: 130 }], { label: '公道', road: { type: 'public', widthM: 4 } })
     K.addEntity(doc, 'text', { position: { x: 20, y: 20 }, text: '販売図面', memo: '注記メモ', style: { fontSize: 18, color: '#112233', rotation: 12, vertical: true } })
@@ -1033,7 +1179,20 @@ async function rendererSuite() {
     const restored = IO.deserializeProject(serialized)
     const page = pageOf(restored.document)
     const road = page.shapes.find(shape => shape.kind === 'road'); const text = page.entities.find(entity => entity.kind === 'text'); const table = page.entities.find(entity => entity.kind === 'lot-table')
-    return { pass: raw.format === 'kozu-measure' && raw.version === 5 && raw.document.schemaVersion === 5 && restored.view.x === 12.5 && restored.view.zoom === 1.75 && page.shapes.length === 2 && page.entities.length === 2 && page.shapes[0].price === 3500 && text.style.vertical === true && text.memo === '注記メモ' && road.road.widthM === 4 && (table.scale ?? table.options?.scale) === 1.25 && table.rotation === 19 && restored.document.paper.note === '出力備考' && restored.document.paper.showTitleFrame === false && restored.document.paper.includeUnderlay === false && !banned(raw), details: { keys: Object.keys(raw), restored } }
+    return { pass: raw.format === 'kozu-measure' && raw.version === 6 && raw.document.schemaVersion === 6 && restored.view.x === 12.5 && restored.view.zoom === 1.75 && page.shapes.length === 2 && page.entities.length === 2 && page.shapes[0].price === 3500 && text.style.vertical === true && text.memo === '注記メモ' && road.road.widthM === 4 && (table.scale ?? table.options?.scale) === 1.25 && table.rotation === 19 && page.outputLayout.paperSize === 'A3' && page.outputLayout.orientation === 'portrait' && page.outputLayout.printScale === 250 && page.outputLayout.offsetMmX === 12.5 && page.outputLayout.offsetMmY === -4.25 && page.outputLayout.initialized === true && restored.document.paper.note === '出力備考' && restored.document.paper.showTitleFrame === false && restored.document.paper.includeUnderlay === false && !banned(raw), details: { keys: Object.keys(raw), restored } }
+  })
+
+  await run('io-v5-output-settings-migrate-to-page-layout-v6', () => {
+    const doc = K.createDocument()
+    doc.schemaVersion = 5
+    doc.paper = { ...doc.paper, size: 'A3', orientation: 'portrait', showFrame: false, showTitleFrame: false, includeUnderlay: false }
+    doc.calibration = { ...doc.calibration, mpp: 0.05, mapScale: 250 }
+    doc.pages[0].calibration = clone(doc.calibration)
+    delete doc.pages[0].outputLayout
+    const legacy = { format: 'kozu-measure', version: 5, document: doc, view: { x: 3, y: 4, zoom: 1.2 }, meta: { name: 'v5' } }
+    const migrated = IO.deserializeProject(JSON.stringify(legacy))
+    const layout = pageOf(migrated.document).outputLayout
+    return { pass: migrated.migratedFrom === 5 && migrated.document.schemaVersion === 6 && layout.paperSize === 'A3' && layout.orientation === 'portrait' && layout.printScale === 250 && layout.showFrame === false && layout.showTitleFrame === false && layout.includeUnderlay === false && layout.initialized === false && migrated.view.x === 3 && /自動復元できません/.test(migrated.warnings?.[0] || ''), details: migrated }
   })
 
   await run('io-legacy-v3-clean-migration', () => {
@@ -1052,7 +1211,7 @@ async function rendererSuite() {
     const migrated = IO.migrateLegacyV3(legacy)
     const page = pageOf(migrated.document)
     const serialized = IO.serializeProject(migrated.document, { view: migrated.view })
-    return { pass: migrated.migratedFrom === 3 && migrated.document.schemaVersion === 5 && page.shapes.some(shape => shape.kind === 'lot') && page.shapes.some(shape => shape.kind === 'road') && page.entities.some(entity => entity.kind === 'distance') && page.entities.some(entity => entity.kind === 'text') && page.shapes.find(shape => shape.kind === 'lot')?.price === 3500 && migrated.document.preferences.lot.style.fill === K.DEFAULTS.lotStyle.fill && !banned(JSON.parse(serialized)), details: migrated }
+    return { pass: migrated.migratedFrom === 3 && migrated.document.schemaVersion === 6 && page.outputLayout?.paperSize === 'A4' && page.shapes.some(shape => shape.kind === 'lot') && page.shapes.some(shape => shape.kind === 'road') && page.entities.some(entity => entity.kind === 'distance') && page.entities.some(entity => entity.kind === 'text') && page.shapes.find(shape => shape.kind === 'lot')?.price === 3500 && migrated.document.preferences.lot.style.fill === K.DEFAULTS.lotStyle.fill && !banned(JSON.parse(serialized)), details: migrated }
   })
 
   await run('io-pdf-and-image-underlay-load', async () => {
@@ -1255,13 +1414,13 @@ async function rendererSuite() {
 
   const uiCommands = [
     'blank-paper', 'underlay', 'underlay-replace', 'underlay-page', 'underlay-adjust', 'calibrate',
-    'select', 'move', 'move-all', 'vertex', 'label', 'copy', 'delete',
+    'select', 'move', 'move-all', 'vertex', 'copy', 'delete',
     'parcel', 'road', 'split', 'split-all', 'merge', 'corner-cut', 'division-guide', 'lot-division-guide', 'parallel',
     'distance', 'polyline', 'area', 'line', 'arrow', 'text', 'callout', 'north-arrow', 'house-stamp', 'parking-stamp', 'display-settings'
   ]
   const expectedInternal = {
     'blank-paper': 'paper-blank', underlay: 'underlay-open', 'underlay-replace': 'underlay-replace', 'underlay-page': 'underlay-page', 'underlay-adjust': 'underlay-transform', calibrate: 'calibrate',
-    select: 'select', move: 'move', 'move-all': 'move-all', vertex: 'vertex-edit', label: 'label-edit', copy: 'copy', delete: 'delete', parcel: 'lot-draw', road: 'road-draw',
+    select: 'select', move: 'move', 'move-all': 'move-all', vertex: 'vertex-edit', copy: 'copy', delete: 'delete', parcel: 'lot-draw', road: 'road-draw',
     split: 'split', 'split-all': 'split-all', merge: 'merge', 'corner-cut': 'corner-cut', 'division-guide': 'division-guide', 'lot-division-guide': 'lot-division-guide', parallel: 'parallel-guide',
     distance: 'distance', polyline: 'polyline', area: 'area', line: 'line', arrow: 'arrow', text: 'text', callout: 'callout', 'north-arrow': 'north', 'house-stamp': 'house', 'parking-stamp': 'parking', 'display-settings': 'display-settings'
   }
@@ -2313,32 +2472,45 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-object-editor-top-tabs-are-exactly-six-consolidated-tabs', async () => {
+  await run('app-object-editor-routes-all-18-kinds-through-six-stable-tab-slots', async () => {
     if (!api?.selectObject) return { pass: false, details: 'object editor API unavailable' }
-    const expected = ['object-basic', 'object-appearance', 'object-values', 'object-text', 'object-dimension', 'object-special']
+    const expected = {
+      lot: ['object-basic', 'object-values', 'object-dimension', 'object-appearance', 'object-text', 'object-record'],
+      road: ['object-basic', 'object-special', 'object-dimension', 'object-values', 'object-appearance', 'object-text'],
+      water: ['object-basic', 'object-special', 'object-dimension', 'object-values', 'object-appearance', 'object-text'],
+      cutout: ['object-basic', 'object-special', 'object-dimension', 'object-appearance', 'object-text', 'object-record'],
+      distance: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
+      polyline: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
+      area: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
+      dimension: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
+      line: ['object-special'], arrow: ['object-basic', 'object-text', 'object-special'], text: ['object-basic', 'object-text'],
+      callout: ['object-basic', 'object-text', 'object-special'], north: ['object-special', 'object-text'],
+      house: ['object-basic', 'object-special', 'object-text', 'object-dimension'], parking: ['object-basic', 'object-special', 'object-text', 'object-dimension'],
+      'lot-table': ['object-special', 'object-text'], guide: ['object-special'], parallel: ['object-special']
+    }
     const doc = K.createDocument()
-    const fixtures = [
-      K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 60 }, { x: 0, y: 60 }]),
-      K.addShape(doc, 'road', [{ x: 0, y: 80 }, { x: 80, y: 80 }, { x: 80, y: 100 }, { x: 0, y: 100 }], { road: { name: 'ROAD', widthM: 4 } }),
-      K.addEntity(doc, 'text', { position: { x: 120, y: 30 }, text: 'NOTE' })
-    ]
+    const polygon = [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 60 }, { x: 0, y: 60 }]
+    const fixtures = ['lot', 'road', 'water', 'cutout'].map((kind, index) => K.addShape(doc, kind, polygon.map(point => ({ x: point.x + index * 100, y: point.y })), kind === 'road' || kind === 'water' ? { road: { name: kind === 'water' ? '水路' : '道路', widthM: 4 } } : {}))
+    for (const kind of Object.keys(expected).filter(kind => !['lot', 'road', 'water', 'cutout'].includes(kind))) {
+      fixtures.push(K.addEntity(doc, kind, { points: [{ x: 0, y: 100 }, { x: 80, y: 120 }, { x: 60, y: 180 }], position: { x: 40, y: 120 }, text: '注記' }))
+    }
     api.store.replace(doc, { clean: true }); api.activateCommand('select', { focusCanvas: false })
     const rows = []
     for (const object of fixtures) {
-      api.ui.contextPage = 'object-basic'
+      api.ui.contextPage = ''
       api.selectObject(object.id, { openEditor: true }); await sleep(20)
       const tabs = [...document.querySelectorAll('#command-pages [data-context-page]')]
-      const values = tabs.map(button => button.dataset.contextPage)
       const visible = tabs.filter(button => !button.hidden).map(button => button.dataset.contextPage)
-      rows.push({ kind: object.kind, total: tabs.length, values, visible, visibleCount: visible.length })
+      const labels = tabs.filter(button => !button.hidden).map(button => button.textContent.trim())
+      rows.push({ kind: object.kind, total: tabs.length, visible, labels })
     }
     return {
-      pass: rows.every(row => row.total === 6 && JSON.stringify(row.values) === JSON.stringify(expected) && row.visibleCount <= 6 && new Set(row.visible).size === row.visible.length),
+      pass: rows.length === 18 && rows.every(row => row.total === 6 && JSON.stringify(row.visible) === JSON.stringify(expected[row.kind]) && new Set(row.visible).size === row.visible.length && row.labels.every(Boolean)),
       details: { expected, rows }
     }
   })
 
-  await run('app-road-water-hide-outer-dimensions-and-keep-width-visibility', async () => {
+  await run('app-road-water-keep-width-and-edge-dimensions-separately-editable', async () => {
     if (!api?.selectObject || !api?.renderer) return { pass: false, details: 'object editor API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     const road = K.addShape(doc, 'road', [{ x: 30, y: 30 }, { x: 260, y: 30 }, { x: 260, y: 90 }, { x: 30, y: 90 }], {
@@ -2361,19 +2533,32 @@ async function rendererSuite() {
         widthField.dispatchEvent(new Event('change', { bubbles: true }))
         await sleep(25)
       }
-      const hidden = clone(K.objectById(api.store.document, object.id)?.object)
+      const widthHidden = clone(K.objectById(api.store.document, object.id)?.object)
+      const edgeLabelsBefore = api.renderer.getLabelBoxes().filter(box => box.ownerId === object.id && box.kind === 'shape-dimension').length
+      api.ui.contextPage = 'object-dimension'; api.renderCommandSurface(); await sleep(20)
+      const dimensionField = document.querySelector('[data-field="dimension-visible"]')
+      if (dimensionField) {
+        dimensionField.checked = false
+        dimensionField.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(25)
+      }
+      const dimensionsHidden = clone(K.objectById(api.store.document, object.id)?.object)
       rows.push({
         kind: object.kind,
-        dimensionTabHidden: Boolean(dimensionTab?.hidden),
+        dimensionTabVisible: Boolean(dimensionTab) && !dimensionTab.hidden,
         widthControl: Boolean(widthField),
+        dimensionControl: Boolean(dimensionField),
         beforeWidth: before?.visibility?.width,
-        afterWidth: hidden?.visibility?.width,
+        afterWidth: widthHidden?.visibility?.width,
+        beforeDimensions: before?.visibility?.dimensions,
+        afterDimensions: dimensionsHidden?.visibility?.dimensions,
+        edgeLabelsBefore,
         edgeLabelCount: api.renderer.getLabelBoxes().filter(box => box.ownerId === object.id && box.kind === 'shape-dimension').length,
         widthLabelCount: api.renderer.getLabelBoxes().filter(box => box.ownerId === object.id && box.kind === 'shape-road-width').length
       })
     }
     return {
-      pass: rows.every(row => row.dimensionTabHidden && row.widthControl && row.beforeWidth !== false && row.afterWidth === false && row.edgeLabelCount === 0),
+      pass: rows.every(row => row.dimensionTabVisible && row.widthControl && row.dimensionControl && row.beforeWidth !== false && row.afterWidth === false && row.beforeDimensions === true && row.afterDimensions === false && row.edgeLabelsBefore > 0 && row.edgeLabelCount === 0),
       details: rows
     }
   })
@@ -2440,6 +2625,35 @@ async function rendererSuite() {
     }
   })
 
+  await run('app-marquee-selects-only-contained-adds-with-shift-and-does-not-create-history', async () => {
+    const doc = K.createDocument()
+    const first = K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 100, y: 20 }, { x: 100, y: 90 }, { x: 20, y: 90 }])
+    const second = K.addShape(doc, 'road', [{ x: 140, y: 20 }, { x: 220, y: 20 }, { x: 220, y: 90 }, { x: 140, y: 90 }], { road: { name: '道路', widthM: 4 } })
+    const crossing = K.addShape(doc, 'water', [{ x: 90, y: 110 }, { x: 160, y: 110 }, { x: 160, y: 145 }, { x: 90, y: 145 }], { road: { name: '水路', widthM: 1 } })
+    api.store.replace(doc, { clean: true }); Object.assign(api.runtime.view, { x: 50, y: 50, zoom: 1 }); api.activateCommand('select', { focusCanvas: false }); api.render(); await sleep(25)
+    const canvas = document.getElementById('drawing-canvas'); const rect = canvas.getBoundingClientRect()
+    const drag = async (start, end, pointerId, shiftKey = false) => {
+      const a = api.worldToScreen(start); const b = api.worldToScreen(end)
+      const base = { bubbles: true, cancelable: true, pointerId, pointerType: 'mouse', button: 0, shiftKey }
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { ...base, buttons: 1, clientX: rect.left + a.x, clientY: rect.top + a.y }))
+      canvas.dispatchEvent(new PointerEvent('pointermove', { ...base, buttons: 1, clientX: rect.left + b.x, clientY: rect.top + b.y }))
+      const overlayVisible = Boolean(api.renderer.overlay?.marquee)
+      canvas.dispatchEvent(new PointerEvent('pointerup', { ...base, buttons: 0, clientX: rect.left + b.x, clientY: rect.top + b.y }))
+      await sleep(30)
+      return overlayVisible
+    }
+    const undoBefore = api.store.undoStack?.length || 0
+    const firstOverlay = await drag({ x: 10, y: 10 }, { x: 110, y: 100 }, 631)
+    const afterFirst = [...api.ui.selectedIds]
+    const secondOverlay = await drag({ x: 130, y: 10 }, { x: 230, y: 100 }, 632, true)
+    const afterSecond = [...api.ui.selectedIds]
+    const undoAfter = api.store.undoStack?.length || 0
+    return {
+      pass: firstOverlay && secondOverlay && JSON.stringify(afterFirst) === JSON.stringify([first.id]) && afterSecond.length === 2 && afterSecond.includes(first.id) && afterSecond.includes(second.id) && !afterSecond.includes(crossing.id) && undoAfter === undoBefore,
+      details: { firstOverlay, secondOverlay, afterFirst, afterSecond, crossing: crossing.id, undoBefore, undoAfter }
+    }
+  })
+
   await run('app-ctrl-multiselect-batch-edit-is-atomic-and-mixed-kind-is-common-only', async () => {
     if (!api?.selectObject || !api?.renderer) return { pass: false, details: 'selection API unavailable' }
     const doc = K.createDocument()
@@ -2457,7 +2671,8 @@ async function rendererSuite() {
     }
     await ctrlClickWorld({ x: 150, y: 30 }, 621)
     const selectedLots = [...api.ui.selectedIds]
-    api.ui.contextPage = 'object-basic'; api.renderCommandSurface(); await sleep(20)
+    const batchTabs = [...document.querySelectorAll('#command-pages [data-context-page]')].filter(button => !button.hidden).map(button => button.dataset.contextPage)
+    api.ui.contextPage = 'object-appearance'; api.renderCommandSurface(); await sleep(20)
     const opacity = document.querySelector('[data-field="fill-opacity"]')
     const undoBefore = api.store.undoStack?.length || 0
     if (opacity) { opacity.value = '33'; opacity.dispatchEvent(new Event('change', { bubbles: true })); await sleep(30) }
@@ -2470,11 +2685,11 @@ async function rendererSuite() {
     const mixedNotice = document.querySelector('.batch-edit-notice')?.textContent || ''
     const mixedHasSpecificFields = Boolean(document.querySelector('[data-field="fill-opacity"],[data-field="road-width"]'))
     return {
-      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && Boolean(opacity) &&
+      pass: selectedLots.length === 2 && selectedLots.includes(first.id) && selectedLots.includes(second.id) && JSON.stringify(batchTabs) === JSON.stringify(['object-basic', 'object-values', 'object-dimension', 'object-appearance', 'object-text', 'object-record']) && Boolean(opacity) &&
         afterBatch.every(object => Math.abs(Number(object?.style?.opacity) - 0.33) < 1e-8) && undoAfter === undoBefore + 1 && undone === true &&
         afterUndo.every(object => Math.abs(Number(object?.style?.opacity) - Number(K.DEFAULTS.lotStyle.opacity)) < 1e-8) &&
         mixedIds.length === 3 && mixedIds.includes(road.id) && /種類|共通|移動|複写/.test(mixedNotice) && !mixedHasSpecificFields,
-      details: { selectedLots, afterBatch, undoBefore, undoAfter, undone, afterUndo, mixedIds, mixedNotice, mixedHasSpecificFields }
+      details: { selectedLots, batchTabs, afterBatch, undoBefore, undoAfter, undone, afterUndo, mixedIds, mixedNotice, mixedHasSpecificFields }
     }
   })
 
@@ -2666,7 +2881,7 @@ async function rendererSuite() {
     return { pass: firstOpen && transientCleared && pageRoundtrip && serializedRoundtrip && replacementPreserved, details: { firstOpen, transientCleared, pageRoundtrip, serializedRoundtrip, replacementPreserved } }
   })
 
-  await run('legacy-v3-v4-edge-metadata-migrates-to-v5', async () => {
+  await run('legacy-v3-v4-edge-metadata-migrates-to-v6', async () => {
     const legacy = {
       version: 4, mpp: 0.1, lotShowEdgeLengths: true,
       lots: [{
@@ -2681,7 +2896,7 @@ async function rendererSuite() {
     const shape = pageOf(migrated).shapes[0]
     const edge = shape?.edges?.[0]
     const hidden = shape?.edges?.[1]
-    return { pass: migrated.schemaVersion === 5 && edge?.customText === '境界特記' && edge?.rotationOffset === 17 && edge?.style?.color === '#a12345' && edge?.style?.fontFamily === 'mincho' && edge?.style?.fontSize === 14 && edge?.labelOffset?.x === 8 && edge?.labelOffset?.y === -4 && hidden?.hidden === true, details: { edge, hidden } }
+    return { pass: migrated.schemaVersion === 6 && edge?.customText === '境界特記' && edge?.rotationOffset === 17 && edge?.style?.color === '#a12345' && edge?.style?.fontFamily === 'mincho' && edge?.style?.fontSize === 14 && edge?.labelOffset?.x === 8 && edge?.labelOffset?.y === -4 && hidden?.hidden === true, details: { edge, hidden } }
   })
 
   await run('road-name-and-width-have-independent-metadata-and-label-boxes', async () => {
@@ -2724,7 +2939,7 @@ async function rendererSuite() {
     const tsuboHit = tsuboCenter ? api.renderer.hitLabel(tsuboCenter) : null
     const canvas = document.getElementById('drawing-canvas')
     const dragLabel = async (kind, dx, dy, pointerId) => {
-      api.activateCommand('label-edit', { focusCanvas: false }); api.render(); await sleep(30)
+      api.activateCommand('select', { focusCanvas: false }); api.render(); await sleep(30)
       const box = api.renderer.getLabelBoxes().find(value => value.ownerId === lot.id && value.kind === kind)
       if (!box || !canvas) return false
       const rect = canvas.getBoundingClientRect()
@@ -2778,6 +2993,77 @@ async function rendererSuite() {
     return { pass: fixedOk && table?.dynamic === false && table?.snapshot === true && frozenArea === 100 && table.rows[0].area === frozenArea && restored?.rows?.[0]?.area === frozenArea && restored?.options?.mode === 'snapshot', details: { table, restored } }
   })
 
+  await run('lot-table-placement-and-selection-share-title-font-price-line-and-layout-settings', async () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1
+    K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }], { label: 'A' })
+    api.store.replace(doc, { clean: true }); api.activateCommand('lot-table', { focusCanvas: false })
+    Object.assign(api.session.form, { 'table-title': '面積集計', 'table-show-price': false, 'font-family': 'mono', 'text-size': 1.4, 'table-line-width': 2.25, 'table-scale': 1.2, 'table-angle': 7, 'table-mode': 'dynamic' })
+    api.runtime.pointerWorld = { x: 160, y: 20 }
+    const created = api.finishCommand(); let table = pageOf(api.store.document).entities.find(entity => entity.kind === 'lot-table')
+    api.activateCommand('select', { focusCanvas: false }); api.selectObject(table.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(25)
+    const loaded = {
+      title: document.querySelector('[data-field="table-title"]')?.value,
+      showPrice: document.querySelector('[data-field="table-show-price"]')?.checked,
+      font: document.querySelector('[data-field="font-family"]')?.value,
+      size: Number(document.querySelector('[data-field="text-size"]')?.value),
+      lineWidth: Number(document.querySelector('[data-field="table-line-width"]')?.value),
+      scale: Number(document.querySelector('[data-field="table-scale"]')?.value),
+      angle: Number(document.querySelector('[data-field="table-angle"]')?.value)
+    }
+    const set = async (field, value, checked = false) => {
+      const input = document.querySelector(`[data-field="${field}"]`)
+      if (!input) return false
+      if (checked) input.checked = value; else input.value = String(value)
+      input.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20); return true
+    }
+    await set('table-title', '確定面積表'); await set('table-show-price', true, true); await set('font-family', 'mincho'); await set('text-size', 1.6); await set('table-line-width', 3); await set('table-scale', 1.5); await set('table-angle', 12); await set('table-mode', 'snapshot')
+    table = K.objectById(api.store.document, table.id)?.object
+    const restored = K.objectById(IO.deserializeProject(IO.serializeProject(api.store.document)).document, table.id)?.object
+    return {
+      pass: created && loaded.title === '面積集計' && loaded.showPrice === false && loaded.font === 'mono' && loaded.size === 1.4 && loaded.lineWidth === 2.25 && loaded.scale === 1.2 && loaded.angle === 7 && table?.title === '確定面積表' && table?.showPrice === true && table?.style?.fontFamily === 'mincho' && Math.abs(Number(table?.style?.fontSize) - 22.4) < 1e-8 && table?.style?.lineWidth === 3 && table?.scale === 1.5 && table?.rotation === 12 && table?.snapshot === true && restored?.title === table.title && restored?.style?.fontFamily === 'mincho' && restored?.style?.lineWidth === 3,
+      details: { created, loaded, table, restored }
+    }
+  })
+
+  await run('stamp-and-arrow-creation-settings-remain-editable-and-roundtrip', async () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; api.store.replace(doc, { clean: true })
+    api.activateCommand('house', { focusCanvas: false }); Object.assign(api.session.form, { 'stamp-label': '母屋', 'stamp-font': 'mono', 'stamp-text-scale': 1.4, 'stamp-line-width': 3, 'stamp-hatch': true, 'stamp-hatch-spacing': 13, 'stamp-hatch-angle': 30 }); api.runtime.pointerWorld = { x: 100, y: 100 }
+    const houseOk = api.finishCommand(); let house = pageOf(api.store.document).entities.find(entity => entity.kind === 'house')
+    api.activateCommand('arrow', { focusCanvas: false }); Object.assign(api.session.form, { 'note-text': '進入口', 'note-font': 'mincho', 'note-size': 17 }); api.session.points = [{ x: 20, y: 20 }, { x: 70, y: 40 }]; api.session.step = 2
+    const arrowOk = api.finishCommand(); const arrow = pageOf(api.store.document).entities.find(entity => entity.kind === 'arrow')
+    api.activateCommand('select', { focusCanvas: false }); api.selectObject(house.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    const loaded = { spacing: Number(document.querySelector('[data-field="stamp-hatch-spacing"]')?.value), angle: Number(document.querySelector('[data-field="stamp-hatch-angle"]')?.value), lineWidth: Number(document.querySelector('[data-field="stamp-line-width"]')?.value) }
+    const hatchAngle = document.querySelector('[data-field="stamp-hatch-angle"]'); if (hatchAngle) { hatchAngle.value = '60'; hatchAngle.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
+    api.ui.contextPage = 'object-text'; api.renderCommandSurface(); await sleep(20)
+    const font = document.querySelector('[data-field="font-family"]'); if (font) { font.value = 'mincho'; font.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
+    house = K.objectById(api.store.document, house.id)?.object
+    const saved = IO.deserializeProject(IO.serializeProject(api.store.document)).document
+    const restoredHouse = K.objectById(saved, house.id)?.object; const restoredArrow = K.objectById(saved, arrow.id)?.object
+    return {
+      pass: houseOk && arrowOk && loaded.spacing === 13 && loaded.angle === 30 && loaded.lineWidth === 3 && house?.options?.hatch === true && house?.options?.hatchAngle === 60 && house?.options?.hatchSpacing === 13 && house?.style?.lineWidth === 3 && house?.textStyle?.fontFamily === 'mincho' && arrow?.text === '進入口' && arrow?.textStyle?.fontFamily === 'mincho' && arrow?.textStyle?.fontSize === 17 && restoredHouse?.options?.hatchAngle === 60 && restoredHouse?.textStyle?.fontFamily === 'mincho' && restoredArrow?.text === '進入口',
+      details: { houseOk, arrowOk, loaded, house, arrow, restoredHouse, restoredArrow }
+    }
+  })
+
+  await run('selected-guide-division-and-parallel-distance-flip-are-editable', async () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; api.store.replace(doc, { clean: true })
+    api.activateCommand('division-guide', { focusCanvas: false }); api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }]; api.session.step = 2; api.session.form['division-count'] = 4
+    const guideOk = api.finishCommand(); const guide = pageOf(api.store.document).entities.find(entity => entity.kind === 'guide')
+    api.activateCommand('parallel', { focusCanvas: false }); api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }]; api.session.step = 2; api.session.form['parallel-distance'] = 2; api.session.form.parallelSign = 1
+    const parallelOk = api.finishCommand(); let parallel = pageOf(api.store.document).entities.find(entity => entity.kind === 'parallel')
+    api.activateCommand('select', { focusCanvas: false }); api.selectObject(guide.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    const divisions = document.querySelector('[data-field="guide-divisions"]'); if (divisions) { divisions.value = '5'; divisions.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
+    api.selectObject(parallel.id, { openEditor: true }); api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    const distance = document.querySelector('[data-field="parallel-distance-edit"]'); if (distance) { distance.value = '3'; distance.dispatchEvent(new Event('change', { bubbles: true })); await sleep(20) }
+    parallel = K.objectById(api.store.document, parallel.id)?.object; const beforeFlipY = parallel?.points?.[0]?.y
+    document.querySelector('[data-action="flip-selected-parallel"]')?.click(); await sleep(25)
+    parallel = K.objectById(api.store.document, parallel.id)?.object
+    return {
+      pass: guideOk && parallelOk && K.objectById(api.store.document, guide.id)?.object?.options?.divisions === 5 && Boolean(distance) && Math.abs(Math.abs(beforeFlipY) - 30) < 1e-8 && Math.abs(parallel?.points?.[0]?.y + beforeFlipY) < 1e-8 && parallel?.options?.distanceM === -3,
+      details: { guideOk, parallelOk, guide: K.objectById(api.store.document, guide.id)?.object, beforeFlipY, parallel }
+    }
+  })
+
   await run('manual-page-scale-presets-edge-snap-and-direct-shortcuts-are-explicit', async () => {
     const doc = K.createDocument()
     doc.background = { ...doc.background, type: 'pdf', name: 'manual-scale.pdf', width: 842, height: 1191, pageCount: 1, currentPage: 1 }
@@ -2795,7 +3081,7 @@ async function rendererSuite() {
     const shortcutRows = []
     const shortcutCases = [
       ['b', false, 'underlay-open'], ['v', false, 'select'], ['p', false, 'lot-draw'], ['r', false, 'road-draw'],
-      ['x', false, 'move'], ['x', true, 'move-all'], ['z', false, 'vertex-edit'], ['e', false, 'label-edit'],
+      ['x', false, 'move'], ['x', true, 'move-all'], ['z', false, 'vertex-edit'],
       ['s', false, 'split'], ['s', true, 'split-all'], ['g', false, 'merge'], ['k', false, 'corner-cut'], ['d', false, 'division-guide'], ['q', false, 'parallel-guide'],
       ['m', false, 'distance'], ['m', true, 'polyline'], ['a', false, 'area'], ['l', false, 'line'], ['w', false, 'arrow'], ['t', false, 'text'], ['o', false, 'callout'],
       ['n', false, 'north'], ['u', false, 'house'], ['i', false, 'parking'], ['y', false, 'lot-table'], ['c', false, 'calibrate']
@@ -3244,6 +3530,7 @@ async function rendererSuite() {
     doc.calibration.mapScale = 500
     doc.pages[0].calibration = clone(doc.calibration)
     doc.paper = { ...doc.paper, enabled: true, size: 'A4', orientation: 'landscape', showFrame: false, showTitleFrame: true, title: '非表示確認', note: '下表も消す' }
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, paperSize: 'A4', orientation: 'landscape', printScale: 500, showFrame: false, showTitleFrame: true, initialized: true }
     const a4Landscape = api.paperPixelSize(doc.paper, 300)
     const a4Portrait = api.paperPixelSize({ ...doc.paper, orientation: 'portrait' }, 300)
     const a3Landscape = api.paperPixelSize({ ...doc.paper, size: 'A3' }, 300)
@@ -3269,6 +3556,84 @@ async function rendererSuite() {
         Math.abs(printedMillimeters - 20) < 0.01 && canvasSize.width === 3508 && canvasSize.height === 2480 &&
         nonWhite === 0,
       details: { a4Landscape, a4Portrait, a3Landscape, a3Portrait, pixelsPerWorldUnit, printedMillimeters, canvas: canvasSize, nonWhite }
+    }
+  })
+
+  await run('app-output-scale-and-placement-are-page-local-and-do-not-move-drawing', async () => {
+    const doc = K.createDocument()
+    doc.calibration = { ...doc.calibration, mpp: 0.1, mapScale: 100 }
+    doc.pages[0].calibration = clone(doc.calibration)
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, printScale: 100, initialized: false }
+    const lot = K.addShape(doc, 'lot', [{ x: 10, y: 20 }, { x: 210, y: 20 }, { x: 210, y: 120 }, { x: 10, y: 120 }])
+    const originalPoints = clone(lot.points)
+    const originalCalibration = clone(doc.pages[0].calibration)
+    const second = K.ensurePage(doc, 2)
+    second.calibration = { ...K.createCalibration(), mpp: 0.2, mapScale: 200 }
+    second.outputLayout = { ...second.outputLayout, paperSize: 'A3', orientation: 'portrait', printScale: 500, offsetMmX: 8, offsetMmY: 9, initialized: true }
+    api.store.replace(doc, { clean: true })
+    await api.handleAction('center-drawing-on-paper')
+    await sleep(30)
+    const active = pageOf(api.store.document)
+    const centeredLayout = clone(active.outputLayout)
+    const pointsUnchanged = JSON.stringify(active.shapes.find(shape => shape.id === lot.id)?.points) === JSON.stringify(originalPoints)
+    const calibrationUnchanged = JSON.stringify(active.calibration) === JSON.stringify(originalCalibration)
+    const pageTwoUnchanged = api.store.document.pages.find(item => item.sourcePage === 2)?.outputLayout
+    const pixelsAt100 = api.outputPixelsPerWorldUnit(api.store.document, 300)
+    api.store.commit('印刷縮尺だけ変更', model => { pageOf(model).outputLayout.printScale = 200 })
+    const pixelsAt200 = api.outputPixelsPerWorldUnit(api.store.document, 300)
+    return {
+      pass: centeredLayout.initialized === true && Number.isFinite(centeredLayout.offsetMmX) && Number.isFinite(centeredLayout.offsetMmY) && pointsUnchanged && calibrationUnchanged && pageTwoUnchanged.printScale === 500 && pageTwoUnchanged.paperSize === 'A3' && Math.abs(pixelsAt100 / pixelsAt200 - 2) < 1e-9,
+      details: { centeredLayout, pointsUnchanged, calibrationUnchanged, pageTwoUnchanged, pixelsAt100, pixelsAt200 }
+    }
+  })
+
+  await run('app-output-fit-status-suggests-but-never-auto-applies-scale', async () => {
+    const doc = K.createDocument()
+    doc.calibration = { ...doc.calibration, mpp: 1, mapScale: 100 }
+    doc.pages[0].calibration = clone(doc.calibration)
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, printScale: 100, offsetMmX: 5, offsetMmY: 5, initialized: true }
+    K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }])
+    api.store.replace(doc, { clean: true })
+    const beforeScale = pageOf(api.store.document).outputLayout.printScale
+    const fit = api.outputFitStatus(api.store.document)
+    const afterScale = pageOf(api.store.document).outputLayout.printScale
+    return { pass: fit?.state === 'overflow' && fit.suggestedScale > beforeScale && beforeScale === afterScale, details: { fit, beforeScale, afterScale } }
+  })
+
+  await run('app-output-drag-commits-one-offset-change-without-moving-objects', async () => {
+    const doc = K.createDocument()
+    doc.calibration = { ...doc.calibration, mpp: 0.1, mapScale: 100 }
+    doc.pages[0].calibration = clone(doc.calibration)
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, printScale: 100, offsetMmX: 10, offsetMmY: 12, initialized: true }
+    const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }])
+    api.store.replace(doc, { clean: true }); api.setWorkspace('output'); document.querySelector('[data-output-tab="paper"]')?.click(); await sleep(80)
+    api.ui.output.placing = true
+    const canvas = document.getElementById('output-preview-canvas')
+    const rect = canvas.getBoundingClientRect()
+    const originalCapture = canvas.setPointerCapture
+    const originalRelease = canvas.releasePointerCapture
+    const originalHas = canvas.hasPointerCapture
+    canvas.setPointerCapture = () => {}
+    canvas.releasePointerCapture = () => {}
+    canvas.hasPointerCapture = () => false
+    const pointsBefore = clone(lot.points)
+    const undoBefore = api.store.undoStack.length
+    try {
+      api.handleOutputPointerDown({ button: 0, pointerId: 77, clientX: rect.left + 20, clientY: rect.top + 20, preventDefault() {} })
+      api.handleOutputPointerMove({ pointerId: 77, clientX: rect.left + 20 + rect.width * 0.1, clientY: rect.top + 20 + rect.height * 0.1, preventDefault() {} })
+      api.handleOutputPointerUp({ pointerId: 77, preventDefault() {} })
+      await sleep(40)
+    } finally {
+      canvas.setPointerCapture = originalCapture
+      canvas.releasePointerCapture = originalRelease
+      canvas.hasPointerCapture = originalHas
+    }
+    const active = pageOf(api.store.document)
+    const paper = api.outputPaperModel(api.store.document)
+    const pointsAfter = active.shapes.find(shape => shape.id === lot.id)?.points
+    return {
+      pass: Math.abs(active.outputLayout.offsetMmX - (10 + paper.widthMm * 0.1)) < 0.05 && Math.abs(active.outputLayout.offsetMmY - (12 + paper.heightMm * 0.1)) < 0.05 && JSON.stringify(pointsAfter) === JSON.stringify(pointsBefore) && api.store.undoStack.length === undoBefore + 1,
+      details: { layout: active.outputLayout, paper, pointsBefore, pointsAfter, undoBefore, undoAfter: api.store.undoStack.length }
     }
   })
 
@@ -3361,7 +3726,9 @@ async function rendererSuite() {
   // Install a comprehensive, deterministic document for screenshots and workspace checks.
   await run('app-fixture-renders-all-feature-families', async () => {
     if (!api?.store) return { pass: false, details: 'debug API unavailable' }
-    const doc = K.createDocument(); doc.title = '日本橋二丁目 販売図面'; doc.calibration.mpp = 0.1; doc.paper.enabled = true; doc.paper.title = '区画計画図'; doc.paper.author = 'QA'
+    const doc = K.createDocument(); doc.title = '日本橋二丁目 販売図面'; doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500; doc.paper.enabled = true; doc.paper.title = '区画計画図'; doc.paper.author = 'QA'
+    doc.pages[0].calibration = clone(doc.calibration)
+    doc.pages[0].outputLayout = { ...doc.pages[0].outputLayout, printScale: 500, initialized: false }
     K.addShape(doc, 'lot', [{ x: 100, y: 80 }, { x: 320, y: 80 }, { x: 320, y: 260 }, { x: 100, y: 260 }], { label: 'A区画', price: 3500, memo: '南向き' })
     K.addShape(doc, 'lot', [{ x: 330, y: 80 }, { x: 550, y: 80 }, { x: 550, y: 260 }, { x: 330, y: 260 }], { label: 'B区画', price: 4200 })
     K.addShape(doc, 'road', [{ x: 80, y: 280 }, { x: 570, y: 280 }, { x: 570, y: 330 }, { x: 80, y: 330 }], { label: '公道', road: { type: 'public', widthM: 4 } })

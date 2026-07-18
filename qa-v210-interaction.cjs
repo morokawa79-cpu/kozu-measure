@@ -155,7 +155,7 @@ async function runElectronSuite() {
         y: Math.round((points[0].y + points[2].y) / 2)
       })
       await wait(win, 120)
-      const appearanceRect = await visibleRect(win, '[data-context-page="object-basic"]')
+      const appearanceRect = await visibleRect(win, '[data-context-page="object-appearance"]')
       if (!appearanceRect) {
         add(checkName, false, { stage: 'open-object-appearance', createChoice, created, selected: await readState(win) })
         return
@@ -477,7 +477,7 @@ async function runElectronSuite() {
     const skipped = checks.filter(check => check.skipped)
     const report = {
       generatedAt: new Date().toISOString(),
-      target: { version: '2.1.0-alpha.8', entry: 'index-v210.html', mode: 'real-dom-input' },
+      target: { version: '2.1.0-alpha.9', entry: 'index-v210.html', mode: 'real-dom-input' },
       fixture: { pdf: path.basename(pdfPath), onDisk: true },
       summary: {
         pass: failed.length === 0,

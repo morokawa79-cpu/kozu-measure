@@ -25,6 +25,26 @@
   const SCALE_REQUIRED_COMMANDS = new Set(['lot-draw', 'road-draw', 'distance', 'polyline', 'area', 'corner-cut', 'parallel-guide', 'house', 'parking'])
   const DRAWING_SCALE_PRESETS = new Set([5, 10, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 1000])
   const CENTERABLE_LABEL_KINDS = new Set(['lot', 'road', 'water', 'cutout', 'distance', 'polyline', 'area', 'dimension', 'arrow', 'callout'])
+  const OBJECT_EDITOR_ROUTES = Object.freeze({
+    lot: Object.freeze([['object-basic', '基本'], ['object-values', '面積・坪'], ['object-dimension', '辺寸法'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-record', '台帳']]),
+    road: Object.freeze([['object-basic', '道路情報'], ['object-special', '道路名・幅員'], ['object-dimension', '辺寸法'], ['object-values', '面積・坪'], ['object-appearance', '表示'], ['object-text', '文字']]),
+    water: Object.freeze([['object-basic', '水路情報'], ['object-special', '水路名・水路幅'], ['object-dimension', '辺寸法'], ['object-values', '面積・坪'], ['object-appearance', '表示'], ['object-text', '文字']]),
+    cutout: Object.freeze([['object-basic', '隅切り情報'], ['object-special', '元へ戻す'], ['object-dimension', '寸法'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-record', '台帳']]),
+    distance: Object.freeze([['object-basic', '値・表示'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
+    polyline: Object.freeze([['object-basic', '合計・区間'], ['object-dimension', '寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
+    area: Object.freeze([['object-basic', '面積・坪'], ['object-dimension', '辺寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
+    dimension: Object.freeze([['object-basic', '値・表示'], ['object-dimension', '寸法'], ['object-text', '文字'], ['object-special', '線']]),
+    line: Object.freeze([['object-special', '線']]),
+    arrow: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '線・矢印']]),
+    text: Object.freeze([['object-basic', '内容'], ['object-text', '文字・配置']]),
+    callout: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '引出線']]),
+    north: Object.freeze([['object-special', '配置・表示'], ['object-text', '文字']]),
+    house: Object.freeze([['object-basic', '内容'], ['object-special', '家屋'], ['object-text', '文字'], ['object-dimension', '寸法']]),
+    parking: Object.freeze([['object-basic', '内容'], ['object-special', '駐車'], ['object-text', '文字'], ['object-dimension', '寸法']]),
+    'lot-table': Object.freeze([['object-special', '面積表'], ['object-text', '文字']]),
+    guide: Object.freeze([['object-special', '均等ガイド']]),
+    parallel: Object.freeze([['object-special', '平行線']])
+  })
   const COLOR_OPTIONS = Object.freeze({
     ink: [['#172033', '濃紺'], ['#0f172a', '黒'], ['#334155', '灰'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
     line: [['#253858', '濃紺'], ['#111827', '黒'], ['#1d4ed8', '青'], ['#b4232d', '赤'], ['#08735c', '緑'], ['#7c3aed', '紫']],
@@ -44,6 +64,7 @@
   const PDF_UNITS_PER_METER = 72 / 0.0254
   const OUTPUT_DPI = 300
   const PREVIEW_MIN_DPR = 2
+  const OUTPUT_SCALE_PRESETS = Object.freeze([5, 10, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 1000])
   const LABEL_BASE_SIZE = finite(K.DEFAULTS.labelStyle?.fontSize ?? K.DEFAULTS.labelStyle?.size, 14)
   const TEXT_BASE_SIZE = finite(K.DEFAULTS.textStyle?.fontSize ?? K.DEFAULTS.textStyle?.size, 14)
   const METRIC_BASE_SIZE = 12
@@ -78,16 +99,15 @@
     move: { category: 'select', name: '移動', icon: 'i-move', hint: '対象を選び、移動先を指定' },
     'move-all': { category: 'select', name: '全体移動', icon: 'i-move-all', template: 'controls-move-all', hint: '移動対象を確認し、基準点と移動先を指定' },
     'vertex-edit': { category: 'select', name: '頂点編集', icon: 'i-vertex', hint: '頂点を選び、移動先を指定' },
-    'label-edit': { category: 'select', name: '文字・寸法', icon: 'i-label', hint: '文字・寸法を選択して書式を編集' },
     copy: { category: 'select', name: '複写', icon: 'i-copy', hint: '対象を選び、複写位置を指定' },
     delete: { category: 'select', name: '削除', icon: 'i-delete', hint: '削除する図形を選択' },
 
     'lot-draw': { category: 'parcel', name: '区画', icon: 'i-parcel', template: 'controls-parcel', hint: '頂点クリック　ダブルクリック確定　右クリックで1点戻す' },
     'road-draw': { category: 'road', name: '道路・水路', icon: 'i-road', template: 'controls-road', hint: '外周クリック　ダブルクリック確定' },
 
-    split: { category: 'process', name: '選択分割', icon: 'i-split', template: 'controls-process', hint: '区画を選び、分割線を左クリック。ダブルクリック/Enterで確定' },
-    'split-all': { category: 'process', name: '一括分割', icon: 'i-split-all', template: 'controls-process', hint: '全区画を横切る線を左クリック。ダブルクリック/Enterで確定' },
-    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '隣り合う区画、または区画と隅切りを2つ選択' },
+    split: { category: 'process', name: '選択分割', icon: 'i-split', template: 'controls-process', hint: '区画・道路・水路を選び、分割線を左クリック。ダブルクリック/Enterで確定' },
+    'split-all': { category: 'process', name: '一括分割', icon: 'i-split-all', template: 'controls-process', hint: '対象種類を選び、横切る線を左クリック。ダブルクリック/Enterで確定' },
+    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '同じ種類の隣接図形、または区画と隅切りを2つ選択' },
     'corner-cut': { category: 'process', name: '隅切り', icon: 'i-corner', template: 'controls-process', hint: '区画の頂点を選択して確定' },
     'division-guide': { category: 'process', name: '均等ガイド', icon: 'i-guide', template: 'controls-process', hint: '任意の2点間を指定数で等分' },
     'lot-division-guide': { category: 'process', name: '区画等分線', icon: 'i-guide', template: 'controls-process', hint: '区画を選び、基準方向を2点で指定' },
@@ -117,7 +137,7 @@
     'underlay-adjust': 'underlay-transform',
     'blank-paper': 'paper-blank',
     calibrate: 'calibrate',
-    select: 'select', move: 'move', 'move-all': 'move-all', vertex: 'vertex-edit', label: 'label-edit', copy: 'copy', delete: 'delete',
+    select: 'select', move: 'move', 'move-all': 'move-all', vertex: 'vertex-edit', copy: 'copy', delete: 'delete',
     parcel: 'lot-draw', road: 'road-draw', split: 'split', 'split-all': 'split-all', merge: 'merge', 'corner-cut': 'corner-cut',
     'division-guide': 'division-guide', 'lot-division-guide': 'lot-division-guide', parallel: 'parallel-guide', 'edge-hide': 'edge-hide',
     distance: 'distance', polyline: 'polyline', area: 'area', line: 'line', arrow: 'arrow', text: 'text', callout: 'callout',
@@ -127,7 +147,7 @@
 
   const SHORTCUTS = Object.freeze({
     B: 'underlay-open', V: 'select', P: 'lot-draw', R: 'road-draw',
-    X: 'move', 'Shift+X': 'move-all', Z: 'vertex-edit', E: 'label-edit',
+    X: 'move', 'Shift+X': 'move-all', Z: 'vertex-edit',
     S: 'split', 'Shift+S': 'split-all', G: 'merge', K: 'corner-cut', D: 'division-guide', Q: 'parallel-guide',
     M: 'distance', 'Shift+M': 'polyline', A: 'area', L: 'line', W: 'arrow', T: 'text', O: 'callout',
     N: 'north', U: 'house', I: 'parking', Y: 'lot-table', C: 'calibrate'
@@ -193,7 +213,7 @@
     statusOverride: '',
     statusTimer: 0,
     documentName: '無題',
-    output: { includeUnderlay: true, note: '', showTitleFrame: true },
+    output: { includeUnderlay: true, note: '', showTitleFrame: true, placing: false },
     scaleFlow: { reason: null, returnCommand: null }
   }
 
@@ -211,10 +231,12 @@
     backgroundRuntime: null,
     backgroundSource: null,
     drag: null,
+    outputDrag: null,
     resizeObserver: null,
     renderingOutput: false,
     pendingClose: false,
     pendingDestructiveResolve: null,
+    currentProjectPath: null,
     fileDragDepth: 0,
     compositionEndedAt: 0
   }
@@ -250,6 +272,10 @@
     if (unit === '㎡') text = text.replace(/\s*(?:㎡|m\s*[2²]|平方メートル)\s*$/i, '').trimEnd()
     else text = text.replace(/\s*坪\s*$/, '').trimEnd()
     return text ? `${text}${unit}` : ''
+  }
+
+  function fontToken(value) {
+    return typeof K.normalizeFontToken === 'function' ? K.normalizeFontToken(value) : 'gothic'
   }
 
   function fontScale(style, baseSize) {
@@ -315,18 +341,49 @@
     return Number.isFinite(inferred) && inferred > 0 ? inferred : null
   }
 
+  function activeOutputLayout(documentModel = store.document) {
+    const active = page(documentModel)
+    return active?.outputLayout || K.createOutputLayout?.({}, documentModel?.paper || {}) || {
+      paperSize: documentModel?.paper?.size === 'A3' ? 'A3' : 'A4',
+      orientation: documentModel?.paper?.orientation === 'portrait' ? 'portrait' : 'landscape',
+      printScale: null, offsetMmX: 0, offsetMmY: 0,
+      showFrame: true, showTitleFrame: true, includeUnderlay: true, includeGuides: false, initialized: false
+    }
+  }
+
+  function outputPaperModel(documentModel = store.document) {
+    const layout = activeOutputLayout(documentModel)
+    const size = layout.paperSize === 'A3' ? 'A3' : 'A4'
+    const orientation = layout.orientation === 'portrait' ? 'portrait' : 'landscape'
+    const millimeters = size === 'A3' ? { short: 297, long: 420 } : { short: 210, long: 297 }
+    return {
+      ...(documentModel?.paper || {}),
+      size,
+      orientation,
+      widthMm: orientation === 'portrait' ? millimeters.short : millimeters.long,
+      heightMm: orientation === 'portrait' ? millimeters.long : millimeters.short,
+      showFrame: layout.showFrame !== false,
+      showTitleFrame: layout.showTitleFrame !== false,
+      includeUnderlay: layout.includeUnderlay !== false,
+      includeGuides: layout.includeGuides === true,
+      printScale: Number(layout.printScale) > 0 ? Number(layout.printScale) : null
+    }
+  }
+
+  function outputPrintScale(documentModel = store.document) {
+    const value = Number(activeOutputLayout(documentModel).printScale)
+    return Number.isFinite(value) && value > 0 ? value : null
+  }
+
   function outputPixelsPerWorldUnit(documentModel = store.document, dpi = 96) {
     const targetDpi = Math.max(1, finite(dpi, 96))
-    const mpp = Number(documentModel?.calibration?.mpp)
-    const mapScale = resolvedMapScale(documentModel)
-    if (Number.isFinite(mpp) && mpp > 0 && Number.isFinite(mapScale) && mapScale > 0) {
-      return (mpp / mapScale) * (targetDpi / 0.0254)
+    const active = page(documentModel)
+    const mpp = Number(active?.calibration?.mpp ?? documentModel?.calibration?.mpp)
+    const printScale = outputPrintScale(documentModel)
+    if (Number.isFinite(mpp) && mpp > 0 && Number.isFinite(printScale) && printScale > 0) {
+      return (mpp / printScale) * (targetDpi / 0.0254)
     }
-    const background = documentModel?.background || {}
-    if (background.type === 'pdf') return targetDpi / 72
-    const imageDpi = Number(background.metadata?.dpi)
-    if (background.type === 'image' && Number.isFinite(imageDpi) && imageDpi > 0) return targetDpi / imageDpi
-    return targetDpi / 96
+    return null
   }
 
   function roadTypeCode(value) {
@@ -464,7 +521,7 @@
 
   function selectedLotEdgeAt(world) {
     const lot = ui.selectedIds.length === 1 ? K.objectById(store.document, ui.selectedIds[0])?.object : null
-    if (!world || lot?.kind !== 'lot' || !Array.isArray(lot.points) || lot.points.length < 2) return null
+    if (!world || !['lot', 'road', 'water', 'cutout'].includes(lot?.kind) || !Array.isArray(lot.points) || lot.points.length < 2) return null
     const tolerance = 13 / runtime.view.zoom
     let best = null
     for (let index = 0; index < lot.points.length; index += 1) {
@@ -478,7 +535,7 @@
   }
 
   function setLotEdgeVisibility(object, index, visible) {
-    if (object?.kind !== 'lot' || !Number.isInteger(index)) return false
+    if (!['lot', 'road', 'water', 'cutout'].includes(object?.kind) || !Number.isInteger(index)) return false
     if (!Array.isArray(object.edges) || object.edges.length < (object.points?.length || 0)) {
       object.edges = K.edgeMetadata(store.document, object.points || [], object.edges)
     }
@@ -661,11 +718,14 @@
         }
       }
       case 'move-all': return { 'move-all-include-underlay': false }
+      case 'split-all': return { 'split-lot': true, 'split-road': false, 'split-water': false }
       case 'lot-draw': return {
         fill: lot.style?.fill || K.DEFAULTS.lotStyle.fill,
         stroke: lot.style?.stroke || K.DEFAULTS.lotStyle.stroke,
         'fill-opacity': Math.round(finite(lot.style?.opacity, K.DEFAULTS.lotStyle.opacity) * 100),
         'show-area': lot.showArea !== false, 'show-tsubo': lot.showTsubo !== false, 'show-lengths': lot.showLengths !== false,
+        'font-family': fontToken(lot.labelStyle?.fontFamily), 'text-size': fontScale(lot.labelStyle, LABEL_BASE_SIZE),
+        'dimension-font': fontToken(lot.dimensionStyle?.fontFamily), 'dimension-size': fontScale(lot.dimensionStyle, DIMENSION_BASE_SIZE),
         approximate: Boolean(lot.dimensionStyle?.approximate),
         'dimension-decimals': lot.dimensionStyle?.decimals ?? 2,
         'dimension-rounding': lot.dimensionStyle?.rounding || 'round',
@@ -674,45 +734,54 @@
       case 'road-draw': return {
         'road-type': road.type || '道路', 'road-name': road.name || '道路', 'road-width': finite(road.widthM, 4),
         fill: road.style?.fill || K.DEFAULTS.roadStyle.fill, stroke: road.style?.stroke || K.DEFAULTS.roadStyle.stroke,
-        'fill-opacity': Math.round(finite(road.style?.opacity, K.DEFAULTS.roadStyle.opacity) * 100)
+        'fill-opacity': Math.round(finite(road.style?.opacity, K.DEFAULTS.roadStyle.opacity) * 100),
+        'font-family': fontToken(road.labelStyle?.fontFamily), 'text-size': fontScale(road.labelStyle, LABEL_BASE_SIZE),
+        'road-width-font': fontToken(road.widthLabelStyle?.fontFamily), 'road-width-size': fontScale(road.widthLabelStyle, ROAD_WIDTH_BASE_SIZE),
+        'text-vertical': Boolean(road.vertical)
       }
       case 'division-guide': case 'lot-division-guide': return { 'division-count': 2 }
       case 'parallel-guide': return { 'parallel-distance': 3, parallelSign: 1, parallelCount: 0 }
       case 'corner-cut': return { 'corner-length': 2 }
       case 'distance': case 'polyline': case 'area': return {
         'line-style': line.lineStyle || 'solid', 'line-width': finite(line.lineWidth, 1.4), color: line.color || '#253858',
-        'note-text': '', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': 0, 'note-font': text.fontFamily || 'gothic', 'note-vertical': false,
+        'note-text': '', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': 0, 'note-font': fontToken(text.fontFamily), 'note-vertical': false,
         'dimension-approximate': Boolean(measurement.approximate),
+        'dimension-font': fontToken(measurement.fontFamily), 'dimension-size': fontScale(measurement, DIMENSION_BASE_SIZE),
         'dimension-decimals': measurement.decimals ?? measurement.digits ?? 2,
         'dimension-rounding': measurement.rounding || 'round',
         'dimension-adjustment': finite(measurement.adjustment)
       }
       case 'line': case 'arrow': return {
         'line-style': line.lineStyle || 'solid', 'line-width': finite(line.lineWidth, 1.4), color: line.color || '#253858',
-        'note-text': '', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': 0, 'note-font': text.fontFamily || 'gothic', 'note-vertical': false
+        'note-text': '', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': 0, 'note-font': fontToken(text.fontFamily), 'note-vertical': false
       }
       case 'text': case 'callout': return {
         'note-text': command === 'callout' ? '注記' : '文字', 'note-size': finite(text.fontSize, TEXT_BASE_SIZE), 'note-angle': finite(text.rotation),
-        'note-font': text.fontFamily || 'gothic', 'note-vertical': Boolean(text.vertical), color: text.color || '#172033',
+        'note-font': fontToken(text.fontFamily), 'note-vertical': Boolean(text.vertical), color: text.color || '#172033',
         'line-style': line.lineStyle || 'solid', 'line-width': finite(line.lineWidth, 1.4)
       }
       case 'north': return {
         'stamp-width': finite(stamp.size, 54), 'stamp-depth': finite(stamp.size, 54),
         'stamp-scale': finite(stamp.scale, 1), 'stamp-text-scale': finite(stamp.textScale, finite(text.fontSize, TEXT_BASE_SIZE) / TEXT_BASE_SIZE),
-        'stamp-angle': 0, 'stamp-dimensions': false, 'stamp-label': stamp.label || 'N', color: stamp.textColor || text.color || '#172033'
+        'stamp-angle': 0, 'stamp-dimensions': false, 'stamp-label': stamp.label || 'N', 'stamp-font': fontToken(stamp.fontFamily || text.fontFamily), 'stamp-line-width': finite(stamp.lineWidth, 1.4), color: stamp.textColor || text.color || '#172033'
       }
       case 'house': case 'parking': return {
         'stamp-width': finite(stamp.widthM, command === 'parking' ? 2.5 : 10),
         'stamp-depth': finite(stamp.heightM, command === 'parking' ? 5 : 8), 'stamp-angle': 0,
         'stamp-scale': finite(stamp.scale, 1), 'stamp-text-scale': finite(stamp.textScale, finite(text.fontSize, TEXT_BASE_SIZE) / TEXT_BASE_SIZE),
-        'stamp-dimensions': stamp.showDimensions !== false, 'stamp-label': stamp.label || (command === 'parking' ? 'P' : '家屋'),
+        'stamp-dimensions': stamp.showDimensions !== false, 'stamp-label': stamp.label || (command === 'parking' ? 'P' : '家屋'), 'stamp-font': fontToken(stamp.fontFamily || text.fontFamily),
         color: stamp.textColor || line.color || '#253858',
         'stamp-stroke': stamp.stroke || line.color || '#253858',
         'stamp-fill': stamp.fill || (command === 'parking' ? '#eef4fb' : '#edf2f8'),
         'stamp-hatch': command === 'house' ? stamp.hatch !== false : false,
-        'line-style': stamp.lineStyle || line.lineStyle || 'solid'
+        'stamp-hatch-spacing': finite(stamp.hatchSpacing, 9), 'stamp-hatch-angle': finite(stamp.hatchAngle, 45),
+        'line-style': stamp.lineStyle || line.lineStyle || 'solid', 'stamp-line-width': finite(stamp.lineWidth, 1.4)
       }
-      case 'lot-table': return { 'table-scale': 1, 'table-angle': 0, 'table-mode': 'dynamic' }
+      case 'lot-table': return {
+        'table-title': '区画一覧', 'table-show-price': true,
+        'font-family': fontToken(text.fontFamily), 'text-size': fontScale(text, TEXT_BASE_SIZE),
+        'table-line-width': 0.75, 'table-scale': 1, 'table-angle': 0, 'table-mode': 'dynamic'
+      }
       case 'display-settings': {
         const lots = (page(documentModel)?.shapes || []).filter(shape => shape.kind === 'lot')
         const everyLot = predicate => lots.length === 0 || lots.every(predicate)
@@ -891,10 +960,7 @@
       const widthField = $('[data-field="road-width"]', dom.commandControls)?.closest('label')
       widthField?.insertAdjacentHTML('beforebegin', '<label class="field-inline"><span>名称</span><input class="ctrl-input wide" data-field="road-name" type="text" placeholder="道路名称"></label>')
     }
-    if (['text', 'callout'].includes(command)) {
-      dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline context-optional"><span>書体</span><select class="ctrl-select compact-select" data-field="note-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">等幅</option></select></label><label class="check-control context-optional"><input data-field="note-vertical" type="checkbox">縦書き</label>')
-    }
-    if (['line', 'arrow'].includes(command)) {
+    if (command === 'line') {
       for (const fieldName of ['note-text', 'note-size', 'note-angle']) {
         const field = $(`[data-field="${fieldName}"]`, dom.commandControls)
         const container = field?.closest('label') || field
@@ -903,13 +969,20 @@
       const colorLabel = $('[data-field="color"]', dom.commandControls)?.closest('label')?.querySelector('span')
       if (colorLabel) colorLabel.textContent = '線色'
     }
+    if (command === 'line') {
+      for (const fieldName of ['note-font', 'note-vertical']) {
+        const field = $(`[data-field="${fieldName}"]`, dom.commandControls)
+        const container = field?.closest('label') || field
+        if (container) container.hidden = true
+      }
+    }
     if (['line', 'arrow', 'callout'].includes(command)) {
       dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline context-optional"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline context-optional"><span>太さ</span><input class="ctrl-input number-small" data-field="line-width" type="number" min="0.5" max="10" step="0.5"></label>')
     }
     if (['north', 'house', 'parking'].includes(command)) {
       const appearance = command === 'north'
-        ? colorSelectMarkup('color', '色', 'ink')
-        : `${colorSelectMarkup('color', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${command === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label>`
+        ? `${colorSelectMarkup('color', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
+        : `${colorSelectMarkup('color', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${command === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
       dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="stamp-label" type="text"></label><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel">${appearance}</div></details>`)
       if (command === 'north') {
         $$('.stamp-metric-only, .stamp-dimension-only', dom.commandControls).forEach(element => { element.hidden = true })
@@ -923,13 +996,71 @@
     const strong = document.createElement('strong')
     strong.textContent = meta.hint
     wrap.append(strong)
-    if (['select', 'label-edit'].includes(session.command)) {
+    if (session.command === 'select') {
       const span = document.createElement('span')
       span.className = 'context-optional'
       span.textContent = '　クリック後、上部で編集'
       wrap.append(span)
     }
     dom.commandControls.append(wrap)
+  }
+
+  function objectEditorRoute(kind) {
+    return OBJECT_EDITOR_ROUTES[kind] || OBJECT_EDITOR_ROUTES.text
+  }
+
+  function configureObjectEditorPages(kind) {
+    const route = objectEditorRoute(kind)
+    if (!route.some(([pageId]) => pageId === ui.contextPage)) ui.contextPage = route[0]?.[0] || ''
+    const buttons = $$('[data-context-page]', dom.commandPages)
+    buttons.forEach((button, index) => {
+      const entry = route[index]
+      button.hidden = !entry
+      if (!entry) return
+      const [pageId, label] = entry
+      button.dataset.contextPage = pageId
+      button.textContent = label
+      button.classList.toggle('active', pageId === ui.contextPage)
+    })
+    return new Set(route.map(([pageId]) => pageId))
+  }
+
+  function appendValueLabelControls(kind) {
+    if (!['lot', 'road', 'water'].includes(kind)) return
+    const panel = ui.valueLabelPanel === 'tsubo' ? 'tsubo' : 'area'
+    const prefix = panel === 'tsubo' ? 'tsubo-label' : 'area-label'
+    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group value-toggle" aria-label="面積と坪の切替"><button class="ctrl-tab ${panel === 'area' ? 'active' : ''}" type="button" data-value-label-panel="area">㎡ 面積</button><span class="value-switch-arrow" aria-hidden="true">⇔</span><button class="ctrl-tab ${panel === 'tsubo' ? 'active' : ''}" type="button" data-value-label-panel="tsubo">坪表示</button></div><label class="check-control"><input data-field="${prefix}-visible" type="checkbox">表示</label><label class="field-inline value-text-field"><span>表示文字</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄で自動計算">${panel === 'area' ? '<em class="field-warning" data-area-manual-warning hidden>手入力値・坪も更新</em>' : ''}</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><button class="ctrl-btn" type="button" data-action="reset-value-label-position">${panel === 'tsubo' ? '坪' : '㎡'}を元の位置へ戻す</button>`)
+  }
+
+  function appendRoadWidthControls(kind) {
+    const water = kind === 'water'
+    const widthName = water ? '水路幅' : '幅員'
+    const widthPanel = ['primary', 'angle', 'style'].includes(ui.specialPanel) ? ui.specialPanel : 'primary'
+    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group nested-tabs"><button class="ctrl-tab ${widthPanel === 'primary' ? 'active' : ''}" type="button" data-special-panel="primary">内容</button><button class="ctrl-tab ${widthPanel === 'angle' ? 'active' : ''}" type="button" data-special-panel="angle">角度</button><button class="ctrl-tab ${widthPanel === 'style' ? 'active' : ''}" type="button" data-special-panel="style">書式</button></div>`)
+    if (widthPanel === 'primary') {
+      const categoryOptions = water
+        ? '<option value="水路">水路</option>'
+        : '<option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option>'
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>${water ? '水路名' : '道路名'}</span><input class="ctrl-input wide" data-field="object-label" type="text"></label><label class="field-inline"><span>区分</span><select class="ctrl-select" data-field="road-category">${categoryOptions}</select></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">${widthName}を表示</label><label class="field-inline"><span>${widthName}</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="自動: ${widthName} 4.0m"></label>`)
+    } else if (widthPanel === 'angle') {
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>${widthName}の角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label>`)
+    } else {
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup('road-width-color', '色', 'dimension')}`)
+    }
+  }
+
+  function lotTableControlsMarkup() {
+    return '<label class="field-inline"><span>題名</span><input class="ctrl-input wide" data-field="table-title" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="table-show-price" type="checkbox">価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25"></label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label></div></details>'
+  }
+
+  function appendGuideEditControls(object, { batch = false } = {}) {
+    if (object.kind === 'guide' && object.options?.mode === 'segment') {
+      dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>分割数</span><input class="ctrl-input number-small" data-field="guide-divisions" type="number" min="2" max="20" step="1"><em>等分</em></label>')
+    }
+    if (!batch && object.kind === 'parallel') {
+      const hasBaseline = Array.isArray(object.options?.baselinePoints) && object.options.baselinePoints.length >= 2
+      dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>間隔</span><input class="ctrl-input number-small" data-field="parallel-distance-edit" type="number" min="0.1" step="0.1" ${hasBaseline ? '' : 'disabled'}><em>m</em></label><button class="ctrl-btn" type="button" data-action="flip-selected-parallel" ${hasBaseline ? '' : 'disabled'}>反転</button>${hasBaseline ? '' : '<span class="control-label context-optional">旧形式の平行線は線の書式だけ編集できます</span>'}`)
+    }
   }
 
   function showBatchEditor() {
@@ -963,41 +1094,40 @@
     const hasShapeDimensions = isShape && !isRoadLike
     const hasEditableText = !['line', 'guide', 'parallel', 'lot-table'].includes(kind)
     const hasLineStyle = LINE_STYLE_KINDS.has(kind)
-    const allowedPages = new Set(['object-basic'])
-    if (hasShapeDimensions || isMeasurement) allowedPages.add('object-dimension')
-    if (isRoadLike || isStamp || hasLineStyle) allowedPages.add('object-special')
-    if (!allowedPages.has(ui.contextPage)) ui.contextPage = [...allowedPages][0] || ''
-    $$('[data-context-page]', dom.commandPages).forEach(button => {
-      const visible = allowedPages.has(button.dataset.contextPage)
-      button.hidden = !visible
-      button.classList.toggle('active', visible && button.dataset.contextPage === ui.contextPage)
-      if (visible && button.dataset.contextPage === 'object-special') button.textContent = isRoadLike ? '幅員' : isStamp ? '配置' : '線'
-    })
+    configureObjectEditorPages(kind)
     if (ui.contextPage) dom.commandControls.append(cloneTemplate(`controls-${ui.contextPage}`))
     if (ui.contextPage === 'object-basic') {
-      $$('[data-field="object-type"],[data-field="lot-number"]', dom.commandControls).forEach(field => {
+      $$('.shape-kind-convert', dom.commandControls).forEach(element => { element.hidden = true })
+      $$('[data-field="object-type"],[data-field="lot-number"],[data-field="object-label"]', dom.commandControls).forEach(field => {
         const container = field.closest('label') || field
         container.hidden = true
       })
-      const recordDropdown = $('[data-field="object-label"]', dom.commandControls)?.closest('details')
-      if (recordDropdown) recordDropdown.hidden = true
       $$('.shape-appearance-only', dom.commandControls).forEach(element => { element.hidden = !isShape })
       $$('.editable-text-only', dom.commandControls).forEach(element => { element.hidden = !hasEditableText })
       $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = kind !== 'lot' })
     }
+    if (ui.contextPage === 'object-values') {
+      appendValueLabelControls(kind)
+      $$('[data-action="reset-value-label-position"]', dom.commandControls).forEach(button => { button.hidden = true })
+    }
+    if (ui.contextPage === 'object-record') {
+      $$('[data-field]', dom.commandControls).forEach(field => {
+        const container = field.closest('label') || field
+        container.hidden = true
+      })
+    }
     if (ui.contextPage === 'object-special') {
       if (isStamp) {
         const metricControls = kind === 'north' ? '' : '<label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label>'
-        const appearanceControls = kind === 'north' ? colorSelectMarkup('textColor', '色', 'ink') : `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label>`
+        const appearanceControls = kind === 'north' ? `${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>` : `${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`
         dom.commandControls.insertAdjacentHTML('beforeend', `${metricControls}<label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${kind === 'north' ? '' : '<label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法</label>'}${appearanceControls}`)
+      } else if (kind === 'lot-table') {
+        dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup())
       } else if (hasLineStyle) {
+        appendGuideEditControls(object, { batch: true })
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="object-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="object-line-width" type="number" min="0.5" max="10" step="0.5"></label>${colorSelectMarkup('object-line-color', '線色', 'line')}`)
       } else if (isRoadLike) {
-        const widthPanel = ['primary', 'angle', 'style'].includes(ui.specialPanel) ? ui.specialPanel : 'primary'
-        dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group nested-tabs"><button class="ctrl-tab ${widthPanel === 'primary' ? 'active' : ''}" type="button" data-special-panel="primary">内容</button><button class="ctrl-tab ${widthPanel === 'angle' ? 'active' : ''}" type="button" data-special-panel="angle">角度</button><button class="ctrl-tab ${widthPanel === 'style' ? 'active' : ''}" type="button" data-special-panel="style">書式</button></div>`)
-        if (widthPanel === 'primary') dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>種類</span><select class="ctrl-select" data-field="road-category"><option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option><option>水路</option></select></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">幅員を表示</label><label class="field-inline"><span>幅員</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="自動: 幅員 4.0m"></label>')
-        else if (widthPanel === 'angle') dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label>')
-        else dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">等幅</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup('road-width-color', '色', 'dimension')}`)
+        appendRoadWidthControls(kind)
       }
     }
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
@@ -1020,7 +1150,7 @@
   }
 
   function makeDimensionTargetControl(object) {
-    const edgeCount = object.kind === 'lot' ? Math.max(object.edges?.length || 0, object.points?.length || 0) : 0
+    const edgeCount = ['lot', 'road', 'water', 'cutout'].includes(object.kind) ? Math.max(object.edges?.length || 0, object.points?.length || 0) : 0
     const segmentCount = edgeCount ? 0 : (object.segments?.length || 0)
     if (!(edgeCount || segmentCount)) return null
     const wrap = document.createElement('div')
@@ -1061,7 +1191,7 @@
     const textField = isEdge ? 'edge-custom-text' : 'segment-custom-text'
     const rotationField = isEdge ? 'edge-rotation-offset' : 'segment-rotation-offset'
     const visibleLabel = '表示'
-    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label><button class="ctrl-btn preset-button part-approx-button" type="button" data-action="apply-legacy-approx" data-approx-scope="part">約・切捨て</button><details class="toolbar-dropdown"><summary class="ctrl-btn">数値</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="part-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>桁</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>寸法値</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">書式</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">等幅</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label>${colorSelectMarkup('part-color', '色', 'dimension')}</div></details><button class="ctrl-btn" type="button" data-action="reset-dimension-part-position" title="番号・面積・坪・寸法などの文字は図面上でドラッグして移動できます">自動位置へ戻す</button>`)
+    dom.commandControls.insertAdjacentHTML('beforeend', `<label class="check-control"><input data-field="${visibleField}" type="checkbox" checked>${visibleLabel}</label><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="${textField}" type="text" placeholder="空欄で自動寸法"></label><button class="ctrl-btn preset-button part-approx-button" type="button" data-action="apply-legacy-approx" data-approx-scope="part">約・切捨て</button><details class="toolbar-dropdown"><summary class="ctrl-btn">数値</summary><div class="toolbar-dropdown-panel"><label class="check-control"><input data-field="part-approximate" type="checkbox">約を付ける</label><label class="field-inline"><span>桁</span><select class="ctrl-select compact-select" data-field="part-decimals"><option value="0">整数</option><option value="1">1桁</option><option value="2">2桁</option></select></label><label class="field-inline"><span>丸め</span><select class="ctrl-select compact-select" data-field="part-rounding"><option value="round">四捨五入</option><option value="floor">切捨て</option><option value="ceil">切上げ</option></select></label><label class="field-inline"><span>寸法値</span><input class="ctrl-input number-small" data-field="part-adjustment" type="number" step="0.01"><em>m</em></label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">書式</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="part-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">均等（等幅）</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="part-size" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="${rotationField}" type="number" step="1"><em>°</em></label>${colorSelectMarkup('part-color', '色', 'dimension')}</div></details><button class="ctrl-btn" type="button" data-action="reset-dimension-part-position" title="番号・面積・坪・寸法などの文字は図面上でドラッグして移動できます">自動位置へ戻す</button>`)
   }
 
   function selectDimensionTarget(value) {
@@ -1096,49 +1226,41 @@
     dom.commandPages.replaceChildren(...(pageGroup ? [...pageGroup.children] : []))
     dom.commandPages.hidden = false
     const isShape = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
-    const isLot = object.kind === 'lot'
     const isRoadLike = object.kind === 'road' || object.kind === 'water'
-    const hasShapeDimensions = isShape && !isRoadLike
     const isMeasurement = ['distance', 'polyline', 'area', 'dimension'].includes(object.kind)
     const hasLineStyle = LINE_STYLE_KINDS.has(object.kind)
     const hasEditableText = !['line', 'guide', 'parallel', 'lot-table'].includes(object.kind)
-    const isSpecial = ['road', 'water', 'house', 'parking', 'north', 'lot-table'].includes(object.kind) || hasLineStyle
     const hasSegmentSelection = Number.isInteger(ui.editEdgeIndex) || Number.isInteger(ui.editSegmentIndex)
-    const allowedPages = new Set(['object-basic', 'object-record'])
-    if (hasEditableText) allowedPages.add('object-decoration')
-    if (isShape) allowedPages.add('object-visibility')
-    if (isLot) allowedPages.add('object-values')
-    if (hasShapeDimensions || isMeasurement) { allowedPages.add('object-dimension'); allowedPages.add('object-dimension-value') }
-    if (isSpecial) allowedPages.add('object-special')
-    if (!allowedPages.has(ui.contextPage)) ui.contextPage = 'object-basic'
+    configureObjectEditorPages(object.kind)
     const templateId = `controls-${ui.contextPage}`
     dom.commandControls.replaceChildren(cloneTemplate(templateId))
     if (ui.contextPage === 'object-basic' && isShape && vertexButton) dom.commandControls.prepend(vertexButton)
-    if (ui.contextPage === 'object-basic' && hasEditableText && !isShape) {
+    if (ui.contextPage === 'object-basic') {
+      $$('.shape-kind-convert', dom.commandControls).forEach(element => { element.hidden = !['lot', 'road', 'water'].includes(object.kind) })
       const labelField = $('[data-field="object-label"]', dom.commandControls)
       const labelControl = labelField?.closest('label')
       if (labelControl) {
         const caption = $('span', labelControl)
-        if (caption) caption.textContent = '文字'
-        dom.commandControls.prepend(labelControl)
+        if (caption) caption.textContent = object.kind === 'road' ? '道路名' : object.kind === 'water' ? '水路名' : object.kind === 'lot' ? '名称' : '文字'
+        labelControl.hidden = !hasEditableText
       }
     }
     if (ui.contextPage === 'object-special') {
       if (object.kind === 'house' || object.kind === 'parking') {
-        const hatchControl = object.kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label>' : ''
-        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>種類</span><select class="ctrl-select compact-select" data-field="stamp-kind"><option value="house">家屋</option><option value="parking">駐車場</option></select></label><label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法</label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel">${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatchControl}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label></div></details>`)
+        const hatchControl = object.kind === 'house' ? '<label class="check-control"><input data-field="stamp-hatch" type="checkbox">斜線</label><label class="field-inline"><span>斜線間隔</span><input class="ctrl-input number-small" data-field="stamp-hatch-spacing" type="number" min="2" max="40" step="1"></label><label class="field-inline"><span>斜線角度</span><input class="ctrl-input number-small" data-field="stamp-hatch-angle" type="number" step="1"><em>°</em></label>' : ''
+        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>種類</span><select class="ctrl-select compact-select" data-field="stamp-kind"><option value="house">家屋</option><option value="parking">駐車場</option></select></label><label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><details class="toolbar-dropdown"><summary class="ctrl-btn">配置詳細</summary><div class="toolbar-dropdown-panel"><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法</label></div></details><details class="toolbar-dropdown"><summary class="ctrl-btn">表示</summary><div class="toolbar-dropdown-panel">${colorSelectMarkup('textColor', '文字色', 'ink')}${colorSelectMarkup('stamp-stroke', '枠線', 'border')}${colorSelectMarkup('stamp-fill', '塗り', 'fill')}${hatchControl}<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="stamp-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label></div></details>`)
       } else if (object.kind === 'north') {
-        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${colorSelectMarkup('textColor', '色', 'ink')}`)
+        dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>文字</span><input class="ctrl-input" data-field="object-label" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="stamp-text-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${colorSelectMarkup('textColor', '色', 'ink')}<label class="field-inline"><span>線幅</span><input class="ctrl-input number-small" data-field="stamp-line-width" type="number" min="0.5" max="10" step="0.5"></label>`)
       } else if (object.kind === 'lot-table') {
-        dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label>')
+        dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup())
+      } else if (object.kind === 'cutout') {
+        const canRestore = Boolean(object.parentShapeId && Array.isArray(object.parentOriginalPoints) && object.parentOriginalPoints.length >= 3)
+        dom.commandControls.insertAdjacentHTML('beforeend', `<button class="ctrl-btn primary" type="button" data-action="restore-cutout" ${canRestore ? '' : 'disabled'}>元の区画へ戻す</button><span class="control-label context-optional">${canRestore ? '隅切り前の頂点・辺情報を正確に復元します' : '旧形式の隅切りは、隣接区画との合筆を使用してください'}</span>`)
       } else if (hasLineStyle) {
+        appendGuideEditControls(object)
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="object-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="object-line-width" type="number" min="0.5" max="10" step="0.5"></label>${colorSelectMarkup('object-line-color', '色', 'line')}`)
       } else if (isRoadLike) {
-        const widthPanel = ['primary', 'angle', 'style'].includes(ui.specialPanel) ? ui.specialPanel : 'primary'
-        dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group nested-tabs"><button class="ctrl-tab ${widthPanel === 'primary' ? 'active' : ''}" type="button" data-special-panel="primary">内容</button><button class="ctrl-tab ${widthPanel === 'angle' ? 'active' : ''}" type="button" data-special-panel="angle">角度</button><button class="ctrl-tab ${widthPanel === 'style' ? 'active' : ''}" type="button" data-special-panel="style">書式</button></div>`)
-        if (widthPanel === 'primary') dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>種類</span><select class="ctrl-select" data-field="road-category"><option>道路</option><option>公道</option><option>私道</option><option>位置指定道路</option><option>認定外道路</option><option>水路</option></select></label><label class="check-control"><input data-field="road-width-visible" type="checkbox">幅員を表示</label><label class="field-inline"><span>幅員</span><input class="ctrl-input number-small" data-field="road-width" type="number" min="0" step="0.1"><em>m</em></label><label class="field-inline"><span>表記</span><input class="ctrl-input wide" data-field="road-width-text" type="text" placeholder="自動: 幅員 4.0m"></label>')
-        else if (widthPanel === 'angle') dom.commandControls.insertAdjacentHTML('beforeend', '<label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="road-width-angle" type="number" step="1"><em>°</em></label>')
-        else dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="road-width-font"><option value="gothic">ゴシック</option><option value="mincho">明朝</option><option value="mono">等幅</option></select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="road-width-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup('road-width-color', '色', 'dimension')}`)
+        appendRoadWidthControls(object.kind)
       }
     }
     if (ui.contextPage === 'object-dimension') {
@@ -1147,19 +1269,7 @@
       if (targetControl) dom.commandControls.prepend(targetControl)
       if (hasSegmentSelection) appendDimensionPartControls(object)
     }
-    if (ui.contextPage === 'object-values' && isLot) {
-      const panel = ui.valueLabelPanel === 'tsubo' ? 'tsubo' : 'area'
-      const prefix = panel === 'tsubo' ? 'tsubo-label' : 'area-label'
-      dom.commandControls.insertAdjacentHTML('beforeend', `<div class="control-group value-toggle" aria-label="面積と坪の切替"><button class="ctrl-tab ${panel === 'area' ? 'active' : ''}" type="button" data-value-label-panel="area">㎡ 面積</button><span class="value-switch-arrow" aria-hidden="true">⇔</span><button class="ctrl-tab ${panel === 'tsubo' ? 'active' : ''}" type="button" data-value-label-panel="tsubo">坪表示</button></div><label class="check-control"><input data-field="${prefix}-visible" type="checkbox">表示</label><label class="field-inline value-text-field"><span>表示文字</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄で自動計算">${panel === 'area' ? '<em class="field-warning" data-area-manual-warning hidden>手入力値・坪も更新</em>' : ''}</label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><button class="ctrl-btn" type="button" data-action="reset-value-label-position">${panel === 'tsubo' ? '坪' : '㎡'}を元の位置へ戻す</button>`)
-    }
-    $$('.shape-page, .text-page', dom.commandPages).forEach(button => { button.hidden = true })
-    $$('.lot-value-page', dom.commandPages).forEach(button => { button.hidden = !isLot })
-    $$('.dimension-page', dom.commandPages).forEach(button => { button.hidden = !(hasShapeDimensions || isMeasurement) })
-    $$('.special-page', dom.commandPages).forEach(button => {
-      button.hidden = !isSpecial
-      if (!button.hidden) button.textContent = object.kind === 'road' || object.kind === 'water' ? '幅員' : object.kind === 'lot-table' ? '表' : hasLineStyle ? '線' : '配置'
-    })
-    $$('[data-context-page]', dom.commandPages).forEach(button => button.classList.toggle('active', button.dataset.contextPage === ui.contextPage))
+    if (ui.contextPage === 'object-values') appendValueLabelControls(object.kind)
     $$('.lot-only', dom.commandControls).forEach(element => { element.hidden = object.kind !== 'lot' })
     $$('.shape-appearance-only', dom.commandControls).forEach(element => { element.hidden = !isShape })
     $$('.editable-text-only', dom.commandControls).forEach(element => { element.hidden = !hasEditableText })
@@ -1206,7 +1316,7 @@
       return
     }
 
-    if (ui.selectedIds.length && ['select', 'label-edit'].includes(session.command)) showObjectEditor()
+    if (ui.selectedIds.length && session.command === 'select') showObjectEditor()
     else if (meta.template) {
       dom.commandControls.append(cloneTemplate(meta.template))
       addDynamicCommandControls(session.command)
@@ -1434,16 +1544,11 @@
     setActionAvailability('[data-action="reset-underlay-transform"]', hasUnderlay && !underlayTransformIsDefault, '下絵の位置・倍率・角度を初期値へ戻します', '下絵の位置・倍率・角度は初期値です')
     let drawingAlreadyCentered = false
     if (ui.workspace === 'output' && activeObjectCount > 0) {
-      const bounds = K.documentBounds({ ...store.document, background: { ...store.document.background, visible: false }, paper: { ...store.document.paper, enabled: false } })
-      if (bounds) {
-        const paperSize = paperPixelSize()
-        const printZoom = outputPixelsPerWorldUnit(store.document, 96)
-        const dx = paperSize.width / printZoom / 2 - (bounds.minX + bounds.maxX) / 2
-        const dy = paperSize.height / printZoom / 2 - (bounds.minY + bounds.maxY) / 2
-        drawingAlreadyCentered = Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5
-      }
+      const centered = centeredOutputOffset()
+      const layout = activeOutputLayout(store.document)
+      if (centered) drawingAlreadyCentered = Math.abs(centered.x - finite(layout.offsetMmX)) < 0.05 && Math.abs(centered.y - finite(layout.offsetMmY)) < 0.05
     }
-    setActionAvailability('[data-action="center-drawing-on-paper"]', activeObjectCount > 0 && !drawingAlreadyCentered, '図形全体を用紙中央へ移動します', activeObjectCount ? '図形は既に用紙中央です' : '中央へ移動する図形がありません')
+    setActionAvailability('[data-action="center-drawing-on-paper"]', activeObjectCount > 0 && !drawingAlreadyCentered, '出力上の図形全体を用紙中央へ配置します', activeObjectCount ? '出力は既に用紙中央です' : '中央へ配置する図形がありません')
     const editDrafts = ui.batchDrafts.length ? ui.batchDrafts : (ui.editDraft ? [ui.editDraft] : [])
     const labelsCanBeCentered = editDrafts.length > 0 && editDrafts.every(draft => CENTERABLE_LABEL_KINDS.has(draft.kind))
     const labelsAreOffset = editDrafts.some(draft => Boolean(
@@ -1485,7 +1590,7 @@
     const command = session.command
     if (command === 'merge') return session.targetIds.length ? `区画 ${session.targetIds.length}/2` : '1つ目の区画'
     if (command === 'corner-cut') return !store.document.calibration.mpp ? '先に縮尺を設定' : !session.targetIds.length ? '区画を選択' : session.vertexIndex == null ? '頂点を選択' : '確定できます'
-    if (command === 'split') return !session.targetIds.length ? '区画を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
+    if (command === 'split') return !session.targetIds.length ? '区画・道路・水路を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
     if (command === 'split-all') return session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
     if (command === 'division-guide') return session.points.length ? '終点を指定すると作成' : '始点を指定'
     if (command === 'lot-division-guide') return !session.targetIds.length ? '区画を選択' : session.points.length < 2 ? `基準方向 ${session.points.length}/2` : 'Enterまたは「作成」で確定'
@@ -1564,7 +1669,7 @@
     const stampTextSize = TEXT_BASE_SIZE * stampTextScale
     const stampStyle = { ...style, size: stampTextSize, fontSize: stampTextSize }
     const textStyle = {
-      color: session.form.color || '#172033', fontFamily: session.form['note-font'] || 'gothic',
+      color: session.form.color || '#172033', fontFamily: fontToken(session.form['note-font']),
       fontSize: finite(session.form['note-size'], TEXT_BASE_SIZE), rotation: finite(session.form['note-angle']),
       vertical: Boolean(session.form['note-vertical'])
     }
@@ -1573,9 +1678,9 @@
       fontSize: textStyle.fontSize, rotation: textStyle.rotation, vertical: textStyle.vertical, options: { vertical: textStyle.vertical }
     }
     if (command === 'north') return {
-      id: '__preview__', kind: 'north', position, text: session.form['stamp-label'] || 'N', style: stampStyle, fontSize: stampTextSize,
+      id: '__preview__', kind: 'north', position, text: session.form['stamp-label'] || 'N', style: { ...stampStyle, lineWidth: K.clamp(finite(session.form['stamp-line-width'], 1.4), 0.5, 10) }, fontSize: stampTextSize,
       size: finite(session.form['stamp-width'], 54), stampScale, stampTextScale,
-      angle: finite(session.form['stamp-angle']), textStyle: { color: session.form.color || '#172033', size: stampTextSize, fontSize: stampTextSize },
+      angle: finite(session.form['stamp-angle']), textStyle: { color: session.form.color || '#172033', fontFamily: fontToken(session.form['stamp-font']), size: stampTextSize, fontSize: stampTextSize },
       options: { size: finite(session.form['stamp-width'], 54), scale: stampScale }
     }
     if (command === 'house' || command === 'parking') return {
@@ -1588,22 +1693,29 @@
         ...stampStyle,
         color: session.form['stamp-stroke'] || '#253858',
         stroke: session.form['stamp-stroke'] || '#253858',
-        fill: session.form['stamp-fill'] || (command === 'parking' ? '#eef4fb' : '#edf2f8')
+        fill: session.form['stamp-fill'] || (command === 'parking' ? '#eef4fb' : '#edf2f8'),
+        lineStyle: session.form['line-style'] || 'solid', lineWidth: K.clamp(finite(session.form['stamp-line-width'], 1.4), 0.5, 10)
       },
-      textStyle: { color: session.form.color || '#253858', size: stampTextSize, fontSize: stampTextSize },
+      textStyle: { color: session.form.color || '#253858', fontFamily: fontToken(session.form['stamp-font']), size: stampTextSize, fontSize: stampTextSize },
       fontSize: stampTextSize,
       options: {
         width: finite(session.form['stamp-width']), height: finite(session.form['stamp-depth']), scale: stampScale,
         showDimensions: Boolean(session.form['stamp-dimensions']),
-        hatch: command === 'house' ? Boolean(session.form['stamp-hatch']) : false
+        hatch: command === 'house' ? Boolean(session.form['stamp-hatch']) : false,
+        hatchSpacing: command === 'house' ? K.clamp(finite(session.form['stamp-hatch-spacing'], 9), 2, 40) : undefined,
+        hatchAngle: command === 'house' ? finite(session.form['stamp-hatch-angle'], 45) : undefined
       }
     }
-    if (command === 'lot-table') return {
-      id: '__preview__', kind: 'lot-table', position, title: '区画一覧', scale: finite(session.form['table-scale'], 1),
-      rotation: finite(session.form['table-angle']), style, showPrice: true,
+    if (command === 'lot-table') {
+      const textScale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
+      const fontSize = TEXT_BASE_SIZE * textScale
+      return {
+      id: '__preview__', kind: 'lot-table', position, title: String(session.form['table-title'] || '区画一覧'), scale: finite(session.form['table-scale'], 1),
+      rotation: finite(session.form['table-angle']), style: { ...style, fontFamily: fontToken(session.form['font-family']), fontSize, size: fontSize, lineWidth: K.clamp(finite(session.form['table-line-width'], 0.75), 0.5, 5) }, showPrice: Boolean(session.form['table-show-price']),
       dynamic: session.form['table-mode'] !== 'snapshot', snapshot: session.form['table-mode'] === 'snapshot',
       rows: session.form['table-mode'] === 'snapshot' ? captureLotTableRows() : [],
       options: { scale: finite(session.form['table-scale'], 1), mode: session.form['table-mode'] || 'dynamic' }
+    }
     }
     return null
   }
@@ -1763,7 +1875,7 @@
       ? { points: (processPoints.length >= 2 ? processPoints : withPointer).slice(0, 2) }
       : null
     const selectedObject = ui.selectedIds.length === 1 ? currentObject() : null
-    const dimensionEdgeGuide = selectedObject?.kind === 'lot' && ui.contextPage === 'object-dimension'
+    const dimensionEdgeGuide = ['lot', 'road', 'water', 'cutout'].includes(selectedObject?.kind) && ui.contextPage === 'object-dimension'
       ? (runtime.edgeHover?.id === selectedObject.id && Number.isInteger(runtime.edgeHover.index)
           ? { ...runtime.edgeHover, state: 'hover' }
           : (Number.isInteger(ui.editEdgeIndex) ? { id: selectedObject.id, index: ui.editEdgeIndex, state: 'selected' } : null))
@@ -1789,6 +1901,9 @@
       parallelLine: parallelBaseline,
       edgeVisibilityGuide: command === 'edge-hide' && runtime.edgeHover ? { ...runtime.edgeHover } : null,
       edgeSelectionGuide: dimensionEdgeGuide,
+      marquee: runtime.drag?.type === 'marquee' && runtime.drag.moved
+        ? { start: K.point(runtime.drag.start), end: K.point(runtime.drag.current) }
+        : null,
       snap: runtime.moveSnap?.type && runtime.moveSnap.type !== 'free'
         ? runtime.moveSnap
         : (runtime.hoverSnap?.type && runtime.hoverSnap.type !== 'free' ? runtime.hoverSnap : null)
@@ -1858,7 +1973,8 @@
       ui.batchOriginals = objects.map(deepClone)
       ui.batchDrafts = objects.map(deepClone)
       if (options.openEditor) loadObjectForm(objects[0])
-      if (!['object-basic', 'object-dimension', 'object-special'].includes(ui.contextPage)) ui.contextPage = 'object-basic'
+      const route = objectEditorRoute(objects[0].kind)
+      if (!route.some(([pageId]) => pageId === ui.contextPage)) ui.contextPage = route[0]?.[0] || ''
     } else if (objects.length > 1) {
       session.form = {}
       ui.contextPage = ''
@@ -1878,6 +1994,27 @@
     if (index >= 0) next.splice(index, 1)
     else next.push(String(id))
     setObjectSelection(next, { ...options, openEditor: true, preserveSubselection: false })
+  }
+
+  function selectionBoundsContains(bounds, pointValue) {
+    return K.isPoint(pointValue) && pointValue.x >= bounds.minX && pointValue.x <= bounds.maxX && pointValue.y >= bounds.minY && pointValue.y <= bounds.maxY
+  }
+
+  function objectInsideSelectionBounds(object, bounds) {
+    const objectBounds = typeof renderer.computeObjectBounds === 'function' ? renderer.computeObjectBounds(object, store.document) : null
+    if (objectBounds) {
+      return objectBounds.minX >= bounds.minX && objectBounds.maxX <= bounds.maxX && objectBounds.minY >= bounds.minY && objectBounds.maxY <= bounds.maxY
+    }
+    const anchors = [object?.position, object?.labelPosition, object?.tip].filter(K.isPoint)
+    return anchors.length > 0 && anchors.every(value => selectionBoundsContains(bounds, value))
+  }
+
+  function idsInsideSelectionBounds(start, end) {
+    const bounds = {
+      minX: Math.min(start.x, end.x), minY: Math.min(start.y, end.y),
+      maxX: Math.max(start.x, end.x), maxY: Math.max(start.y, end.y)
+    }
+    return allObjects().filter(object => object.visible !== false && objectInsideSelectionBounds(object, bounds)).map(object => String(object.id))
   }
 
   function loadObjectForm(object) {
@@ -1914,7 +2051,7 @@
       'show-tsubo': metricLabelVisible(object, 'tsubo'),
       'show-price': object.visibility?.price !== false,
       'show-memo': object.visibility?.memo !== false,
-      'font-family': textStyle.fontFamily || 'gothic',
+      'font-family': fontToken(textStyle.fontFamily),
       'text-size': fontScale(textStyle, shape ? LABEL_BASE_SIZE : TEXT_BASE_SIZE),
       'text-angle': finite(textStyle.rotation ?? textStyle.angle ?? object.rotation),
       'text-vertical': Boolean(textStyle.vertical ?? object.vertical ?? object.options?.vertical),
@@ -1945,13 +2082,19 @@
       'stamp-stroke': object.style?.stroke || object.style?.color || '#253858',
       'stamp-fill': object.style?.fill || (object.kind === 'parking' ? '#eef4fb' : '#edf2f8'),
       'stamp-hatch': object.kind === 'house' && object.options?.hatch !== false && object.hatch !== false,
+      'stamp-hatch-spacing': finite(object.options?.hatchSpacing, 9),
+      'stamp-hatch-angle': finite(object.options?.hatchAngle, 45),
+      'stamp-line-width': finite(object.style?.lineWidth, 1.4),
       'road-width': finite(object.road?.widthM ?? object.road?.width, object.kind === 'water' ? 0 : 4),
       'road-width-visible': object.visibility?.width !== false,
-      'road-width-font': object.road?.widthLabelStyle?.fontFamily || 'gothic',
+      'road-width-font': fontToken(object.road?.widthLabelStyle?.fontFamily),
       'road-width-size': fontScale(object.road?.widthLabelStyle, ROAD_WIDTH_BASE_SIZE),
       'road-width-angle': finite(object.road?.widthLabelStyle?.rotation ?? object.road?.widthLabelStyle?.angle),
       'road-width-color': object.road?.widthLabelStyle?.color || object.labelStyle?.color || '#475569',
       'road-width-text': object.road?.widthText ?? '',
+      'table-title': object.title === false ? '' : String(object.title || '区画一覧'),
+      'table-show-price': object.showPrice !== false,
+      'table-line-width': finite(object.style?.lineWidth, 0.75),
       'table-scale': finite(object.scale ?? object.options?.scale, 1),
       'table-angle': finite(object.rotation ?? object.angle),
       'table-mode': object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot' ? 'snapshot' : 'dynamic',
@@ -1967,23 +2110,25 @@
       'part-adjustment': finite(partStyle.adjustment, finite(object.dimensionStyle?.adjustment)),
       'part-offset-x': finite(part?.labelOffset?.x),
       'part-offset-y': finite(part?.labelOffset?.y),
-      'part-font': partStyle.fontFamily || object.dimensionStyle?.fontFamily || 'gothic',
+      'part-font': fontToken(partStyle.fontFamily || object.dimensionStyle?.fontFamily),
       'part-size': fontScale(partSizeStyle, DIMENSION_BASE_SIZE),
       'part-color': partStyle.color || object.dimensionStyle?.color || '#334155',
       'stamp-line-style': object.style?.lineStyle || 'solid',
       'object-line-style': object.style?.lineStyle || 'solid',
       'object-line-width': finite(object.style?.lineWidth, 1.4),
       'object-line-color': object.style?.color || object.style?.stroke || '#253858',
+      'guide-divisions': K.clamp(Math.round(finite(object.options?.divisions, 2)), 2, 20),
+      'parallel-distance-edit': Math.abs(finite(object.options?.distanceM ?? object.options?.distance, 0)),
       'area-label-visible': metricLabelVisible(object, 'area'),
       'area-label-text': areaLabel.text ?? object.customAreaLabel ?? '',
-      'area-label-font': areaLabelStyle.fontFamily || object.labelStyle?.fontFamily || 'gothic',
+      'area-label-font': fontToken(areaLabelStyle.fontFamily || object.labelStyle?.fontFamily),
       'area-label-size': fontScale(areaLabelStyle, METRIC_BASE_SIZE),
       'area-label-angle': finite(areaLabelStyle.rotation ?? areaLabelStyle.angle),
       'area-label-vertical': Boolean(areaLabelStyle.vertical),
       'area-label-color': areaLabelStyle.color || object.labelStyle?.color || '#172033',
       'tsubo-label-visible': metricLabelVisible(object, 'tsubo'),
       'tsubo-label-text': tsuboLabel.text ?? object.customTsuboLabel ?? '',
-      'tsubo-label-font': tsuboLabelStyle.fontFamily || object.labelStyle?.fontFamily || 'gothic',
+      'tsubo-label-font': fontToken(tsuboLabelStyle.fontFamily || object.labelStyle?.fontFamily),
       'tsubo-label-size': fontScale(tsuboLabelStyle, METRIC_BASE_SIZE),
       'tsubo-label-angle': finite(tsuboLabelStyle.rotation ?? tsuboLabelStyle.angle),
       'tsubo-label-vertical': Boolean(tsuboLabelStyle.vertical),
@@ -2020,7 +2165,7 @@
     if (touched('part-decimals')) style.decimals = style.digits = finite(session.form['part-decimals'], 2)
     if (touched('part-rounding')) style.rounding = session.form['part-rounding'] || 'round'
     if (touched('part-adjustment')) style.adjustment = finite(session.form['part-adjustment'])
-    if (touched('part-font')) style.fontFamily = session.form['part-font'] || 'gothic'
+    if (touched('part-font')) style.fontFamily = fontToken(session.form['part-font'])
     if (touched('part-size')) {
       const partScale = K.clamp(finite(session.form['part-size'], 1), 0.2, 5)
       Object.assign(style, { scale: partScale, size: DIMENSION_BASE_SIZE * partScale, fontSize: DIMENSION_BASE_SIZE * partScale })
@@ -2034,8 +2179,6 @@
     if (!object) return
     const shape = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
     if (shape) {
-      const requestedKind = session.form['object-type']
-      if (['lot', 'road', 'water'].includes(requestedKind)) object.kind = requestedKind
       object.number = String(session.form['lot-number'] ?? '').trim() === '' ? null : parseNumeric(session.form['lot-number'], object.number)
       object.label = String(session.form['object-label'] ?? '')
       object.topLabel = String(session.form['lot-top-label'] ?? '')
@@ -2047,7 +2190,7 @@
         topLabel: Boolean(session.form['show-top-label']), price: Boolean(session.form['show-price']), memo: Boolean(session.form['show-memo']),
         area: Boolean(session.form['show-area']), tsubo: Boolean(session.form['show-tsubo']), dimensions: Boolean(session.form['dimension-visible'])
       }
-      if (object.kind === 'lot') {
+      if (['lot', 'road', 'water'].includes(object.kind)) {
         const areaScale = K.clamp(finite(session.form['area-label-size'], 1), 0.3, 5)
         const tsuboScale = K.clamp(finite(session.form['tsubo-label-size'], 1), 0.3, 5)
         const areaText = String(session.form['area-label-text'] ?? '').trim()
@@ -2055,7 +2198,7 @@
         object.areaLabel = {
           ...(object.areaLabel || {}), visible: Boolean(session.form['area-label-visible']), text: areaText || null,
           style: {
-            ...(object.areaLabel?.style || {}), fontFamily: session.form['area-label-font'] || 'gothic',
+            ...(object.areaLabel?.style || {}), fontFamily: fontToken(session.form['area-label-font']),
             scale: areaScale, size: METRIC_BASE_SIZE * areaScale, fontSize: METRIC_BASE_SIZE * areaScale,
             rotation: finite(session.form['area-label-angle']), angle: finite(session.form['area-label-angle']),
             vertical: Boolean(session.form['area-label-vertical']), color: session.form['area-label-color'] || '#172033'
@@ -2064,7 +2207,7 @@
         object.tsuboLabel = {
           ...(object.tsuboLabel || {}), visible: Boolean(session.form['tsubo-label-visible']), text: tsuboText || null,
           style: {
-            ...(object.tsuboLabel?.style || {}), fontFamily: session.form['tsubo-label-font'] || 'gothic',
+            ...(object.tsuboLabel?.style || {}), fontFamily: fontToken(session.form['tsubo-label-font']),
             scale: tsuboScale, size: METRIC_BASE_SIZE * tsuboScale, fontSize: METRIC_BASE_SIZE * tsuboScale,
             rotation: finite(session.form['tsubo-label-angle']), angle: finite(session.form['tsubo-label-angle']),
             vertical: Boolean(session.form['tsubo-label-vertical']), color: session.form['tsubo-label-color'] || '#172033'
@@ -2076,24 +2219,24 @@
         object.customTsuboLabel = object.tsuboLabel.text
       }
       object.labelStyle = {
-        ...(object.labelStyle || {}), fontFamily: session.form['font-family'] || 'gothic',
+        ...(object.labelStyle || {}), fontFamily: fontToken(session.form['font-family']),
         scale: finite(session.form['text-size'], 1), size: LABEL_BASE_SIZE * finite(session.form['text-size'], 1), fontSize: LABEL_BASE_SIZE * finite(session.form['text-size'], 1),
         rotation: finite(session.form['text-angle']), angle: finite(session.form['text-angle']), vertical: Boolean(session.form['text-vertical']), color: session.form.textColor || '#172033',
         background: 'transparent', boxStyle: session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none'),
         frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline'])
       }
       if (object.kind === 'road' || object.kind === 'water') {
-        const roadCategory = roadTypeCode(session.form['road-category'] || object.road?.type || object.kind)
-        object.kind = roadCategory === 'water' ? 'water' : 'road'
+        const roadCategory = object.kind === 'water' ? 'water' : roadTypeCode(session.form['road-category'] || object.road?.type || object.kind)
         const widthScale = K.clamp(finite(session.form['road-width-size'], 1), 0.3, 5)
         object.label = String(session.form['object-label'] ?? object.label ?? '')
         object.road = {
           ...(object.road || {}), type: roadCategory, name: object.label, vertical: Boolean(session.form['text-vertical']),
+          nameStyle: { ...(object.road?.nameStyle || {}), ...object.labelStyle },
           widthM: Math.max(0, finite(session.form['road-width'], object.road?.widthM)),
           width: Math.max(0, finite(session.form['road-width'], object.road?.widthM)),
           widthText: String(session.form['road-width-text'] || '') || null,
           widthLabelStyle: {
-            ...(object.road?.widthLabelStyle || {}), fontFamily: session.form['road-width-font'] || 'gothic',
+            ...(object.road?.widthLabelStyle || {}), fontFamily: fontToken(session.form['road-width-font']),
             scale: widthScale, size: ROAD_WIDTH_BASE_SIZE * widthScale, fontSize: ROAD_WIDTH_BASE_SIZE * widthScale,
             rotation: finite(session.form['road-width-angle']), angle: finite(session.form['road-width-angle']),
             vertical: Boolean(session.form['text-vertical']), color: session.form['road-width-color'] || '#475569'
@@ -2117,7 +2260,7 @@
       const resolvedTextColor = session.form.textColor || object.textStyle?.color || object.style?.color || '#172033'
       object.style = {
         ...(object.style || {}), color: resolvedTextColor,
-        fontFamily: session.form['font-family'] || object.style?.fontFamily,
+        fontFamily: fontToken(session.form['font-family'] || object.style?.fontFamily),
         size: TEXT_BASE_SIZE * finite(session.form['text-size'], 1), fontSize: TEXT_BASE_SIZE * finite(session.form['text-size'], 1),
         background: 'transparent', boxStyle: session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none'),
         frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline'])
@@ -2127,6 +2270,20 @@
         lineStyle: session.form['object-line-style'] || object.style.lineStyle || 'solid',
         lineWidth: K.clamp(finite(session.form['object-line-width'], object.style.lineWidth || 1.4), 0.5, 10),
         color: session.form['object-line-color'] || object.style.color || '#253858'
+      }
+      if (object.kind === 'guide' && object.options?.mode === 'segment') {
+        const divisions = K.clamp(Math.round(finite(session.form['guide-divisions'], object.options?.divisions || 2)), 2, 20)
+        object.options = { ...(object.options || {}), divisions }
+        if (Number.isFinite(Number(object.options.totalLengthM))) object.options.segmentLengthM = Number(object.options.totalLengthM) / divisions
+      }
+      if (object.kind === 'parallel' && Array.isArray(object.options?.baselinePoints) && object.options.baselinePoints.length >= 2) {
+        const baseline = object.options.baselinePoints.slice(0, 2).map(K.point)
+        const currentSign = finite(object.options?.parallelSign ?? object.options?.distanceM, 1) >= 0 ? 1 : -1
+        const distanceM = Math.max(0.1, Math.abs(finite(session.form['parallel-distance-edit'], object.options?.distanceM || 3))) * currentSign
+        const mpp = Math.max(0, finite(store.document.calibration?.mpp))
+        const points = mpp > 0 ? K.parallelLine(baseline[0], baseline[1], distanceM / mpp) : null
+        if (points) object.points = points
+        object.options = { ...(object.options || {}), distanceM, parallelSign: currentSign }
       }
       object.rotation = finite(session.form['text-angle'], object.rotation)
       object.vertical = Boolean(session.form['text-vertical'])
@@ -2148,7 +2305,7 @@
         area: Boolean(session.form['measurement-area']), tsubo: Boolean(session.form['measurement-tsubo'])
       }
       if (['distance', 'polyline', 'area', 'dimension'].includes(object.kind)) object.dimensionStyle = {
-        ...object.dimensionStyle, fontFamily: session.form['font-family'] || 'gothic',
+        ...object.dimensionStyle, fontFamily: fontToken(session.form['font-family']),
         angle: finite(session.form['text-angle']), rotation: finite(session.form['text-angle']), vertical: Boolean(session.form['text-vertical']),
         background: 'transparent', boxStyle: session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none'),
         frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline'])
@@ -2169,12 +2326,15 @@
           color: session.form['stamp-stroke'] || object.style?.color || '#253858',
           stroke: session.form['stamp-stroke'] || object.style?.stroke || '#253858',
           fill: session.form['stamp-fill'] || object.style?.fill || (object.kind === 'parking' ? '#eef4fb' : '#edf2f8'),
-          lineStyle: session.form['stamp-line-style'] || 'solid'
+          lineStyle: session.form['stamp-line-style'] || 'solid',
+          lineWidth: K.clamp(finite(session.form['stamp-line-width'], object.style?.lineWidth || 1.4), 0.5, 10)
         }
         object.options = {
           ...(object.options || {}), width: object.width, height: object.height,
           showDimensions: object.showDimensions, scale: object.stampScale,
-          hatch: object.kind === 'house' ? Boolean(session.form['stamp-hatch']) : false
+          hatch: object.kind === 'house' ? Boolean(session.form['stamp-hatch']) : false,
+          hatchSpacing: object.kind === 'house' ? K.clamp(finite(session.form['stamp-hatch-spacing'], 9), 2, 40) : undefined,
+          hatchAngle: object.kind === 'house' ? finite(session.form['stamp-hatch-angle'], 45) : undefined
         }
         const fontSize = TEXT_BASE_SIZE * object.stampTextScale
         object.fontSize = fontSize
@@ -2188,11 +2348,20 @@
         const fontSize = TEXT_BASE_SIZE * object.stampTextScale
         object.fontSize = fontSize
         object.textStyle = { ...(object.textStyle || {}), color: session.form.textColor || '#172033', scale: object.stampTextScale, size: fontSize, fontSize }
+        object.style = { ...(object.style || {}), lineWidth: K.clamp(finite(session.form['stamp-line-width'], object.style?.lineWidth || 1.4), 0.5, 10) }
       } else if (object.kind === 'lot-table') {
         const nextMode = session.form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
         const wasSnapshot = object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot'
+        const textScale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
+        object.title = String(session.form['table-title'] || '').trim() || false
+        object.showPrice = Boolean(session.form['table-show-price'])
         object.scale = K.clamp(finite(session.form['table-scale'], 1), 0.3, 5)
         object.rotation = object.angle = finite(session.form['table-angle'])
+        object.style = {
+          ...(object.style || {}), fontFamily: fontToken(session.form['font-family']),
+          scale: textScale, size: TEXT_BASE_SIZE * textScale, fontSize: TEXT_BASE_SIZE * textScale,
+          lineWidth: K.clamp(finite(session.form['table-line-width'], object.style?.lineWidth || 0.75), 0.5, 5)
+        }
         object.dynamic = nextMode === 'dynamic'
         object.snapshot = nextMode === 'snapshot'
         if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows()
@@ -2221,9 +2390,31 @@
         for (const [field, property] of Object.entries(visibilityFields)) {
           if (touched(field)) object.visibility[property] = Boolean(session.form[field])
         }
+        if (['lot', 'road', 'water'].includes(object.kind)) {
+          for (const [prefix, property] of [['area-label', 'areaLabel'], ['tsubo-label', 'tsuboLabel']]) {
+            const fields = [`${prefix}-visible`, `${prefix}-text`, `${prefix}-font`, `${prefix}-size`, `${prefix}-angle`, `${prefix}-vertical`, `${prefix}-color`]
+            if (!fields.some(touched)) continue
+            const label = { ...(object[property] || {}), style: { ...(object[property]?.style || object.labelStyle || {}) } }
+            if (touched(`${prefix}-visible`)) label.visible = Boolean(session.form[`${prefix}-visible`])
+            if (touched(`${prefix}-text`)) label.text = String(session.form[`${prefix}-text`] || '') || null
+            if (touched(`${prefix}-font`)) label.style.fontFamily = fontToken(session.form[`${prefix}-font`])
+            if (touched(`${prefix}-size`)) {
+              const scale = K.clamp(finite(session.form[`${prefix}-size`], 1), 0.3, 5)
+              Object.assign(label.style, { scale, size: METRIC_BASE_SIZE * scale, fontSize: METRIC_BASE_SIZE * scale })
+            }
+            if (touched(`${prefix}-angle`)) Object.assign(label.style, { rotation: finite(session.form[`${prefix}-angle`]), angle: finite(session.form[`${prefix}-angle`]) })
+            if (touched(`${prefix}-vertical`)) label.style.vertical = Boolean(session.form[`${prefix}-vertical`])
+            if (touched(`${prefix}-color`)) label.style.color = session.form[`${prefix}-color`] || '#172033'
+            object[property] = label
+            const metric = prefix === 'area-label' ? 'area' : 'tsubo'
+            object.visibility[metric] = label.visible !== false
+            if (metric === 'area') object.customAreaLabel = label.text
+            else object.customTsuboLabel = label.text
+          }
+        }
         if (anyTouched('font-family', 'text-size', 'text-angle', 'text-vertical', 'textColor', 'text-frame', 'text-underline')) {
           const labelStyle = { ...(object.labelStyle || {}) }
-          if (touched('font-family')) labelStyle.fontFamily = session.form['font-family'] || 'gothic'
+          if (touched('font-family')) labelStyle.fontFamily = fontToken(session.form['font-family'])
           if (touched('text-size')) {
             const scale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
             Object.assign(labelStyle, { scale, size: LABEL_BASE_SIZE * scale, fontSize: LABEL_BASE_SIZE * scale })
@@ -2266,8 +2457,7 @@
           object.dimensionStyle = style
         }
         if ((object.kind === 'road' || object.kind === 'water') && touched('road-category')) {
-          const category = roadTypeCode(session.form['road-category'])
-          object.kind = category === 'water' ? 'water' : 'road'
+          const category = object.kind === 'water' ? 'water' : roadTypeCode(session.form['road-category'])
           object.road = { ...(object.road || {}), type: category }
         }
         if ((object.kind === 'road' || object.kind === 'water') && anyTouched('road-width-visible', 'road-width', 'road-width-text', 'road-width-font', 'road-width-size', 'road-width-angle', 'road-width-color')) {
@@ -2275,7 +2465,7 @@
           if (touched('road-width-visible')) object.visibility.width = Boolean(session.form['road-width-visible'])
           if (touched('road-width')) object.road.width = object.road.widthM = Math.max(0, finite(session.form['road-width'], object.road.widthM))
           if (touched('road-width-text')) object.road.widthText = String(session.form['road-width-text'] || '') || null
-          if (touched('road-width-font')) object.road.widthLabelStyle.fontFamily = session.form['road-width-font'] || 'gothic'
+          if (touched('road-width-font')) object.road.widthLabelStyle.fontFamily = fontToken(session.form['road-width-font'])
           if (touched('road-width-size')) {
             const scale = K.clamp(finite(session.form['road-width-size'], 1), 0.3, 5)
             Object.assign(object.road.widthLabelStyle, { scale, size: ROAD_WIDTH_BASE_SIZE * scale, fontSize: ROAD_WIDTH_BASE_SIZE * scale })
@@ -2287,7 +2477,7 @@
         if (anyTouched('font-family', 'text-size', 'text-angle', 'text-vertical', 'textColor', 'text-frame', 'text-underline')) {
           object.style = { ...(object.style || {}) }
           object.textStyle = { ...(object.textStyle || {}) }
-          if (touched('font-family')) object.style.fontFamily = object.textStyle.fontFamily = session.form['font-family'] || 'gothic'
+          if (touched('font-family')) object.style.fontFamily = object.textStyle.fontFamily = fontToken(session.form['font-family'])
           if (touched('text-size')) {
             const scale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
             const fontSize = TEXT_BASE_SIZE * scale
@@ -2310,7 +2500,12 @@
           if (touched('object-line-width')) object.style.lineWidth = K.clamp(finite(session.form['object-line-width'], object.style.lineWidth || 1.4), 0.5, 10)
           if (touched('object-line-color')) object.style.color = session.form['object-line-color'] || '#253858'
         }
-        if ((object.kind === 'house' || object.kind === 'parking') && anyTouched('stamp-width', 'stamp-depth', 'stamp-scale', 'stamp-text-scale', 'stamp-angle', 'stamp-dimensions', 'stamp-stroke', 'stamp-fill', 'stamp-hatch', 'stamp-line-style', 'textColor')) {
+        if (object.kind === 'guide' && object.options?.mode === 'segment' && touched('guide-divisions')) {
+          const divisions = K.clamp(Math.round(finite(session.form['guide-divisions'], object.options?.divisions || 2)), 2, 20)
+          object.options = { ...(object.options || {}), divisions }
+          if (Number.isFinite(Number(object.options.totalLengthM))) object.options.segmentLengthM = Number(object.options.totalLengthM) / divisions
+        }
+        if ((object.kind === 'house' || object.kind === 'parking') && anyTouched('stamp-width', 'stamp-depth', 'stamp-scale', 'stamp-text-scale', 'stamp-angle', 'stamp-dimensions', 'stamp-stroke', 'stamp-fill', 'stamp-hatch', 'stamp-hatch-spacing', 'stamp-hatch-angle', 'stamp-line-style', 'stamp-line-width', 'textColor')) {
           object.style = { ...(object.style || {}) }
           object.options = { ...(object.options || {}) }
           if (touched('stamp-width')) object.width = object.widthM = Math.max(0.1, finite(session.form['stamp-width'], object.width))
@@ -2327,11 +2522,14 @@
           if (touched('stamp-stroke')) object.style.color = object.style.stroke = session.form['stamp-stroke'] || '#253858'
           if (touched('stamp-fill')) object.style.fill = session.form['stamp-fill'] || (object.kind === 'parking' ? '#eef4fb' : '#edf2f8')
           if (touched('stamp-line-style')) object.style.lineStyle = session.form['stamp-line-style'] || 'solid'
+          if (touched('stamp-line-width')) object.style.lineWidth = K.clamp(finite(session.form['stamp-line-width'], object.style.lineWidth || 1.4), 0.5, 10)
           if (touched('stamp-hatch') && object.kind === 'house') object.options.hatch = Boolean(session.form['stamp-hatch'])
+          if (touched('stamp-hatch-spacing') && object.kind === 'house') object.options.hatchSpacing = K.clamp(finite(session.form['stamp-hatch-spacing'], 9), 2, 40)
+          if (touched('stamp-hatch-angle') && object.kind === 'house') object.options.hatchAngle = finite(session.form['stamp-hatch-angle'], 45)
           if (touched('textColor')) object.textStyle = { ...(object.textStyle || {}), color: session.form.textColor || '#253858' }
           Object.assign(object.options, { width: object.width, height: object.height, showDimensions: object.showDimensions, scale: finite(object.stampScale, 1) })
         }
-        if (object.kind === 'north' && anyTouched('stamp-scale', 'stamp-text-scale', 'stamp-angle', 'textColor')) {
+        if (object.kind === 'north' && anyTouched('stamp-scale', 'stamp-text-scale', 'stamp-angle', 'stamp-line-width', 'textColor')) {
           object.options = { ...(object.options || {}) }
           if (touched('stamp-scale')) {
             object.size = 54
@@ -2346,7 +2544,30 @@
             object.textStyle = { ...(object.textStyle || {}), scale: object.stampTextScale, size: fontSize, fontSize }
           }
           if (touched('stamp-angle')) object.rotation = object.angle = finite(session.form['stamp-angle'])
+          if (touched('stamp-line-width')) object.style = { ...(object.style || {}), lineWidth: K.clamp(finite(session.form['stamp-line-width'], object.style?.lineWidth || 1.4), 0.5, 10) }
           if (touched('textColor')) object.textStyle = { ...(object.textStyle || {}), color: session.form.textColor || '#172033' }
+        }
+        if (object.kind === 'lot-table' && anyTouched('table-title', 'table-show-price', 'font-family', 'text-size', 'table-line-width', 'table-scale', 'table-angle', 'table-mode')) {
+          const wasSnapshot = object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot'
+          if (touched('table-title')) object.title = String(session.form['table-title'] || '').trim() || false
+          if (touched('table-show-price')) object.showPrice = Boolean(session.form['table-show-price'])
+          object.style = { ...(object.style || {}) }
+          if (touched('font-family')) object.style.fontFamily = fontToken(session.form['font-family'])
+          if (touched('text-size')) {
+            const scale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
+            Object.assign(object.style, { scale, size: TEXT_BASE_SIZE * scale, fontSize: TEXT_BASE_SIZE * scale })
+          }
+          if (touched('table-line-width')) object.style.lineWidth = K.clamp(finite(session.form['table-line-width'], object.style.lineWidth || 0.75), 0.5, 5)
+          if (touched('table-scale')) object.scale = K.clamp(finite(session.form['table-scale'], 1), 0.3, 5)
+          if (touched('table-angle')) object.rotation = object.angle = finite(session.form['table-angle'])
+          if (touched('table-mode')) {
+            const nextMode = session.form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
+            object.dynamic = nextMode === 'dynamic'
+            object.snapshot = nextMode === 'snapshot'
+            if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows()
+            object.options = { ...(object.options || {}), mode: nextMode }
+          }
+          object.options = { ...(object.options || {}), scale: finite(object.scale, 1) }
         }
         if (measurement && anyTouched('dimension-visible', 'dimension-approximate', 'dimension-decimals', 'dimension-rounding', 'dimension-adjustment', 'dimension-size', 'dimension-offset', 'dimensionColor', 'measurement-total', 'measurement-segments', 'measurement-area', 'measurement-tsubo')) {
           const style = { ...(object.dimensionStyle || {}) }
@@ -2483,7 +2704,7 @@
       finishCommand()
       return
     }
-    if (command === 'select' || command === 'label-edit') {
+    if (command === 'select') {
       const labelHit = renderer.hitLabel(screen)
       const vertexHit = command === 'select' && !labelHit ? selectedVertexAt(world) : null
       if (vertexHit) {
@@ -2498,7 +2719,7 @@
           return
         }
       }
-      const selectedDimensionLot = command === 'select' && ui.contextPage === 'object-dimension' && ui.selectedIds.length === 1 && currentObject()?.kind === 'lot'
+      const selectedDimensionLot = command === 'select' && ui.contextPage === 'object-dimension' && ui.selectedIds.length === 1 && ['lot', 'road', 'water', 'cutout'].includes(currentObject()?.kind)
       if (selectedDimensionLot) {
         const edgeHit = labelHit?.kind === 'shape-dimension' && labelHit.ownerId === ui.selectedIds[0] && Number.isInteger(labelHit.edgeIndex)
           ? { id: labelHit.ownerId, index: labelHit.edgeIndex }
@@ -2529,7 +2750,13 @@
       const id = labelHit?.ownerId || hit?.id
       if (!id) {
         commitPendingEdit()
-        setStatus(ui.selectedIds.length ? '選択は保持中です。Escまたは「選択解除」で解除できます' : '図形をクリックして選択します', 1600)
+        runtime.drag = {
+          type: 'marquee', start: K.point(world), current: K.point(world),
+          startScreen: { ...screen }, currentScreen: { ...screen }, moved: false,
+          additive: Boolean(event?.ctrlKey || event?.metaKey || event?.shiftKey),
+          previousIds: [...ui.selectedIds]
+        }
+        setStatus('左上から右下へ囲むと、枠内の図形をまとめて選択できます', 0)
         return
       }
       const additive = !labelHit && Boolean(event?.ctrlKey || event?.metaKey || event?.shiftKey)
@@ -2656,7 +2883,7 @@
     }
     if (command === 'split') {
       if (!session.targetIds.length) {
-        if (!hit || hit.object?.kind !== 'lot') { setStatus('分割する区画を選んでください', 1600); return }
+        if (!hit || !['lot', 'road', 'water'].includes(hit.object?.kind)) { setStatus('分割する区画・道路・水路を選んでください', 1600); return }
         session.targetIds = [hit.id]
         ui.selectedIds = [hit.id]
         renderCommandSurface()
@@ -2666,7 +2893,7 @@
     }
     if (command === 'split-all') { addSessionPoint(world); return }
     if (command === 'merge') {
-      if (!hit || !['lot', 'cutout'].includes(hit.object?.kind)) { setStatus('合筆する区画または隅切りを選んでください', 1600); return }
+      if (!hit || !['lot', 'road', 'water', 'cutout'].includes(hit.object?.kind)) { setStatus('合筆する区画・道路・水路・隅切りを選んでください', 1600); return }
       if (session.targetIds.includes(hit.id)) session.targetIds = session.targetIds.filter(id => id !== hit.id)
       else if (session.targetIds.length < 2) session.targetIds.push(hit.id)
       ui.selectedIds = [...session.targetIds]
@@ -2710,10 +2937,10 @@
     if (command === 'edge-hide') {
       const labelHit = renderer.hitLabel(screen)
       const labelObject = labelHit?.ownerId ? K.objectById(store.document, labelHit.ownerId)?.object : null
-      const edgeHit = labelHit?.kind === 'shape-dimension' && labelObject?.kind === 'lot' && Number.isInteger(labelHit.edgeIndex)
+      const edgeHit = labelHit?.kind === 'shape-dimension' && ['lot', 'road', 'water', 'cutout'].includes(labelObject?.kind) && Number.isInteger(labelHit.edgeIndex)
         ? { id: labelHit.ownerId, index: labelHit.edgeIndex }
-        : (hit?.type === 'shape' && hit.object?.kind === 'lot' && hit.part === 'edge' ? { id: hit.id, index: hit.index } : null)
-      if (!edgeHit) { setStatus('区画の外周辺または寸法文字を選んでください', 1600); return }
+        : (hit?.type === 'shape' && ['lot', 'road', 'water', 'cutout'].includes(hit.object?.kind) && hit.part === 'edge' ? { id: hit.id, index: hit.index } : null)
+      if (!edgeHit) { setStatus('図形の外周辺または寸法文字を選んでください', 1600); return }
       let nowHidden = false
       store.commit('辺寸法表示切替', documentModel => {
         const found = K.objectById(documentModel, edgeHit.id)
@@ -2767,19 +2994,24 @@
         const scaleMissing = !hasScale()
         store.commit('区画作図', documentModel => {
           const style = { ...documentModel.preferences.lot.style, fill: form.fill, stroke: form.stroke, opacity: K.clamp(finite(form['fill-opacity'], 46) / 100, 0, 1) }
+          const labelScale = K.clamp(finite(form['text-size'], 1), 0.3, 5)
+          const labelStyle = { ...documentModel.preferences.lot.labelStyle, fontFamily: fontToken(form['font-family']), scale: labelScale, size: LABEL_BASE_SIZE * labelScale, fontSize: LABEL_BASE_SIZE * labelScale }
+          const dimensionScale = K.clamp(finite(form['dimension-size'], 1), 0.2, 5)
           const dimensionStyle = {
             ...documentModel.preferences.lot.dimensionStyle,
+            fontFamily: fontToken(form['dimension-font']), scale: dimensionScale, size: DIMENSION_BASE_SIZE * dimensionScale, fontSize: DIMENSION_BASE_SIZE * dimensionScale,
             approximate: Boolean(form.approximate),
             decimals: finite(form['dimension-decimals'], 2), digits: finite(form['dimension-decimals'], 2),
             rounding: form['dimension-rounding'] || 'round', adjustment: finite(form['dimension-adjustment'])
           }
           documentModel.preferences.lot.style = deepClone(style)
+          documentModel.preferences.lot.labelStyle = deepClone(labelStyle)
           documentModel.preferences.lot.dimensionStyle = deepClone(dimensionStyle)
           documentModel.preferences.lot.showArea = Boolean(form['show-area'])
           documentModel.preferences.lot.showTsubo = Boolean(form['show-tsubo'])
           documentModel.preferences.lot.showLengths = Boolean(form['show-lengths'])
           K.addShape(documentModel, 'lot', points, {
-            style,
+            style, labelStyle,
             visibility: { label: true, topLabel: true, number: true, area: Boolean(form['show-area']), tsubo: Boolean(form['show-tsubo']), price: true, memo: true, dimensions: Boolean(form['show-lengths']), approximate: Boolean(form.approximate) },
             dimensionStyle
           })
@@ -2799,12 +3031,19 @@
         store.commit(isWater ? '水路作図' : '道路作図', documentModel => {
           const preference = documentModel.preferences[kind]
           const style = { ...preference.style, fill: form.fill, stroke: form.stroke, opacity: K.clamp(finite(form['fill-opacity'], Math.round(finite(preference.style?.opacity, 0.68) * 100)) / 100, 0, 1) }
+          const labelScale = K.clamp(finite(form['text-size'], 1), 0.3, 5)
+          const labelStyle = { ...preference.labelStyle, fontFamily: fontToken(form['font-family']), scale: labelScale, size: LABEL_BASE_SIZE * labelScale, fontSize: LABEL_BASE_SIZE * labelScale, vertical: Boolean(form['text-vertical']) }
+          const widthScale = K.clamp(finite(form['road-width-size'], 1), 0.3, 5)
+          const widthLabelStyle = { ...(preference.widthLabelStyle || {}), fontFamily: fontToken(form['road-width-font']), scale: widthScale, size: ROAD_WIDTH_BASE_SIZE * widthScale, fontSize: ROAD_WIDTH_BASE_SIZE * widthScale, vertical: Boolean(form['text-vertical']) }
           preference.style = deepClone(style)
+          preference.labelStyle = deepClone(labelStyle)
+          preference.widthLabelStyle = deepClone(widthLabelStyle)
+          preference.vertical = Boolean(form['text-vertical'])
           preference.type = String(form['road-type'] || (isWater ? '水路' : '道路'))
           preference.name = name
           preference.widthM = widthM
           const shape = K.addShape(documentModel, kind, points, {
-            label: name, style, road: { type: typeCode, widthM, width: widthM, name, vertical: false },
+            label: name, style, labelStyle, road: { type: typeCode, widthM, width: widthM, name, vertical: Boolean(form['text-vertical']), nameStyle: labelStyle, widthLabelStyle },
             visibility: { label: true, number: false, area: false, tsubo: false, dimensions: false, width: true }
           })
           shape.road = { ...(shape.road || {}), name, width: widthM, widthM }
@@ -2820,6 +3059,10 @@
           const dimensionStyle = {
             ...documentModel.preferences.measurement.dimensionStyle,
             color: style.color,
+            fontFamily: fontToken(form['dimension-font']),
+            scale: K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
+            size: DIMENSION_BASE_SIZE * K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
+            fontSize: DIMENSION_BASE_SIZE * K.clamp(finite(form['dimension-size'], 1), 0.2, 5),
             approximate: Boolean(form['dimension-approximate']),
             decimals: finite(form['dimension-decimals'], 2), digits: finite(form['dimension-decimals'], 2),
             rounding: form['dimension-rounding'] || 'round', adjustment: finite(form['dimension-adjustment'])
@@ -2827,10 +3070,10 @@
           if (['distance', 'polyline', 'area'].includes(command)) documentModel.preferences.measurement.dimensionStyle = deepClone(dimensionStyle)
           const attributes = {
             points, style,
-            text: command === 'callout' ? String(form['note-text'] || '注記') : '',
+            text: command === 'callout' ? String(form['note-text'] || '注記') : command === 'arrow' ? String(form['note-text'] || '') : '',
             labelPosition: command === 'callout' ? points[points.length - 1] : null,
-            textStyle: command === 'callout' ? {
-              color: form.color || '#172033', fontFamily: form['note-font'] || 'gothic',
+            textStyle: (command === 'callout' || command === 'arrow') ? {
+              color: form.color || '#172033', fontFamily: fontToken(form['note-font']),
               size: finite(form['note-size'], TEXT_BASE_SIZE), fontSize: finite(form['note-size'], TEXT_BASE_SIZE),
               angle: finite(form['note-angle']), rotation: finite(form['note-angle']), vertical: Boolean(form['note-vertical'])
             } : null,
@@ -2853,7 +3096,7 @@
         store.commit('注記配置', documentModel => {
           if (command === 'text') {
             const style = {
-              color: form.color || '#172033', fontFamily: form['note-font'] || 'gothic',
+              color: form.color || '#172033', fontFamily: fontToken(form['note-font']),
               size: finite(form['note-size'], TEXT_BASE_SIZE), fontSize: finite(form['note-size'], TEXT_BASE_SIZE),
               rotation: finite(form['note-angle']), vertical: Boolean(form['note-vertical']), background: 'transparent'
             }
@@ -2868,15 +3111,16 @@
             const stampScale = K.clamp(finite(form['stamp-scale'], 1), 0.2, 5)
             const stampTextScale = K.clamp(finite(form['stamp-text-scale'], 1), 0.3, 5)
             const fontSize = TEXT_BASE_SIZE * stampTextScale
+            const lineWidth = K.clamp(finite(form['stamp-line-width'], 1.4), 0.5, 10)
             documentModel.preferences.stamp.north = {
               size, scale: stampScale, textScale: stampTextScale,
-              label: String(form['stamp-label'] || 'N'), textColor: form.color || '#172033'
+              label: String(form['stamp-label'] || 'N'), fontFamily: fontToken(form['stamp-font']), lineWidth, textColor: form.color || '#172033'
             }
             K.addEntity(documentModel, 'north', {
               position, text: String(form['stamp-label'] || 'N'), size, stampScale, stampTextScale, fontSize,
               angle: finite(form['stamp-angle']), rotation: finite(form['stamp-angle']),
-              style: { color: form.color || '#172033', size: fontSize, fontSize },
-              textStyle: { color: form.color || '#172033', size: fontSize, fontSize }, options: { size, scale: stampScale }
+              style: { color: form.color || '#172033', fontFamily: fontToken(form['stamp-font']), lineWidth, size: fontSize, fontSize },
+              textStyle: { color: form.color || '#172033', fontFamily: fontToken(form['stamp-font']), size: fontSize, fontSize }, options: { size, scale: stampScale }
             })
           } else if (command === 'house' || command === 'parking') {
             const width = finite(form['stamp-width'], command === 'parking' ? 2.5 : 10)
@@ -2885,27 +3129,32 @@
             const stroke = form['stamp-stroke'] || '#253858'
             const fill = form['stamp-fill'] || (command === 'parking' ? '#eef4fb' : '#edf2f8')
             const hatch = command === 'house' ? Boolean(form['stamp-hatch']) : false
+            const hatchSpacing = command === 'house' ? K.clamp(finite(form['stamp-hatch-spacing'], 9), 2, 40) : undefined
+            const hatchAngle = command === 'house' ? finite(form['stamp-hatch-angle'], 45) : undefined
+            const lineWidth = K.clamp(finite(form['stamp-line-width'], 1.4), 0.5, 10)
             const stampScale = K.clamp(finite(form['stamp-scale'], 1), 0.2, 5)
             const stampTextScale = K.clamp(finite(form['stamp-text-scale'], 1), 0.3, 5)
             const fontSize = TEXT_BASE_SIZE * stampTextScale
             documentModel.preferences.stamp[command] = {
               widthM: width, heightM: height,
               label: String(form['stamp-label'] || (command === 'parking' ? 'P' : '家屋')),
-              showDimensions, stroke, fill, hatch, scale: stampScale, textScale: stampTextScale,
-              textColor: form.color || '#253858', lineStyle: form['line-style'] || 'solid'
+              showDimensions, stroke, fill, hatch, hatchSpacing, hatchAngle, lineWidth, scale: stampScale, textScale: stampTextScale,
+              fontFamily: fontToken(form['stamp-font']), textColor: form.color || '#253858', lineStyle: form['line-style'] || 'solid'
             }
             K.addEntity(documentModel, command, {
               position, text: String(form['stamp-label'] || (command === 'parking' ? 'P' : '家屋')),
               width, height, widthM: width, heightM: height, angle: finite(form['stamp-angle']), rotation: finite(form['stamp-angle']),
-              showDimensions, stampScale, stampTextScale, fontSize, style: { color: stroke, stroke, fill, lineStyle: form['line-style'] || 'solid', size: fontSize, fontSize },
-              textStyle: { color: form.color || '#253858', size: fontSize, fontSize },
-              options: { width, height, showDimensions, hatch, scale: stampScale }
+              showDimensions, stampScale, stampTextScale, fontSize, style: { color: stroke, stroke, fill, lineStyle: form['line-style'] || 'solid', lineWidth, size: fontSize, fontSize },
+              textStyle: { color: form.color || '#253858', fontFamily: fontToken(form['stamp-font']), size: fontSize, fontSize },
+              options: { width, height, showDimensions, hatch, hatchSpacing, hatchAngle, scale: stampScale }
             })
           } else {
             const tableMode = form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
+            const textScale = K.clamp(finite(form['text-size'], 1), 0.3, 5)
+            const fontSize = TEXT_BASE_SIZE * textScale
             K.addEntity(documentModel, 'lot-table', {
-              position, title: '区画一覧', scale: finite(form['table-scale'], 1), rotation: finite(form['table-angle']),
-              showPrice: true, style: { color: '#253858' },
+              position, title: String(form['table-title'] || '').trim() || false, scale: finite(form['table-scale'], 1), rotation: finite(form['table-angle']),
+              showPrice: Boolean(form['table-show-price']), style: { color: '#253858', fontFamily: fontToken(form['font-family']), scale: textScale, size: fontSize, fontSize, lineWidth: K.clamp(finite(form['table-line-width'], 0.75), 0.5, 5) },
               dynamic: tableMode === 'dynamic', snapshot: tableMode === 'snapshot',
               rows: tableMode === 'snapshot' ? captureLotTableRows(documentModel) : [],
               options: { scale: finite(form['table-scale'], 1), mode: tableMode }
@@ -2916,24 +3165,39 @@
         return true
       }
       if (command === 'split') {
+        const targetKind = K.objectById(store.document, session.targetIds[0])?.object?.kind
         let result = null
-        store.commit('区画分割', documentModel => { result = K.splitShapeByPolyline(documentModel, session.targetIds[0], points) })
-        if (!result) throw new Error('分割線が区画を横切っていません')
-        restartCommand(command, '区画を分割しました')
+        store.commit('図形分割', documentModel => { result = K.splitShapeByPolyline(documentModel, session.targetIds[0], points) })
+        if (!result) throw new Error('分割線が選択した図形を横切っていません')
+        const targetName = targetKind === 'road' ? '道路' : targetKind === 'water' ? '水路' : '区画'
+        restartCommand(command, `${targetName}を分割しました`)
         return true
       }
       if (command === 'split-all') {
+        const kinds = [form['split-lot'] && 'lot', form['split-road'] && 'road', form['split-water'] && 'water'].filter(Boolean)
+        if (!kinds.length) throw new Error('一括分割する対象を1種類以上選んでください')
         let result = []
-        store.commit('一括分割', documentModel => { result = K.splitAllLotsByPolyline(documentModel, points) })
-        if (!Array.isArray(result) || !result.length) throw new Error('分割線が区画を横切っていないか、折れ線が不正です')
-        restartCommand(command, '交差する区画を一括分割しました')
+        store.commit('一括分割', documentModel => { result = K.splitAllLotsByPolyline(documentModel, points, { kinds }) })
+        if (!Array.isArray(result) || !result.length) throw new Error('分割線が対象図形を横切っていないか、折れ線が不正です')
+        restartCommand(command, `交差する図形を一括分割しました（${result.length / 2}件）`)
         return true
       }
       if (command === 'merge') {
+        const firstObject = K.objectById(store.document, session.targetIds[0])?.object
+        const secondObject = K.objectById(store.document, session.targetIds[1])?.object
+        if (firstObject?.kind === secondObject?.kind && ['road', 'water'].includes(firstObject?.kind)) {
+          const firstAttributes = JSON.stringify({ label: firstObject.label, road: firstObject.road, style: firstObject.style })
+          const secondAttributes = JSON.stringify({ label: secondObject.label, road: secondObject.road, style: secondObject.style })
+          if (firstAttributes !== secondAttributes) {
+            let accepted = false
+            try { accepted = window.confirm(`名称・幅・色が異なります。最初に選んだ「${firstObject.label || (firstObject.kind === 'water' ? '水路' : '道路')}」の設定を残して合筆しますか？`) } catch (_) { accepted = false }
+            if (!accepted) { setStatus('合筆を取り消しました', 1400); return false }
+          }
+        }
         let result = null
-        store.commit('合筆', documentModel => { result = K.mergeLotShapes(documentModel, session.targetIds[0], session.targetIds[1]) })
-        if (!result) throw new Error('共有辺のある区画同士、または区画と隅切りを選択してください')
-        restartCommand(command, '区画を合筆しました')
+        store.commit('合筆', documentModel => { result = K.mergeLotShapes(documentModel, session.targetIds[0], session.targetIds[1], { primaryId: session.targetIds[0] }) })
+        if (!result) throw new Error('同じ種類で共有辺のある図形、または区画と隅切りを選択してください')
+        restartCommand(command, `${result.kind === 'road' ? '道路' : result.kind === 'water' ? '水路' : '区画'}を合筆しました`)
         return true
       }
       if (command === 'corner-cut') {
@@ -2973,7 +3237,7 @@
         if (!result) throw new Error('基準線を指定してください')
         store.commit('連続平行線', documentModel => K.addEntity(documentModel, 'parallel', {
           points: result, text: `${Number(Math.abs(offsetM).toFixed(3))}m`, style: { color: '#9b4c8d', lineStyle: 'dashed' },
-          options: { distanceM: offsetM, baseDistanceM, repeatIndex, parallelSign: sign }
+          options: { distanceM: offsetM, baseDistanceM, repeatIndex, parallelSign: sign, baselinePoints: points.slice(0, 2).map(K.point) }
         }))
         session.form.parallelCount = repeatIndex
         setStatus(`${Number(Math.abs(offsetM).toFixed(3))}mの平行線を作成。基準線は保持しています`, 2200)
@@ -3231,6 +3495,16 @@
     runtime.pointerWorld = world
     runtime.hover = hitAt(world)
     runtime.hoverSnap = snapRequested ? hoverSnap : null
+    if (runtime.drag?.type === 'marquee') {
+      const drag = runtime.drag
+      drag.current = K.point(freeWorld)
+      drag.currentScreen = { ...screen }
+      if (!drag.moved && Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y) >= 4) drag.moved = true
+      dom.canvas.dataset.cursor = 'crosshair'
+      if (drag.moved) setStatus(`囲み選択中：${idsInsideSelectionBounds(drag.start, drag.current).length}件`, 0)
+      render()
+      return
+    }
     if (runtime.drag?.type === 'selection-direct' || runtime.drag?.type === 'vertex-direct') {
       const drag = runtime.drag
       const screenDistance = Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y)
@@ -3255,8 +3529,8 @@
       render()
       return
     }
-    const selectedDimensionLot = session.command === 'select' && ui.contextPage === 'object-dimension' && ui.selectedIds.length === 1 && currentObject()?.kind === 'lot'
-    if (session.command === 'select' || session.command === 'label-edit') {
+    const selectedDimensionLot = session.command === 'select' && ui.contextPage === 'object-dimension' && ui.selectedIds.length === 1 && ['lot', 'road', 'water', 'cutout'].includes(currentObject()?.kind)
+    if (session.command === 'select') {
       const hoverLabelHit = renderer.hitLabel(screen)
       const hoverVertexHit = session.command === 'select' && !hoverLabelHit ? selectedVertexAt(freeWorld) : null
       dom.canvas.dataset.cursor = hoverVertexHit ? 'vertex' : hoverLabelHit || (runtime.hover?.id && ui.selectedIds.includes(String(runtime.hover.id))) ? 'move' : ''
@@ -3272,9 +3546,9 @@
       const labelHit = renderer.hitLabel(screen)
       const labelObject = labelHit?.ownerId ? K.objectById(store.document, labelHit.ownerId)?.object : null
       const edgeHit = hitAt(freeWorld)
-      runtime.edgeHover = labelHit?.kind === 'shape-dimension' && labelObject?.kind === 'lot' && Number.isInteger(labelHit.edgeIndex)
+      runtime.edgeHover = labelHit?.kind === 'shape-dimension' && ['lot', 'road', 'water', 'cutout'].includes(labelObject?.kind) && Number.isInteger(labelHit.edgeIndex)
         ? { id: labelHit.ownerId, index: labelHit.edgeIndex }
-        : (edgeHit?.type === 'shape' && edgeHit.object?.kind === 'lot' && edgeHit.part === 'edge' ? { id: edgeHit.id, index: edgeHit.index } : null)
+        : (edgeHit?.type === 'shape' && ['lot', 'road', 'water', 'cutout'].includes(edgeHit.object?.kind) && edgeHit.part === 'edge' ? { id: edgeHit.id, index: edgeHit.index } : null)
     } else runtime.edgeHover = null
     if (runtime.drag?.type === 'underlay') {
       const dx = world.x - runtime.drag.start.x
@@ -3342,6 +3616,23 @@
     if (runtime.pan && (event.pointerId === runtime.pan.pointerId || event.button === 1)) {
       runtime.pan = null
       try { dom.canvas.releasePointerCapture?.(event.pointerId) } catch (_) { /* capture may already be gone */ }
+      render()
+      return
+    }
+    if (runtime.drag?.type === 'marquee') {
+      const drag = runtime.drag
+      runtime.drag = null
+      dom.canvas.dataset.cursor = ''
+      try { dom.canvas.releasePointerCapture?.(event.pointerId) } catch (_) { /* capture may already be gone */ }
+      if (event.type === 'pointercancel' || !drag.moved) {
+        render()
+        setStatus(drag.previousIds.length ? '選択は保持中です。Escまたは「選択解除」で解除できます' : '図形をクリックまたは囲んで選択します', 1600)
+        return
+      }
+      const enclosed = idsInsideSelectionBounds(drag.start, drag.current)
+      const ids = drag.additive ? [...new Set([...drag.previousIds, ...enclosed])] : enclosed
+      setObjectSelection(ids, { openEditor: true })
+      setStatus(ids.length ? `${ids.length}件を囲み選択しました` : '枠内に図形がありません', 1600)
       render()
       return
     }
@@ -3507,6 +3798,7 @@
         ui.selectedIds = []
         ui.registryIds.clear()
         ui.clipboard = []
+        runtime.currentProjectPath = null
       }
       ui.documentName = file.name || ui.documentName
       await showUnderlayPage(store.document.background.currentPage || 1)
@@ -3533,19 +3825,26 @@
 
   function serializeCurrentProject() {
     if (typeof IO.serializeProject === 'function') return IO.serializeProject(store.document, { view: runtime.view, name: ui.documentName, appVersion: K.APP_VERSION })
-    return JSON.stringify({ format: 'kozu-measure', version: 5, appVersion: K.APP_VERSION, document: store.document, view: runtime.view, meta: { name: ui.documentName } }, null, 2)
+    return JSON.stringify({ format: 'kozu-measure', version: 6, appVersion: K.APP_VERSION, document: store.document, view: runtime.view, meta: { name: ui.documentName } }, null, 2)
   }
 
   async function saveProject(options = {}) {
     try {
+      commitPendingEdit()
       const contents = serializeCurrentProject()
       const fileName = safeFileName(ui.documentName.replace(/\.(pdf|png|jpe?g|webp)$/i, '') || 'kozu-project', '.kozu.json')
-      if (options.forClose && typeof desktop.saveProjectBeforeClose === 'function') {
-        const result = await desktop.saveProjectBeforeClose({ fileName, contents })
-        if (result?.fileName) ui.documentName = result.fileName
-      } else if (typeof desktop.saveProject === 'function') {
-        const result = await desktop.saveProject({ fileName, contents })
+      const payload = { fileName, contents }
+      if (!options.saveAs && runtime.currentProjectPath) payload.outputPath = runtime.currentProjectPath
+      if (typeof desktop.saveProject === 'function') {
+        const result = await desktop.saveProject(payload)
         if (result?.canceled) { setStatus('編集データの保存をキャンセルしました', 1600); return false }
+        if (result?.success === false) throw new Error('編集データを保存できませんでした')
+        if (result?.path) runtime.currentProjectPath = result.path
+        if (result?.fileName) ui.documentName = result.fileName
+      } else if (options.forClose && typeof desktop.saveProjectBeforeClose === 'function') {
+        const result = await desktop.saveProjectBeforeClose(payload)
+        if (result?.canceled) { setStatus('編集データの保存をキャンセルしました', 1600); return false }
+        if (result?.path) runtime.currentProjectPath = result.path
         if (result?.fileName) ui.documentName = result.fileName
       } else if (typeof IO.downloadProjectJson === 'function') {
         const result = IO.downloadProjectJson(store.document, fileName, { view: runtime.view, name: ui.documentName, appVersion: K.APP_VERSION })
@@ -3596,9 +3895,9 @@
     if (typeof resolve === 'function') resolve(Boolean(result))
   }
 
-  async function openProjectFile(file) {
+  async function openProjectFile(file, options = {}) {
     if (!file) return false
-    if (!(await confirmBeforeReplacingDocument('作業ファイルを開く'))) {
+    if (!options.skipConfirm && !(await confirmBeforeReplacingDocument('作業ファイルを開く'))) {
       setStatus('作業ファイルを開く操作をキャンセルしました', 1600)
       return false
     }
@@ -3612,12 +3911,36 @@
       runtime.view = loaded.view ? { ...runtime.view, ...loaded.view } : runtime.view
       runtime.backgroundRuntime = loaded.runtime || null
       ui.documentName = loaded.meta?.name || file.name || '無題'
+      runtime.currentProjectPath = typeof options.projectPath === 'string' ? options.projectPath : null
       ui.selectedIds = []
       if (runtime.backgroundRuntime) await showUnderlayPage(store.document.background.currentPage || 1)
       activateCommand('select', { focusCanvas: false })
       store.markSaved()
-      setStatus(loaded.migratedFrom ? `旧形式 v${loaded.migratedFrom} を新形式へ移行しました` : '作業ファイルを開きました', 2600)
+      setStatus(loaded.migratedFrom
+        ? `旧形式 v${loaded.migratedFrom} を新形式へ移行しました${loaded.warnings?.length ? `。${loaded.warnings[0]}` : ''}`
+        : '作業ファイルを開きました', loaded.warnings?.length ? 5200 : 2600)
       return true
+    } catch (error) {
+      setStatus(error?.message || '作業ファイルを開けませんでした', 3200)
+      return false
+    }
+  }
+
+  async function openProjectFromDialog() {
+    if (typeof desktop.openProject !== 'function') {
+      dom.projectInput?.click()
+      return false
+    }
+    if (!(await confirmBeforeReplacingDocument('作業ファイルを開く'))) {
+      setStatus('作業ファイルを開く操作をキャンセルしました', 1600)
+      return false
+    }
+    try {
+      const result = await desktop.openProject()
+      if (result?.canceled) { setStatus('作業ファイルを開く操作をキャンセルしました', 1600); return false }
+      if (!result?.success || typeof result.contents !== 'string') throw new Error('作業ファイルを読み込めませんでした')
+      const file = { name: result.fileName || 'kozu-project.kozu.json', text: async () => result.contents }
+      return openProjectFile(file, { skipConfirm: true, projectPath: result.path })
     } catch (error) {
       setStatus(error?.message || '作業ファイルを開けませんでした', 3200)
       return false
@@ -3794,7 +4117,7 @@
     setStatus(`${ids.length}件を図面中央に表示しました`, 1500)
   }
 
-  function paperPixelSize(paper = store.document.paper, dpi = 96) {
+  function paperPixelSize(paper = outputPaperModel(store.document), dpi = 96) {
     const millimeters = paper.size === 'A3' ? { short: 297, long: 420 } : { short: 210, long: 297 }
     const pixelsPerMillimeter = Math.max(1, finite(dpi, 96)) / 25.4
     const landscape = {
@@ -3804,11 +4127,119 @@
     return paper.orientation === 'portrait' ? { width: landscape.height, height: landscape.width } : landscape
   }
 
+  function printableRectMm(paper = outputPaperModel(store.document)) {
+    const safeMargin = 5
+    const innerGap = paper.showFrame !== false ? 2 : 0
+    const inset = safeMargin + innerGap
+    const titleHeight = paper.showFrame !== false && paper.showTitleFrame !== false ? (paper.size === 'A3' ? 15 : 12) : 0
+    const width = Math.max(1, finite(paper.widthMm) - inset * 2)
+    const height = Math.max(1, finite(paper.heightMm) - inset * 2 - titleHeight)
+    return {
+      left: inset, top: inset, right: inset + width, bottom: inset + height,
+      width, height, centerX: inset + width / 2, centerY: inset + height / 2
+    }
+  }
+
+  function outputContentBounds(documentModel = store.document) {
+    const copy = deepClone(documentModel)
+    const includeBackground = activeOutputLayout(copy).includeUnderlay !== false && Boolean(copy.background?.type) && copy.background.width > 0 && copy.background.height > 0
+    copy.background = { ...copy.background, visible: includeBackground }
+    copy.paper = { ...copy.paper, enabled: false }
+    const active = page(copy)
+    if (active) {
+      active.shapes = active.shapes.filter(shape => shape.visible !== false)
+      active.entities = active.entities.filter(entity => entity.visible !== false && (activeOutputLayout(copy).includeGuides === true || !['guide', 'parallel'].includes(entity.kind)))
+    }
+    if (!includeBackground && !(active?.shapes.length || active?.entities.length)) return null
+    return renderer.computeBounds(copy, { page: active, includeBackground, includePaper: false })
+  }
+
+  function standardOutputScaleAtLeast(value) {
+    const required = Math.max(1, finite(value, 1))
+    const standard = OUTPUT_SCALE_PRESETS.find(scale => scale >= required)
+    if (standard) return standard
+    const nice = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10]
+    const exponent = Math.floor(Math.log10(required))
+    for (let power = Math.max(0, exponent - 1); power <= exponent + 2; power += 1) {
+      const multiplier = 10 ** power
+      const candidate = nice.map(entry => entry * multiplier).find(entry => entry >= required)
+      if (candidate) return candidate
+    }
+    return Math.ceil(required)
+  }
+
+  function outputFitStatus(documentModel = store.document, layout = activeOutputLayout(documentModel), paper = outputPaperModel(documentModel)) {
+    const active = page(documentModel)
+    const mpp = Number(active?.calibration?.mpp)
+    const printScale = Number(layout.printScale)
+    const bounds = outputContentBounds(documentModel)
+    if (!bounds || !(mpp > 0) || !(printScale > 0)) return null
+    const millimetersPerWorld = mpp * 1000 / printScale
+    const printable = printableRectMm(paper)
+    const visual = {
+      left: finite(layout.offsetMmX) + bounds.minX * millimetersPerWorld,
+      right: finite(layout.offsetMmX) + bounds.maxX * millimetersPerWorld,
+      top: finite(layout.offsetMmY) + bounds.minY * millimetersPerWorld,
+      bottom: finite(layout.offsetMmY) + bounds.maxY * millimetersPerWorld
+    }
+    visual.width = visual.right - visual.left
+    visual.height = visual.bottom - visual.top
+    const overflow = {
+      left: Math.max(0, printable.left - visual.left),
+      right: Math.max(0, visual.right - printable.right),
+      top: Math.max(0, printable.top - visual.top),
+      bottom: Math.max(0, visual.bottom - printable.bottom)
+    }
+    const maxOverflow = Math.max(...Object.values(overflow))
+    const widthRatio = visual.width / printable.width
+    const heightRatio = visual.height / printable.height
+    const usage = Math.max(widthRatio, heightRatio)
+    const worldWidth = bounds.maxX - bounds.minX
+    const worldHeight = bounds.maxY - bounds.minY
+    const requiredScale = Math.max(
+      worldWidth * mpp * 1000 / printable.width,
+      worldHeight * mpp * 1000 / printable.height
+    )
+    const comfortableScale = Math.max(
+      worldWidth * mpp * 1000 / (printable.width * 0.75),
+      worldHeight * mpp * 1000 / (printable.height * 0.75)
+    )
+    const state = maxOverflow > 0.5 ? 'overflow' : usage < 0.45 ? 'small' : 'fit'
+    const suggestedScale = state === 'overflow'
+      ? standardOutputScaleAtLeast(requiredScale)
+      : state === 'small' ? standardOutputScaleAtLeast(comfortableScale) : null
+    return { state, overflow, maxOverflow, widthRatio, heightRatio, usage, requiredScale, suggestedScale, visual, printable }
+  }
+
+  function centeredOutputOffset(documentModel = store.document, layout = activeOutputLayout(documentModel), paper = outputPaperModel(documentModel)) {
+    const bounds = outputContentBounds(documentModel)
+    const active = page(documentModel)
+    const mpp = Number(active?.calibration?.mpp ?? documentModel.calibration?.mpp)
+    const printScale = Number(layout.printScale)
+    if (!bounds || !(mpp > 0) || !(printScale > 0)) return null
+    const millimetersPerWorld = mpp * 1000 / printScale
+    const printable = printableRectMm(paper)
+    return {
+      x: printable.centerX - (bounds.minX + bounds.maxX) / 2 * millimetersPerWorld,
+      y: printable.centerY - (bounds.minY + bounds.maxY) / 2 * millimetersPerWorld
+    }
+  }
+
+  function ensurePhysicalOutputReady(documentModel = store.document) {
+    const active = page(documentModel)
+    const mpp = Number(active?.calibration?.mpp ?? documentModel.calibration?.mpp)
+    if (!(mpp > 0)) throw new Error('このページの縮尺が未設定です。下絵の「ページ・縮尺」を設定してください')
+    if (!(outputPrintScale(documentModel) > 0)) throw new Error('印刷縮尺が未設定です。出力の「用紙」で縮尺を選択してください')
+    return true
+  }
+
   function syncPaperControls() {
-    const paper = store.document.paper
+    const paper = outputPaperModel(store.document)
+    const layout = activeOutputLayout(store.document)
     const values = {
       'paper-size': paper.size, 'paper-orientation': paper.orientation,
       'paper-frame-visible': paper.showFrame !== false, 'paper-underlay-visible': paper.includeUnderlay !== false,
+      'paper-guides-visible': paper.includeGuides === true,
       'paper-title': paper.title || '', 'paper-date': paper.date || '', 'paper-author': paper.author || '',
       'paper-note': paper.note || '', 'title-frame-visible': paper.showTitleFrame !== false
     }
@@ -3819,36 +4250,104 @@
       else if (document.activeElement !== field) field.value = value ?? ''
     }
     const printScale = byId('paper-print-scale')
-    const denominator = resolvedMapScale(store.document)
+    const denominator = outputPrintScale(store.document)
     if (printScale) printScale.textContent = denominator ? `1:${Math.round(denominator).toLocaleString('ja-JP')}` : '未設定'
+    const preset = byId('paper-print-scale-preset')
+    const custom = byId('paper-print-scale-custom')
+    if (preset) {
+      const presetValue = denominator && OUTPUT_SCALE_PRESETS.includes(denominator) ? String(denominator) : 'custom'
+      if (document.activeElement !== preset) preset.value = presetValue
+    }
+    if (custom && document.activeElement !== custom) custom.value = denominator ? String(denominator) : ''
+    const readiness = byId('paper-output-readiness')
+    const fitMessage = byId('paper-fit-status')
+    const fitAction = byId('paper-fit-suggestion')
+    const mpp = Number(page(store.document)?.calibration?.mpp ?? store.document.calibration?.mpp)
+    if (readiness) {
+      readiness.textContent = !(mpp > 0)
+        ? 'このページは縮尺未設定です。下絵のページ・縮尺を設定してください。'
+        : !(denominator > 0)
+          ? '印刷縮尺を選択してください。'
+          : `このページを 1:${Math.round(denominator).toLocaleString('ja-JP')} で出力します。配置 X ${finite(layout.offsetMmX).toFixed(1)}mm / Y ${finite(layout.offsetMmY).toFixed(1)}mm`
+      readiness.dataset.state = mpp > 0 && denominator > 0 ? 'ready' : 'blocked'
+    }
+    const fit = mpp > 0 && denominator > 0 ? outputFitStatus(store.document, layout, paper) : null
+    if (fitMessage) {
+      if (!fit) {
+        fitMessage.textContent = '図形を作成すると、用紙への収まりを確認できます。'
+        fitMessage.dataset.state = 'idle'
+      } else if (fit.state === 'overflow') {
+        const sides = [['左', fit.overflow.left], ['右', fit.overflow.right], ['上', fit.overflow.top], ['下', fit.overflow.bottom]]
+          .filter(([, value]) => value > 0.5).map(([name, value]) => `${name}${value.toFixed(1)}mm`).join('・')
+        fitMessage.textContent = `用紙からはみ出します（${sides}）。中央配置へ戻すか、候補縮尺を選んでください。`
+        fitMessage.dataset.state = 'overflow'
+      } else if (fit.state === 'small') {
+        fitMessage.textContent = `用紙に対して小さめです（使用率 ${Math.round(fit.usage * 100)}%）。候補縮尺で大きくできます。`
+        fitMessage.dataset.state = 'small'
+      } else {
+        fitMessage.textContent = `用紙内に収まっています（使用率 ${Math.round(fit.usage * 100)}%）。`
+        fitMessage.dataset.state = 'fit'
+      }
+    }
+    if (fitAction) {
+      const suggestion = Number(fit?.suggestedScale)
+      const useful = suggestion > 0 && Math.abs(suggestion - denominator) > 1e-9
+      fitAction.hidden = !useful
+      fitAction.dataset.outputScale = useful ? String(suggestion) : ''
+      fitAction.textContent = useful
+        ? (fit?.state === 'overflow'
+            ? `候補 1:${Math.round(suggestion).toLocaleString('ja-JP')} で全体を収める`
+            : `候補 1:${Math.round(suggestion).toLocaleString('ja-JP')} で大きくする`)
+        : ''
+    }
+    $$('[data-action="toggle-output-placement"]').forEach(button => {
+      button.classList.toggle('active', ui.output.placing)
+      button.setAttribute('aria-pressed', String(ui.output.placing))
+      button.textContent = ui.output.placing ? '配置調整中' : '配置を調整'
+    })
+    dom.outputPreview?.classList.toggle('placement-enabled', ui.output.placing)
   }
 
   function renderOutputCanvas(targetCanvas = dom.outputPreview, options = {}) {
     if (!targetCanvas) return null
     const documentModel = deepClone(store.document)
-    const outputPaper = deepClone(documentModel.paper)
+    const storedLayout = activeOutputLayout(documentModel)
+    const previewOffset = targetCanvas === dom.outputPreview ? runtime.outputDrag?.previewOffset : null
+    const layout = previewOffset
+      ? { ...storedLayout, offsetMmX: previewOffset.x, offsetMmY: previewOffset.y }
+      : storedLayout
+    const outputPaper = outputPaperModel(documentModel)
     const fullPaperSize = paperPixelSize(outputPaper)
     const size = options.size || fullPaperSize
     const outputScale = Math.min(size.width / fullPaperSize.width, size.height / fullPaperSize.height)
     const printZoom = outputPixelsPerWorldUnit(documentModel, 96)
+    const renderable = Number.isFinite(printZoom) && printZoom > 0
+    const paperPixelsPerMm = 96 / 25.4
     const view = {
-      x: (size.width - fullPaperSize.width * outputScale) / 2,
-      y: (size.height - fullPaperSize.height * outputScale) / 2,
-      zoom: outputScale * printZoom
+      x: (size.width - fullPaperSize.width * outputScale) / 2 + finite(layout.offsetMmX) * paperPixelsPerMm * outputScale,
+      y: (size.height - fullPaperSize.height * outputScale) / 2 + finite(layout.offsetMmY) * paperPixelsPerMm * outputScale,
+      zoom: outputScale * (renderable ? printZoom : 1)
     }
-    documentModel.background.visible = documentModel.paper.includeUnderlay !== false && documentModel.background.visible !== false
+    documentModel.background.visible = renderable && outputPaper.includeUnderlay !== false
+    if (!renderable) {
+      const active = page(documentModel)
+      if (active) { active.shapes = []; active.entities = [] }
+    } else if (outputPaper.includeGuides !== true) {
+      const active = page(documentModel)
+      if (active) active.entities = active.entities.filter(entity => !['guide', 'parallel'].includes(entity.kind))
+    }
     // 出力用紙は固定座標で描き、図形だけを毎回用紙一杯へ拡大しない。
     // 枠は下の drawOutputFrame で製図用の線として一度だけ描く。
     documentModel.paper.enabled = false
     const result = renderer.renderToCanvas(documentModel, {
       canvas: targetCanvas, width: size.width, height: size.height, dpr: options.dpr || 1,
-      view, includeBackground: true, includePaper: false, backgroundColor: '#ffffff', transparent: false
+      view, fixedScale: outputScale, includeBackground: true, includePaper: false, backgroundColor: '#ffffff', transparent: false
     })
     if (targetCanvas.style) {
       targetCanvas.style.width = `${Math.round(size.width)}px`
       targetCanvas.style.height = `${Math.round(size.height)}px`
     }
-    drawOutputFrame(targetCanvas, outputPaper, documentModel.calibration, documentModel)
+    drawOutputFrame(targetCanvas, outputPaper, page(documentModel)?.calibration || documentModel.calibration, documentModel)
     return result
   }
 
@@ -3867,7 +4366,7 @@
     context.fillStyle = '#111827'
     context.lineWidth = Math.max(1, 1.35 * outputScale)
     if (paper.showFrame !== false) context.strokeRect(margin, margin, innerWidth, innerHeight)
-    const scaleDenominator = resolvedMapScale({ ...documentModel, calibration })
+    const scaleDenominator = Number(paper.printScale) > 0 ? Number(paper.printScale) : null
     const scaleText = scaleDenominator
       ? `縮尺 1:${Math.round(scaleDenominator).toLocaleString('ja-JP')}`
       : (Number(calibration.mpp) > 0 ? '縮尺 2点校正済' : '縮尺 未設定')
@@ -3927,10 +4426,11 @@
     try {
       syncPaperControls()
       const container = dom.outputPreview.parentElement?.getBoundingClientRect()
-      const paper = paperPixelSize()
+      const paperModel = outputPaperModel(store.document)
+      const paper = paperPixelSize(paperModel)
       // A3を基準サイズとして表示するため、A4は縦横とも約70.7%になる。
       // 用紙を切り替えても同じ大きさにフィットしてしまう旧挙動を避ける。
-      const a3Reference = store.document.paper.orientation === 'portrait'
+      const a3Reference = paperModel.orientation === 'portrait'
         ? { width: 1123, height: 1587 }
         : { width: 1587, height: 1123 }
       const maxWidth = Math.max(260, Math.min((container?.width || 760) - 16, 980))
@@ -3943,7 +4443,8 @@
   }
 
   function createExportCanvas() {
-    const size = paperPixelSize(store.document.paper, OUTPUT_DPI)
+    ensurePhysicalOutputReady()
+    const size = paperPixelSize(outputPaperModel(store.document), OUTPUT_DPI)
     const canvas = document.createElement('canvas')
     renderOutputCanvas(canvas, { size, dpr: 1 })
     return canvas
@@ -3970,7 +4471,7 @@
   async function printOrPdf(asPdf = false) {
     try {
       const canvas = createExportCanvas()
-      const paper = store.document.paper
+      const paper = outputPaperModel(store.document)
       const html = typeof IO.canvasToPrintHTML === 'function'
         ? IO.canvasToPrintHTML(canvas, { title: paper.title || '区画図', paperSize: paper.size, orientation: paper.orientation })
         : `<img src="${canvas.toDataURL('image/png')}">`
@@ -3996,39 +4497,164 @@
     const size = byId('paper-size')?.value || 'A4'
     const orientation = byId('paper-orientation')?.value || 'landscape'
     const includeUnderlay = byId('paper-underlay-visible')?.checked !== false
+    const includeGuides = byId('paper-guides-visible')?.checked === true
+    const preset = byId('paper-print-scale-preset')?.value || 'custom'
+    const customScale = parseNumeric(byId('paper-print-scale-custom')?.value)
+    const printScale = preset === 'custom' ? customScale : parseNumeric(preset)
     ui.output.includeUnderlay = includeUnderlay
     ui.output.note = byId('paper-note')?.value || ''
     ui.output.showTitleFrame = byId('title-frame-visible')?.checked !== false
     store.commit('出力設定', documentModel => {
+      const current = page(documentModel)
+      if (!current) return
+      const oldLayout = deepClone(current.outputLayout || K.createOutputLayout?.({}, documentModel.paper))
+      const oldPaper = outputPaperModel(documentModel)
       documentModel.paper.enabled = true
       documentModel.paper.size = size
       documentModel.paper.orientation = orientation
       documentModel.paper.showFrame = byId('paper-frame-visible')?.checked !== false
       documentModel.paper.includeUnderlay = includeUnderlay
+      documentModel.paper.includeGuides = includeGuides
       documentModel.paper.showTitleFrame = ui.output.showTitleFrame
       documentModel.paper.title = byId('paper-title')?.value || ''
       documentModel.paper.date = byId('paper-date')?.value || ''
       documentModel.paper.author = byId('paper-author')?.value || ''
       documentModel.paper.note = ui.output.note
+      current.outputLayout = {
+        ...(current.outputLayout || {}),
+        paperSize: size,
+        orientation,
+        printScale: Number(printScale) > 0 ? Number(printScale) : null,
+        showFrame: documentModel.paper.showFrame,
+        showTitleFrame: documentModel.paper.showTitleFrame,
+        includeUnderlay,
+        includeGuides,
+        initialized: current.outputLayout?.initialized === true,
+        offsetMmX: finite(current.outputLayout?.offsetMmX),
+        offsetMmY: finite(current.outputLayout?.offsetMmY)
+      }
+      documentModel.outputDefaults = {
+        ...current.outputLayout,
+        offsetMmX: 0,
+        offsetMmY: 0,
+        initialized: false
+      }
+      const oldScale = Number(oldLayout.printScale)
+      const newScale = Number(current.outputLayout.printScale)
+      const mpp = Number(current.calibration?.mpp ?? documentModel.calibration?.mpp)
+      if (oldLayout.initialized && oldScale > 0 && newScale > 0 && mpp > 0) {
+        const oldRect = printableRectMm(oldPaper)
+        const newRect = printableRectMm(outputPaperModel(documentModel))
+        const oldMmPerWorld = mpp * 1000 / oldScale
+        const newMmPerWorld = mpp * 1000 / newScale
+        const worldAnchorX = (oldRect.centerX - finite(oldLayout.offsetMmX)) / oldMmPerWorld
+        const worldAnchorY = (oldRect.centerY - finite(oldLayout.offsetMmY)) / oldMmPerWorld
+        current.outputLayout.offsetMmX = newRect.centerX - worldAnchorX * newMmPerWorld
+        current.outputLayout.offsetMmY = newRect.centerY - worldAnchorY * newMmPerWorld
+      } else if (!oldLayout.initialized && newScale > 0 && mpp > 0) {
+        const initialOffset = centeredOutputOffset(documentModel, current.outputLayout, outputPaperModel(documentModel))
+        if (initialOffset) {
+          current.outputLayout.offsetMmX = initialOffset.x
+          current.outputLayout.offsetMmY = initialOffset.y
+          current.outputLayout.initialized = true
+        }
+      }
     })
     refreshOutputPreview()
   }
 
   function centerDrawingOnPaper() {
     const active = page(store.document)
-    if (!active || !(active.shapes.length || active.entities.length)) { setStatus('中央へ移動する図形がありません', 1600); return }
-    const bounds = K.documentBounds({ ...store.document, background: { ...store.document.background, visible: false }, paper: { ...store.document.paper, enabled: false } })
-    if (!bounds) return
-    const size = paperPixelSize()
-    const printZoom = outputPixelsPerWorldUnit(store.document, 96)
-    const dx = size.width / printZoom / 2 - (bounds.minX + bounds.maxX) / 2
-    const dy = size.height / printZoom / 2 - (bounds.minY + bounds.maxY) / 2
-    store.commit('用紙中央へ移動', documentModel => {
+    if (!active || !(active.shapes.length || active.entities.length)) { setStatus('中央に配置する図形がありません', 1600); return }
+    try { ensurePhysicalOutputReady() } catch (error) { setStatus(error.message, 2600); return }
+    const offset = centeredOutputOffset()
+    if (!offset) { setStatus('図形の出力範囲を計算できませんでした', 2200); return }
+    store.commit('出力を用紙中央へ配置', documentModel => {
       const current = page(documentModel)
-      ;[...current.shapes, ...current.entities].forEach(object => K.translateObject(object, dx, dy))
+      current.outputLayout = { ...current.outputLayout, offsetMmX: offset.x, offsetMmY: offset.y, initialized: true }
     })
     refreshOutputPreview()
-    setStatus('図形を用紙中央へ移動しました', 1800)
+    setStatus('出力上の図形全体を用紙中央へ配置しました（作図座標は変更していません）', 2200)
+  }
+
+  function applySuggestedOutputScale(source) {
+    const printScale = Number(source?.dataset.outputScale)
+    if (!(printScale > 0)) return false
+    const active = page(store.document)
+    if (!active) return false
+    if (!(Number(active.calibration?.mpp) > 0)) { setStatus('先にこのページの縮尺を設定してください', 2200); return false }
+    store.commit('候補縮尺で全体を配置', documentModel => {
+      const current = page(documentModel)
+      current.outputLayout = { ...current.outputLayout, printScale }
+      const offset = centeredOutputOffset(documentModel, current.outputLayout, outputPaperModel(documentModel))
+      if (offset) current.outputLayout = { ...current.outputLayout, offsetMmX: offset.x, offsetMmY: offset.y, initialized: true }
+    })
+    refreshOutputPreview()
+    setStatus(`印刷縮尺 1:${Math.round(printScale).toLocaleString('ja-JP')} を適用し、全体を中央へ配置しました`, 2400)
+    return true
+  }
+
+  function cancelOutputDrag(message = '') {
+    const drag = runtime.outputDrag
+    if (!drag) return false
+    runtime.outputDrag = null
+    dom.outputPreview?.classList.remove('is-dragging')
+    try {
+      if (dom.outputPreview?.hasPointerCapture?.(drag.pointerId)) dom.outputPreview.releasePointerCapture(drag.pointerId)
+    } catch (_) { /* pointer capture may already be lost */ }
+    refreshOutputPreview()
+    if (message) setStatus(message, 1600)
+    return true
+  }
+
+  function handleOutputPointerDown(event) {
+    if (!ui.output.placing || event.button !== 0) return
+    try { ensurePhysicalOutputReady() } catch (error) { setStatus(error.message, 2600); return }
+    const rect = dom.outputPreview?.getBoundingClientRect()
+    if (!rect || !(rect.width > 0) || !(rect.height > 0)) return
+    const layout = activeOutputLayout(store.document)
+    runtime.outputDrag = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+      startOffset: { x: finite(layout.offsetMmX), y: finite(layout.offsetMmY) },
+      previewOffset: { x: finite(layout.offsetMmX), y: finite(layout.offsetMmY) }
+    }
+    dom.outputPreview.setPointerCapture?.(event.pointerId)
+    dom.outputPreview.classList.add('is-dragging')
+    event.preventDefault()
+  }
+
+  function handleOutputPointerMove(event) {
+    const drag = runtime.outputDrag
+    if (!drag || event.pointerId !== drag.pointerId) return
+    const paper = outputPaperModel(store.document)
+    drag.previewOffset = {
+      x: drag.startOffset.x + (event.clientX - drag.startClientX) * paper.widthMm / drag.rectWidth,
+      y: drag.startOffset.y + (event.clientY - drag.startClientY) * paper.heightMm / drag.rectHeight
+    }
+    refreshOutputPreview()
+    event.preventDefault()
+  }
+
+  function handleOutputPointerUp(event) {
+    const drag = runtime.outputDrag
+    if (!drag || event.pointerId !== drag.pointerId) return
+    const offset = { ...drag.previewOffset }
+    runtime.outputDrag = null
+    dom.outputPreview?.classList.remove('is-dragging')
+    try {
+      if (dom.outputPreview?.hasPointerCapture?.(event.pointerId)) dom.outputPreview.releasePointerCapture(event.pointerId)
+    } catch (_) { /* pointer capture may already be lost */ }
+    store.commit('出力配置を調整', documentModel => {
+      const current = page(documentModel)
+      current.outputLayout = { ...current.outputLayout, offsetMmX: offset.x, offsetMmY: offset.y, initialized: true }
+    })
+    refreshOutputPreview()
+    setStatus(`出力配置を X ${offset.x.toFixed(1)}mm / Y ${offset.y.toFixed(1)}mm に変更しました`, 1800)
+    event.preventDefault()
   }
 
   function applyUnderlayTransform() {
@@ -4174,7 +4800,7 @@
     dom.commandStep.innerHTML = '<small>JWW式</small><strong>キー一覧</strong>'
     dom.commandActions.replaceChildren()
     const pages = {
-      basic: { name: '基本', items: [['B', '下絵'], ['C', '縮尺'], ['V', '選択'], ['X / ⇧X', '移動 / 全体移動'], ['Z', '頂点編集'], ['E', '文字・寸法'], ['F', '全体表示'], ['H', 'ヘルプ']] },
+      basic: { name: '基本', items: [['B', '下絵'], ['C', '縮尺'], ['V', '選択・文字・寸法編集'], ['X / ⇧X', '移動 / 全体移動'], ['Z', '頂点編集'], ['F', '全体表示'], ['H', 'ヘルプ']] },
       process: { name: '作図・加工', items: [['P', '区画'], ['R', '道路'], ['S / ⇧S', '分割 / 一括'], ['G', '合筆'], ['K', '隅切り'], ['D', '均等ガイド'], ['Q', '平行線']] },
       measure: { name: '計測', items: [['M / ⇧M', '距離 / 折れ線'], ['A', '面積'], ['L', '線'], ['W', '矢印']] },
       note: { name: '注記', items: [['T', '文字'], ['O', '引出線'], ['N', '北'], ['U', '家屋'], ['I', '駐車'], ['Y', '面積表']] }
@@ -4216,8 +4842,9 @@
       case 'actual-size': actualSize(); break
       case 'open-underlay': dom.underlayInput?.click(); break
       case 'replace-underlay': dom.replaceInput?.click(); break
-      case 'open-project': dom.projectInput?.click(); break
+      case 'open-project': await openProjectFromDialog(); break
       case 'save-project': await saveProject(); break
+      case 'save-project-as': await saveProject({ saveAs: true }); break
       case 'new-project':
         if (!(await confirmBeforeReplacingDocument('新規作成'))) {
           setStatus('新規作成をキャンセルしました', 1600)
@@ -4226,6 +4853,7 @@
         await destroyBackgroundRuntime()
         store.replace(K.createDocument(), { clean: true })
         runtime.view = { x: 36, y: 32, zoom: 1 }
+        runtime.currentProjectPath = null
         ui.documentName = '無題'; ui.selectedIds = []; activateCommand('underlay-open', { focusCanvas: false }); setStatus('新しい図面を作成しました', 1600)
         break
       case 'clear-document':
@@ -4272,7 +4900,9 @@
         const mpp = mppFromMapScale(scale)
         if (!(mpp > 0)) { setStatus('画像のDPIが不明です。既知の2点から縮尺を設定してください', 2400); break }
         const pageNumber = Math.max(1, finite(store.document.background?.currentPage, 1))
-        store.commit(`${pageNumber}ページの縮尺設定`, documentModel => { documentModel.calibration = { ...documentModel.calibration, mpp, mapScale: scale, points: null, realDistanceM: null } })
+        store.commit(`${pageNumber}ページの縮尺設定`, documentModel => {
+          documentModel.calibration = { ...documentModel.calibration, mpp, mapScale: scale, points: null, realDistanceM: null }
+        })
         completeScaleFlow(`${pageNumber}ページの縮尺を 1:${Math.round(scale).toLocaleString('ja-JP')} に設定しました`); break
       }
       case 'apply-legacy-approx': {
@@ -4325,6 +4955,28 @@
         render()
         setStatus('平行線の新しい基準線を2点で指定してください', 1800)
         break
+      case 'flip-selected-parallel': {
+        const object = ui.editDraft
+        const baseline = object?.options?.baselinePoints
+        const mpp = Math.max(0, finite(store.document.calibration?.mpp))
+        if (!object || object.kind !== 'parallel' || !Array.isArray(baseline) || baseline.length < 2 || !(mpp > 0)) {
+          setStatus('この平行線は反転できません', 1600)
+          break
+        }
+        applyEditFormToDraft()
+        const distanceM = -finite(object.options?.distanceM, 0)
+        const points = K.parallelLine(baseline[0], baseline[1], distanceM / mpp)
+        if (!points) { setStatus('平行線を反転できませんでした', 1600); break }
+        object.points = points
+        object.options = { ...(object.options || {}), distanceM, parallelSign: distanceM >= 0 ? 1 : -1 }
+        session.form['parallel-distance-edit'] = Math.abs(distanceM)
+        ui.batchTouched.add('__parallel-flip')
+        commitPendingEdit()
+        initializeFieldControls()
+        render()
+        setStatus('平行線を基準線の反対側へ反転しました', 1500)
+        break
+      }
       case 'save-edit': saveObjectEdit(); break
       case 'cancel-edit': cancelObjectEdit(); break
       case 'move-selected': moveSelectedObject(); break
@@ -4362,6 +5014,43 @@
         initializeFieldControls()
         render()
         setStatus(Number.isInteger(ui.editSegmentIndex) ? '区間寸法を線の上側へ戻しました' : '辺寸法の位置を自動位置へ戻しました', 1500)
+        break
+      }
+      case 'convert-shape-kind': {
+        const id = ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
+        const current = id ? K.objectById(store.document, id)?.object : null
+        const targetKind = ['lot', 'road', 'water'].includes(session.form['object-type']) ? session.form['object-type'] : null
+        if (!current || !['lot', 'road', 'water'].includes(current.kind) || !targetKind) {
+          setStatus('種類を変更する区画・道路・水路を1件選んでください', 1800)
+          break
+        }
+        if (current.kind === targetKind) {
+          setStatus('現在と同じ種類です', 1200)
+          break
+        }
+        commitPendingEdit()
+        let converted = null
+        store.commit('図形種類変更', documentModel => { converted = K.convertShapeKind(documentModel, id, targetKind) })
+        if (!converted) {
+          setStatus('種類を変更できませんでした', 1800)
+          break
+        }
+        ui.contextPage = 'object-basic'
+        selectObject(id, { openEditor: true })
+        setStatus(`${current.kind === 'lot' ? '区画' : current.kind === 'water' ? '水路' : '道路'}から${targetKind === 'lot' ? '区画' : targetKind === 'water' ? '水路' : '道路'}へ変更しました`, 2200)
+        break
+      }
+      case 'restore-cutout': {
+        const id = ui.selectedIds.length === 1 ? ui.selectedIds[0] : null
+        const cutout = id ? K.objectById(store.document, id)?.object : null
+        if (!cutout || cutout.kind !== 'cutout') { setStatus('元へ戻す隅切りを1件選んでください', 1600); break }
+        commitPendingEdit()
+        let restored = null
+        store.commit('隅切りを元へ戻す', documentModel => { restored = K.restoreCutout(documentModel, id) })
+        if (!restored) { setStatus('旧形式の隅切りです。区画との合筆を使用してください', 2200); break }
+        ui.contextPage = 'object-basic'
+        selectObject(restored.id, { openEditor: true })
+        setStatus('隅切り前の区画へ戻しました', 1800)
         break
       }
       case 'edit-vertices': activateCommand('vertex-edit'); break
@@ -4431,6 +5120,13 @@
       case 'place-area-table': setWorkspace('drawing'); activateCommand('lot-table'); break
       case 'refresh-output-preview': await refreshOutputPreview(); break
       case 'center-drawing-on-paper': centerDrawingOnPaper(); break
+      case 'apply-output-scale-suggestion': applySuggestedOutputScale(source); break
+      case 'toggle-output-placement':
+        if (runtime.outputDrag) cancelOutputDrag()
+        ui.output.placing = !ui.output.placing
+        syncPaperControls()
+        setStatus(ui.output.placing ? 'プレビュー上をドラッグして図形全体の出力位置を調整します' : '出力配置の調整を終了しました', 1800)
+        break
       case 'set-today': if (byId('paper-date')) byId('paper-date').value = new Date().toISOString().slice(0, 10); updatePaperFromControls(); break
       case 'export-png': await exportPng(); break
       case 'export-pdf': await printOrPdf(true); break
@@ -4514,6 +5210,10 @@
       session.form.fill = preference.style?.fill || fallbackStyle.fill
       session.form.stroke = preference.style?.stroke || fallbackStyle.stroke
       session.form['fill-opacity'] = Math.round(finite(preference.style?.opacity, fallbackStyle.opacity) * 100)
+      ui.batchTouched.delete(key)
+      syncControlState()
+      render()
+      return
     }
     if (ui.batchDrafts.length) applyBatchFormToDrafts()
     else if (ui.editDraft) applyEditFormToDraft()
@@ -4707,7 +5407,7 @@
       ids.forEach(id => event.target.checked ? ui.registryIds.add(id) : ui.registryIds.delete(id))
       setObjectSelection([...ui.registryIds], { openEditor: true, syncRegistry: false }); return
     }
-    if (event.target.matches('#paper-size,#paper-orientation,#paper-frame-visible,#paper-underlay-visible,#paper-title,#paper-date,#paper-author,#paper-note,#title-frame-visible')) {
+    if (event.target.matches('#paper-size,#paper-orientation,#paper-print-scale-preset,#paper-print-scale-custom,#paper-frame-visible,#paper-underlay-visible,#paper-guides-visible,#paper-title,#paper-date,#paper-author,#paper-note,#title-frame-visible')) {
       updatePaperFromControls(); return
     }
   }
@@ -4718,11 +5418,17 @@
 
   function handleKeyDown(event) {
     if (event.key === 'Process' || event.keyCode === 229) return
+    if (event.key === 'Escape' && runtime.outputDrag) {
+      event.preventDefault()
+      cancelOutputDrag('出力配置の変更を取り消しました')
+      return
+    }
     const typing = isTypingTarget(event.target)
     const commandKey = event.ctrlKey || event.metaKey
     if (commandKey) {
       const key = event.key.toLowerCase()
       if (key === 's') { event.preventDefault(); void saveProject(); return }
+      if (key === 'o' && event.shiftKey) { event.preventDefault(); void handleAction('open-project'); return }
       if (key === 'o') { event.preventDefault(); dom.underlayInput?.click(); return }
       if (key === 'n') { event.preventDefault(); void handleAction('new-project'); return }
       if (key === 'p') { event.preventDefault(); void printOrPdf(false); return }
@@ -4777,6 +5483,7 @@
     runtime.spaceDown = false
     runtime.pan = null
     runtime.drag = null
+    cancelOutputDrag()
     runtime.fileDragDepth = 0
     dom.stage?.classList.remove('file-drag-active')
   }
@@ -4880,6 +5587,11 @@
     dom.canvas.addEventListener('dblclick', handleDoubleClick)
     dom.canvas.addEventListener('contextmenu', handleContextMenu)
     dom.canvas.addEventListener('wheel', handleWheel, { passive: false })
+    dom.outputPreview?.addEventListener('pointerdown', handleOutputPointerDown)
+    dom.outputPreview?.addEventListener('pointermove', handleOutputPointerMove)
+    dom.outputPreview?.addEventListener('pointerup', handleOutputPointerUp)
+    dom.outputPreview?.addEventListener('pointercancel', () => cancelOutputDrag('出力配置の変更を取り消しました'))
+    dom.outputPreview?.addEventListener('lostpointercapture', () => cancelOutputDrag())
     dom.stage.addEventListener('dragenter', handleDragEnter)
     dom.stage.addEventListener('dragleave', handleDragLeave)
     dom.stage.addEventListener('dragover', event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' })
@@ -4942,6 +5654,13 @@
     exportPng,
     printOrPdf,
     paperPixelSize,
+    outputPaperModel,
+    outputFitStatus,
+    centeredOutputOffset,
+    handleOutputPointerDown,
+    handleOutputPointerMove,
+    handleOutputPointerUp,
+    cancelOutputDrag,
     refreshOutputPreview,
     createExportCanvas,
     resolvedMapScale,

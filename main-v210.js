@@ -3,7 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
-const VERSION = '2.1.0-alpha.8'
+const VERSION = '2.1.0-alpha.9'
 const TITLE = `土地区画作成工房 v${VERSION}`
 const APP_ID = 'com.fmoro.kozu-measure.v210'
 const dataRoot = path.join(app.getPath('appData'), 'FMoro', 'KozuMeasureV210')
@@ -16,21 +16,6 @@ app.setAppUserModelId(APP_ID)
 protocol.registerSchemesAsPrivileged([
   { scheme: 'pdfres', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: true } }
 ])
-
-function uniqueDownloadPath(requested, extension) {
-  const fallback = `kozu-${new Date().toISOString().slice(0, 10)}${extension}`
-  let fileName = path.basename(typeof requested === 'string' && requested ? requested : fallback)
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-  if (!fileName.toLowerCase().endsWith(extension)) fileName += extension
-  const parsed = path.parse(fileName)
-  let target = path.join(app.getPath('downloads'), fileName)
-  let suffix = 2
-  while (fs.existsSync(target)) {
-    target = path.join(app.getPath('downloads'), `${parsed.name}-${suffix}${extension}`)
-    suffix += 1
-  }
-  return target
-}
 
 function safeOutputName(requested, fallback, extension) {
   let fileName = path.basename(typeof requested === 'string' && requested ? requested : fallback)
@@ -146,14 +131,7 @@ function createWindow() {
   return win
 }
 
-ipcMain.handle('save-project-before-close', async (event, payload = {}) => {
-  if (typeof payload.contents !== 'string' || !payload.contents) throw new Error('保存する作業データが空です')
-  const target = uniqueDownloadPath(payload.fileName, '.json')
-  await fs.promises.writeFile(target, payload.contents, 'utf8')
-  return { path: target, fileName: path.basename(target) }
-})
-
-ipcMain.handle('save-project-v210', async (event, payload = {}) => {
+async function saveProjectPayload(event, payload = {}) {
   if (typeof payload.contents !== 'string' || !payload.contents) throw new Error('保存する編集データが空です')
   const owner = BrowserWindow.fromWebContents(event.sender)
   const target = await chooseOutputPath(owner, payload, {
@@ -162,6 +140,23 @@ ipcMain.handle('save-project-v210', async (event, payload = {}) => {
   if (!target) return { success: false, canceled: true }
   await fs.promises.writeFile(target, payload.contents, 'utf8')
   return { success: true, canceled: false, path: target, fileName: path.basename(target) }
+}
+
+ipcMain.handle('save-project-before-close', saveProjectPayload)
+ipcMain.handle('save-project-v210', saveProjectPayload)
+
+ipcMain.handle('open-project-v210', async event => {
+  const owner = BrowserWindow.fromWebContents(event.sender)
+  const selection = await dialog.showOpenDialog(owner, {
+    title: '編集データを開く',
+    defaultPath: app.getPath('documents'),
+    filters: [{ name: '区画作成工房 編集データ', extensions: ['json'] }],
+    properties: ['openFile']
+  })
+  if (selection.canceled || !selection.filePaths?.[0]) return { success: false, canceled: true }
+  const target = selection.filePaths[0]
+  const contents = await fs.promises.readFile(target, 'utf8')
+  return { success: true, canceled: false, path: target, fileName: path.basename(target), contents }
 })
 
 ipcMain.handle('export-png-v210', async (event, payload = {}) => {
