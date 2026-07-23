@@ -254,6 +254,21 @@ button:disabled { opacity: 0.4; cursor: default; }
   line-height: 1.5;
 }
 .memo-panel input:focus, .memo-panel textarea:focus { border-color: #3b82f6; }
+.memo-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  cursor: pointer;
+}
+.memo-check-row input,
+.tep-check-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: #3b82f6;
+}
 /* モーダル内 textarea */
 .modal textarea {
   background: #0f172a;
@@ -349,6 +364,66 @@ button:disabled { opacity: 0.4; cursor: default; }
   max-height: 90vh; overflow-y: auto;
 }
 .modal h3 { font-size: 16px; font-weight: 700; color: #e2e8f0; margin-bottom: 16px; }
+.lot-edit-modal-card {
+  position: fixed;
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 80px);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.modal-titlebar {
+  height: 44px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #111827;
+  border-bottom: 1px solid #334155;
+  border-radius: 10px 10px 0 0;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.modal-titlebar-text {
+  min-width: 0;
+  padding: 0 14px 0 18px;
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-titlebar-close {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: none;
+  border-left: 1px solid #334155;
+  border-radius: 0 10px 0 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-titlebar-close:hover {
+  background: #dc2626;
+  color: #fff;
+}
+.lot-edit-modal-body {
+  padding: 20px 24px 24px;
+  overflow-y: auto;
+  max-height: calc(100vh - 124px);
+}
+.modal-drag-title {
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
 .modal-section { margin-bottom: 16px; }
 .modal-label {
   display: block; font-size: 11px; color: #64748b;
@@ -399,14 +474,151 @@ button:disabled { opacity: 0.4; cursor: default; }
 .modal-divider::after { right: 0; }
 
 .modal-buttons {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;
+  display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 20px;
 }
+.tep-num-input {
+  width: 46px; background: #0f172a; color: #e2e8f0;
+  border: 1px solid #334155; border-radius: 4px;
+  padding: 3px 4px; font-size: 12px; text-align: center;
+  -moz-appearance: textfield;
+}
+.tep-num-input::-webkit-inner-spin-button,
+.tep-num-input::-webkit-outer-spin-button { opacity: 0.5; }
 .road-tmpl-btn {
   background: #1e293b; color: #94a3b8; border: 1px solid #334155;
   border-radius: 4px; padding: 3px 7px; font-size: 11px; cursor: pointer;
   white-space: nowrap;
 }
 .road-tmpl-btn:hover { background: #334155; color: #e2e8f0; }
+
+.lot-edit-form .modal-section { margin-bottom: 16px; }
+.lot-edit-chip-row,
+.lot-edit-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.lot-edit-control {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+textarea.lot-edit-control { resize: vertical; min-height: 52px; }
+.lot-edit-control:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px rgba(59,130,246,0.25); }
+.lot-edit-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lot-edit-input-row .lot-edit-control { flex: 1; min-width: 0; }
+.lot-edit-unit {
+  color: #cbd5e1;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.lot-edit-check-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.lot-edit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+}
+.lot-edit-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+}
+.lot-edit-range-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lot-edit-range-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: #3b82f6;
+}
+.lot-edit-range-row-green input[type="range"] { accent-color: #34d399; }
+.lot-edit-range-val {
+  color: #60a5fa;
+  font-size: 13px;
+  min-width: 42px;
+  text-align: right;
+}
+.lot-edit-range-row-green .lot-edit-range-val { color: #34d399; }
+.lot-edit-mini-btn {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  color: #94a3b8;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lot-edit-mini-btn:hover { background: #1e3a5f; color: #bfdbfe; border-color: #3b82f6; }
+.lot-edit-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  flex: 0 0 auto;
+}
+.lot-edit-form .color-swatch,
+.lot-edit-form .border-swatch,
+.lot-edit-form .lotlabel-color-swatch,
+.lot-edit-form .edgelabel-color-swatch {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 5px !important;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.lot-edit-chip-row .road-tmpl-btn {
+  border-radius: 6px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.lot-edit-swatch:hover,
+.color-swatch:hover { transform: scale(1.12); }
+.lot-edit-readout {
+  color: #60a5fa;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 2px 0 10px;
+}
+.lot-edit-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.lot-edit-sub-label {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.lot-edit-help {
+  color: #64748b;
+  font-size: 11px;
+  margin-top: 6px;
+}
 
 /* ===== メモオプション（サイズ・色・背景） ===== */
 .memo-opt-row {
@@ -579,6 +791,43 @@ button:disabled { opacity: 0.4; cursor: default; }
 .lot-tool-row { display: flex; gap: 4px; width: 100%; }
 .lot-tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
 .lot-tool-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; width: 100%; }
+.lot-inline-panel {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #0a1628;
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+}
+.lot-inline-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.lot-inline-head span:first-child { color: #94a3b8; }
+.lot-inline-head span:last-child { color: #60a5fa; min-width: 34px; text-align: right; }
+.lot-inline-panel input[type="range"] {
+  width: 100%;
+  box-sizing: border-box;
+  accent-color: #3b82f6;
+}
+.lot-sidebar-toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.lot-sidebar-toggle-row .lot-edit-mini-btn {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  padding: 5px 4px;
+}
+.lot-sidebar-toggle-row .lot-edit-mini-btn.toggle-on {
+  background: #1d4ed8;
+  color: #fff !important;
+  border-color: #60a5fa;
+}
 .btn-lot-tool {
   flex: 1;
   background: #0f172a;
@@ -739,6 +988,93 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .lot-disp-btn:hover { background: #334155; color: #e2e8f0; }
 .lot-disp-btn.active-disp { background: #1d4ed8; color: #fff; border-color: #3b82f6; }
+.lot-display-row {
+  display: grid;
+  grid-template-columns: auto 86px auto 86px;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.lot-display-row .lot-disp-btn {
+  width: 86px;
+  text-align: center;
+}
+
+/* 線設定・スタンプ設定の選択状態（インライン補完） */
+.btn-line-style.active-line-style { background: #1d4ed8; color: #fff; border-color: #3b82f6; }
+
+/* ===== 統一文字エディタ（サイドバー固定） ===== */
+#text-editor-pop {
+  width: 100%; box-sizing: border-box;
+  background: #0f1f3d; border: 1px solid #3b82f6;
+  border-radius: 8px;
+  font-size: 12px; color: #e2e8f0;
+  margin-top: 4px;
+}
+#text-editor-pop.hidden { display: none !important; }
+.tep-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-bottom: 1px solid #334155;
+  background: #0f1f3d; border-radius: 8px 8px 0 0;
+}
+.tep-kind-badge { color: #60a5fa; font-size: 13px; }
+#tep-kind { flex: 1; font-weight: 700; color: #bfdbfe; }
+#tep-close {
+  background: transparent; border: none; color: #64748b;
+  font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1;
+}
+#tep-close:hover { color: #f87171; }
+.tep-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; }
+.tep-row { display: flex; align-items: center; gap: 6px; }
+.tep-check-row {
+  cursor: pointer;
+  user-select: none;
+}
+.tep-lbl { font-size: 11px; color: #94a3b8; flex: 0 0 38px; }
+.tep-val { font-size: 11px; color: #60a5fa; min-width: 34px; text-align: right; }
+.tep-deg { font-size: 11px; color: #64748b; }
+#tep-text {
+  width: 100%; box-sizing: border-box;
+  background: #0f172a; border: 1px solid #3b82f6; border-radius: 5px;
+  color: #f1f5f9; font-family: inherit; font-size: 13px;
+  padding: 6px 8px; resize: vertical; min-height: 38px; line-height: 1.4; outline: none;
+}
+#tep-size, #tep-rot { flex: 1; accent-color: #3b82f6; min-width: 0; }
+#tep-rot-num {
+  width: 48px; background: #0f172a; color: #e2e8f0;
+  border: 1px solid #334155; border-radius: 4px;
+  padding: 3px 4px; font-size: 12px; text-align: center;
+}
+.tep-rot-quick { display: flex; gap: 3px; flex: 1; }
+.tep-rq {
+  flex: 1; background: #0f1a2e; color: #94a3b8;
+  border: 1px solid #334155; border-radius: 4px;
+  padding: 3px 0; font-size: 11px; cursor: pointer;
+}
+.tep-rq:hover { background: #1e3a5f; color: #bfdbfe; }
+.tep-rq.active-tep-rq { background: #1e3a5f; border-color: #3b82f6; color: #60a5fa; }
+.tep-colors { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+.tep-sw {
+  width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
+  border: 2px solid transparent; flex: 0 0 auto;
+}
+.tep-sw:hover { transform: scale(1.15); }
+.tep-sw.active-tep-sw { border-color: #fff; outline: 2px solid #3b82f6; }
+.tep-foot {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px; border-top: 1px solid #334155;
+}
+.tep-btn-detail {
+  background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb44;
+  border-radius: 5px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.tep-btn-detail:hover { background: #1e40af; color: #fff; }
+.tep-btn-del {
+  background: #450a0a; color: #f87171; border: 1px solid #7f1d1d;
+  border-radius: 5px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.tep-btn-del:hover { background: #7f1d1d; color: #fff; }
 
 /* ===== 印刷 ===== */
 @media print {

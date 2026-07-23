@@ -1,7 +1,23 @@
 // ===== 公図 計測ツール =====
 
+// Electron（file:プロトコル）ではvendorのローカルワーカー、ブラウザではCDNを使用
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  (window.location.protocol === 'file:')
+    ? 'vendor/pdf.worker.min.js'
+    : 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// 日本語CAD系PDF（測量図・公図など）の文字を正しく描画するためのCMap／標準フォント設定。
+// Electron（file:プロトコル）ではローカルのカスタムプロトコル、ブラウザではCDNを使用。
+const _isElectron = typeof window !== 'undefined' && window.location.protocol === 'file:';
+const PDFJS_OPTS = _isElectron ? {
+  cMapUrl: 'pdfres://cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: 'pdfres://fonts/',
+} : {
+  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+};
 
 const COLORS = ['#f87171','#60a5fa','#34d399','#fbbf24','#a78bfa','#fb923c','#38bdf8','#f472b6'];
 
@@ -48,6 +64,8 @@ const App = {
   dragLabelKey: null,
   dragIsText: false,
   dragOffX: 0, dragOffY: 0,
+  dragPending: false,
+  dragStartSX: 0, dragStartSY: 0,
 
   // 計測アイテム丸ごとドラッグ（図形移動モード）
   draggingItemId: null,
@@ -67,8 +85,13 @@ const App = {
   // 計測・矢印の使用色
   strokeColor: '#f87171',
 
+  // 線ツール（実線/破線/点線・色・太さ）
+  lineStyle: 'solid',   // 'solid' | 'dashed' | 'dotted'
+  lineColor: '#1a1a1a',
+  lineWidth: 2,         // px（キャンバス座標基準の太さ係数）
+
   // テキストオプション（メモパネルで選択）
-  textOptions: { fontSize: 14, color: '#1a1a1a', bgColor: 'rgba(255,255,220,0.92)', boxStyle: 'box' },
+  textOptions: { fontSize: 14, fontFamily: 'gothic', color: '#1a1a1a', bgColor: 'rgba(255,255,220,0.92)', boxStyle: 'box', vertical: false, rotation: 0 },
 
   // カラーピッカー
   cpTargetId: null,
@@ -91,9 +114,9 @@ const App = {
   gridSnap: true,          // グリッドスナップ（デフォルトON）
   lotTool: 'draw',         // 'draw' | 'road' | 'split' | 'split-all' | 'merge'
   mergeSelect: [],         // 合筆モードで選択中の区画ID
-  lotStrokeColor: '#bfdbfe',
-  lotBorderColor: '#1d4ed8',   // 区画の線の色（グローバル）
-  lotFillOpacity: 0.73,      // 区画塗り色の不透明度（0〜1）
+  lotStrokeColor: '#fff0bd',
+  lotBorderColor: '#a46a08',   // 区画の線の色（グローバル）
+  lotFillOpacity: 0.58,      // 区画塗り色の不透明度（0〜1）
   lotTextScale: 1.4,         // ラベル文字サイズ倍率（番号・面積）
   lotEdgeScale: 1.0,         // 寸法線テキストサイズ倍率
   subMeasureScale: 0.9,      // 測定・注記テキストサイズ倍率
@@ -103,12 +126,11 @@ const App = {
   draggingLotId: null,
   dragLotOffX: 0, dragLotOffY: 0,
   draggingLotLabelId: null,
+  draggingRoadLabelPart: null,
   dragLotLabelOffX: 0, dragLotLabelOffY: 0,
   draggingEdgeLabelLotId: null,  // 寸法テキストドラッグ中の区画ID
   draggingEdgeLabelEdge: -1,     // 寸法テキストドラッグ中の辺インデックス
   dragEdgeLabelOffX: 0, dragEdgeLabelOffY: 0,
-  draggingSetbackId: null,       // セットバックテキストドラッグ中の区画ID
-  dragSetbackOffX: 0, dragSetbackOffY: 0,
   parallelBase: null,    // {p1,p2} 平行線のベース
   parallelFlip: 1,       // +1 or -1
   parallelCount: 0,      // 「作成」ボタン用カウンター
@@ -121,6 +143,7 @@ const App = {
   bgOffsetX: 0,          // 下絵のみのX位置オフセット（canvas座標）
   bgOffsetY: 0,          // 下絵のみのY位置オフセット（canvas座標）
   bgRotation: 0,         // 下絵のみの回転角度（度）
+  bgLocked: true,        // v1.4: 下絵調整の誤操作防止
   cornerCutLotId: null,  // 隅切り対象の区画ID
   cornerCutIdx: -1,      // 隅切り対象の頂点インデックス
   dragLotOrigPoints: null, // ドラッグ開始時の区画頂点コピー
@@ -151,9 +174,15 @@ const App = {
   stampShowDims: true,
   editingStampId: null,
 
+  // 配置前プレビュー（表示専用。保存データやヒット判定には含めない）
+  placementPreviewInside: false,
+
   // コピー＆ペースト
   lastClicked: null,   // { type: 'lot'|'text'|'item', id }
   clipboardData: null, // { type, data }
+
+  // 右パネル「選択中の書式」の対象（回転UI用）
+  selectedFormat: null, // { kind: 'text'|'lot-label'|'road-label'|'stamp'|'north', id }
 
   // 区画番号表示
   showLotNumbers: true,
@@ -175,6 +204,41 @@ const App = {
 };
 
 let canvas, ctx;
+let _stampEditSession = null;
+let _northEditSession = null;
+let _memoEditSession = null;
+
+function notifyAppState(reason = 'state') {
+  document.dispatchEvent(new CustomEvent('kozu:statechange', { detail: { reason } }));
+}
+
+function notifyProjectLifecycle(type, detail = {}) {
+  document.dispatchEvent(new CustomEvent(`kozu:project-${type}`, { detail }));
+}
+
+// 角度UIと保存値で共通の正規形を使う。315°→-45°、270°→-90°。
+// canonical range は [-180, 180)（UIの許容範囲は -180..180）。
+function normalizeObjectAngle(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = ((numeric + 180) % 360 + 360) % 360 - 180;
+  return Object.is(normalized, -0) ? 0 : normalized;
+}
+
+function syncAngleControls(numberInput, sliderInput, value) {
+  const angle = normalizeObjectAngle(value);
+  if (numberInput) {
+    numberInput.min = '-180';
+    numberInput.max = '180';
+    numberInput.value = String(angle);
+  }
+  if (sliderInput) {
+    sliderInput.min = '-180';
+    sliderInput.max = '180';
+    sliderInput.value = String(angle);
+  }
+  return angle;
+}
 
 // オーバーレイバーをツールバー直下に配置（DOMContentLoaded外から呼べるようモジュールレベルで定義）
 function positionOverlayBar(barEl) {
@@ -204,7 +268,11 @@ window.addEventListener('DOMContentLoaded', () => {
 function resizeCanvas() {
   const c = document.getElementById('canvas-container');
   canvas.width = c.clientWidth;
-  canvas.height = c.clientHeight;
+  // The beta UI reserves a real row for the canvas toolbar instead of
+  // floating it over the drawing surface. Keep the canvas bitmap and its CSS
+  // box the same size so pointer coordinates remain exact.
+  const toolbarHeight = document.getElementById('next-canvas-toolbar')?.getBoundingClientRect().height || 0;
+  canvas.height = Math.max(1, c.clientHeight - toolbarHeight);
   App.dirty = true;
 }
 
@@ -214,7 +282,8 @@ function clearBackground() {
   App.pdfBytes = null;
   App.pdf = null;
   App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
-  document.getElementById('drop-zone').style.display = '';
+  const hasDrawings = App.lots.length > 0 || App.items.length > 0 || App.texts.length > 0;
+  document.getElementById('drop-zone').style.display = hasDrawings ? 'none' : '';
   App.dirty = true;
 }
 
@@ -223,7 +292,7 @@ async function replaceBgPDF(file) {
     const buf = await file.arrayBuffer();
     App.pdfBytes = new Uint8Array(buf);
     App.isImageMode = false;
-    App.pdf = await pdfjsLib.getDocument({ data: App.pdfBytes }).promise;
+    App.pdf = await pdfjsLib.getDocument({ data: App.pdfBytes, ...PDFJS_OPTS }).promise;
     App.pageCount = App.pdf.numPages;
     App.pageNum = 1;
     App.bgScale = 1.0; App.bgOffsetX = 0; App.bgOffsetY = 0;
@@ -232,11 +301,17 @@ async function replaceBgPDF(file) {
     const page = await App.pdf.getPage(1);
     const vp = page.getViewport({ scale: App.renderScale });
     App.pdfOffscreen.width = vp.width; App.pdfOffscreen.height = vp.height;
+    App.pageWidthPt = page.view[2];
+    App.pageHeightPt = page.view[3];
     await page.render({ canvasContext: App.pdfOffscreen.getContext('2d'), viewport: vp }).promise;
     App.pdfReady = true;
     document.getElementById('drop-zone').style.display = 'none';
     App.dirty = true;
-  } catch (e) { alert('PDF読み込みエラー: ' + e.message); }
+    notifyProjectLifecycle('background-loaded', { name: file.name, kind: 'pdf' });
+  } catch (e) {
+    notifyProjectLifecycle('error', { action: 'background-load', message: e.message });
+    showToast('PDFを読み込めませんでした: ' + e.message, 4000);
+  }
 }
 
 // ===== PDF / 画像ロード =====
@@ -245,12 +320,16 @@ async function loadPDF(file) {
     const buf = await file.arrayBuffer();
     App.pdfBytes = new Uint8Array(buf);
     App.isImageMode = false;
-    App.pdf = await pdfjsLib.getDocument({ data: App.pdfBytes }).promise;
+    App.pdf = await pdfjsLib.getDocument({ data: App.pdfBytes, ...PDFJS_OPTS }).promise;
     App.pageCount = App.pdf.numPages;
     App.pageNum = 1;
     document.getElementById('page-nav').classList.remove('hidden');
     await renderPDFPage(1);
-  } catch (e) { alert('PDF読み込みエラー: ' + e.message); }
+    notifyProjectLifecycle('loaded', { name: file.name, kind: 'pdf' });
+  } catch (e) {
+    notifyProjectLifecycle('error', { action: 'load', message: e.message });
+    showToast('PDFを読み込めませんでした: ' + e.message, 4000);
+  }
 }
 
 async function loadImage(file, keepDrawings = false) {
@@ -275,11 +354,19 @@ async function loadImage(file, keepDrawings = false) {
     fitToView();
     App.dirty = true;
     URL.revokeObjectURL(url);
+    notifyProjectLifecycle(keepDrawings ? 'background-loaded' : 'loaded', { name: file.name, kind: 'image' });
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    notifyProjectLifecycle('error', { action: keepDrawings ? 'background-load' : 'load', message: '画像を開けませんでした' });
+    showToast('画像を読み込めませんでした', 4000);
   };
   img.src = url;
 }
 
 async function renderPDFPage(num, skipRescale = false) {
+  // 前のレンダリングが残っていればキャンセル（連続読み込み・ページ送り時の競合で文字が落ちる問題対策）
+  if (App._renderTask) { try { App._renderTask.cancel(); } catch (e) {} App._renderTask = null; }
   const page = await App.pdf.getPage(num);
   const vp = page.getViewport({ scale: App.renderScale });
   App.pdfOffscreen.width = vp.width;
@@ -287,7 +374,17 @@ async function renderPDFPage(num, skipRescale = false) {
   App.pageWidthPt = page.view[2];
   App.pageHeightPt = page.view[3];
 
-  await page.render({ canvasContext: App.pdfOffscreen.getContext('2d'), viewport: vp }).promise;
+  const _ctx = App.pdfOffscreen.getContext('2d');
+  _ctx.clearRect(0, 0, App.pdfOffscreen.width, App.pdfOffscreen.height);
+  const _task = page.render({ canvasContext: _ctx, viewport: vp });
+  App._renderTask = _task;
+  try {
+    await _task.promise;
+  } catch (e) {
+    if (e && e.name === 'RenderingCancelledException') return; // キャンセルは正常終了扱い
+    throw e;
+  }
+  App._renderTask = null;
   App.pdfReady = true;
 
   const detected = await detectScale(page);
@@ -333,7 +430,6 @@ function rescaleAll(factor) {
   App.lots.forEach(lot => {
     if (lot.points) lot.points = lot.points.map(sc);
     if (lot.labelOffX != null) { lot.labelOffX *= factor; lot.labelOffY *= factor; }
-    if (lot.setbackOffX != null) { lot.setbackOffX *= factor; lot.setbackOffY *= factor; }
     if (lot.edgeLabelOffsets) {
       Object.keys(lot.edgeLabelOffsets).forEach(k => {
         const o = lot.edgeLabelOffsets[k]; o.dx *= factor; o.dy *= factor;
@@ -371,13 +467,54 @@ function showToast(msg, duration = 2000) {
   if (!el) {
     el = document.createElement('div');
     el.id = '_toast';
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:8px 18px;border-radius:6px;font-size:13px;z-index:9999;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,0.4);transition:opacity 0.3s';
+    el.style.cssText = 'position:fixed;bottom:42px;left:50%;max-width:min(560px,calc(100vw - 24px));box-sizing:border-box;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;line-height:1.45;text-align:center;white-space:normal;z-index:9999;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.28);transition:opacity 0.3s';
     document.body.appendChild(el);
   }
   el.textContent = msg;
   el.style.opacity = '1';
   clearTimeout(el._tid);
   el._tid = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
+
+function escapeHtmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function showInlineConfirm(message, { confirmLabel = '実行する', onConfirm } = {}) {
+  document.getElementById('_action-confirm')?.remove();
+  const panel = document.createElement('div');
+  panel.id = '_action-confirm';
+  panel.setAttribute('role', 'alertdialog');
+  panel.setAttribute('aria-modal', 'false');
+  panel.style.cssText = 'position:fixed;z-index:10000;right:12px;bottom:40px;left:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;max-width:720px;margin:0 auto;padding:12px 14px;border:1px solid #f5c2c7;border-radius:10px;color:#842029;background:#fff5f5;box-shadow:0 12px 30px rgba(15,23,42,.22);font-size:12px;line-height:1.45';
+  const text = document.createElement('div');
+  text.style.cssText = 'min-width:min(280px,100%);flex:1 1 360px';
+  text.textContent = message;
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'やめる';
+  cancel.style.cssText = 'min-height:34px;padding:0 12px;border:1px solid #cbd5e1;border-radius:6px;color:#475569;background:#fff;font-weight:700;cursor:pointer';
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.textContent = confirmLabel;
+  confirm.style.cssText = 'min-height:34px;padding:0 13px;border:1px solid #dc2626;border-radius:6px;color:#fff;background:#dc2626;font-weight:700;cursor:pointer';
+  const close = () => panel.remove();
+  cancel.addEventListener('click', close);
+  confirm.addEventListener('click', () => {
+    close();
+    onConfirm?.();
+  });
+  panel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+  });
+  panel.append(text, cancel, confirm);
+  document.body.append(panel);
+  cancel.focus({ preventScroll: true });
 }
 
 function setScaleDisplay(text) {
@@ -600,12 +737,10 @@ function renderLoop() {
 function render() {
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  if (!App.pdfReady && !App.paperMode) {
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, W, H);
-    return;
-  }
-  ctx.fillStyle = App.paperMode ? '#64748b' : '#0f172a';
+  const lightWorkspace = document.body.classList.contains('ui-v2');
+  ctx.fillStyle = lightWorkspace
+    ? (App.paperMode ? '#cbd3df' : '#e8ecf2')
+    : (App.paperMode ? '#64748b' : '#0f172a');
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
@@ -625,6 +760,7 @@ function render() {
   drawLotsLayer();  // モードに関わらず常に描画
   App.items.forEach(item => drawItem(item, item.color));
   App.texts.forEach(t => drawTextAnnotation(t));
+  drawPlacementPreview();
   if (App.pts.length > 0 || App.calibrating) drawInProgress();
   if (App.appMode === 'subdivision' && (App.lotTool === 'split' || App.lotTool === 'split-all')) {
     drawSplitPreview(); // Phase1（区画選択中）もPhase2（線描画中）も常に呼ぶ
@@ -637,19 +773,55 @@ function render() {
   }
   if (App.appMode === 'subdivision' && App.lotTool === 'parallel') drawParallelPreview();
 
+  drawSelectionHighlight();
+
   ctx.restore();
+
+  // 統一文字エディタを選択要素に追従させる
+  if (App.selectedFormat && App.mode === 'select') positionTextEditor();
 }
 
 // フォントサイズヘルパー: キャンバス座標系のサイズ（地図と比例・印刷と一致）
 // x2: 典型的なフィットページズーム(~0.5)で従来と同じ画面サイズになる係数
 function pfs(base) { return base * 2; }
 
+const FONT_FAMILIES = Object.freeze({
+  gothic: "'Yu Gothic UI', 'Yu Gothic', 'Segoe UI', sans-serif",
+  meiryo: "Meiryo, 'Segoe UI', sans-serif",
+  mincho: "'Yu Mincho', 'BIZ UDPMincho', 'MS PMincho', serif",
+  maru: "'BIZ UDPGothic', 'Yu Gothic UI', Meiryo, sans-serif",
+});
+
+function normalizeFontFamily(value) {
+  return Object.prototype.hasOwnProperty.call(FONT_FAMILIES, value) ? value : 'gothic';
+}
+
+function canvasFontFamily(value) {
+  return FONT_FAMILIES[normalizeFontFamily(value)];
+}
+
+function roadVisualStyle(fillColor) {
+  const styles = {
+    '#cbd5e1': { borderColor: '#596777', fillOpacity: 0.48 },
+    '#e2e8f0': { borderColor: '#64748b', fillOpacity: 0.48 },
+    '#94a3b8': { borderColor: '#475569', fillOpacity: 0.42 },
+    '#64748b': { borderColor: '#334155', fillOpacity: 0.40 },
+    '#f8fafc': { borderColor: '#94a3b8', fillOpacity: 0.52 },
+    '#7dd3fc': { borderColor: '#0e7490', fillOpacity: 0.48 },
+    '#bae6fd': { borderColor: '#0e7490', fillOpacity: 0.48 },
+    '#fbbf24': { borderColor: '#a16207', fillOpacity: 0.42 },
+    '#fca5a5': { borderColor: '#b91c1c', fillOpacity: 0.42 },
+  };
+  return styles[fillColor] || { borderColor: '#596777', fillOpacity: 0.48 };
+}
+
 // ===== 計測描画 =====
 function drawItem(item, color) {
   if (item.points.length < 2) return;
 
-  // 矢印は専用描画
+  // 矢印・線は専用描画
   if (item.type === 'arrow') { drawArrowItem(item, color); return; }
+  if (item.type === 'line')  { drawLineItem(item, color); return; }
 
   const lw = 2 / App.vz;
   // 平行線は常にグレー点線
@@ -679,15 +851,17 @@ function drawItem(item, color) {
   }
   ctx.stroke();
 
-  const dotR = (App.mode === 'vertex-edit') ? 8 / App.vz : 4 / App.vz;
-  item.points.forEach(p => drawDot(p.x, p.y, dotR, color));
+  // 確定済み図形の点は普段は表示しない。頂点編集時だけ小さな白抜きハンドルにする。
+  if (App.mode === 'vertex-edit') {
+    item.points.forEach(p => drawEditHandle(p.x, p.y, color));
+  }
 
-  const fs = pfs(13) * (App.subMeasureScale || 1.0);
+  const fs = pfs(13) * (App.subMeasureScale || 1.0) * (item.labelScale || 1);
 
   if (item.type === 'distance') {
     const lp = item.labelPos || midPt(item.points[0], item.points[1]);
     const lbl = item.customLabel != null ? item.customLabel : item.label;
-    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
+    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main', item.labelRotation, item.labelFontFamily);
 
   } else if (item.type === 'polyline') {
     for (let i = 0; i < item.points.length - 1; i++) {
@@ -697,20 +871,20 @@ function drawItem(item, color) {
         ? item.customSegLabels[i] : rawLbl;
       if (lbl) {
         const lp = (item.segLabelPos && item.segLabelPos[i]) || midPt(item.points[i], item.points[i + 1]);
-        drawLabel(lp.x, lp.y - 10 / App.vz, lbl, color, fs, item.id, 'seg' + i);
+        drawLabel(lp.x, lp.y - 10 / App.vz, lbl, color, fs, item.id, 'seg' + i, item.labelRotation, item.labelFontFamily);
       }
     }
     if (item.label) {
       const last = item.points[item.points.length - 1];
       const lp = item.labelPos || { x: last.x, y: last.y - 16 / App.vz };
       const lbl = item.customLabel != null ? item.customLabel : ('合計: ' + item.label);
-      drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
+      drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main', item.labelRotation, item.labelFontFamily);
     }
 
   } else if (item.type === 'area') {
     const lp = item.labelPos || centroid(item.points);
     const lbl = item.customLabel != null ? item.customLabel : item.label;
-    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main');
+    drawLabel(lp.x, lp.y, lbl, color, fs, item.id, 'main', item.labelRotation, item.labelFontFamily);
     if (App.showSideLengths && item.segLabels) {
       for (let i = 0; i < item.points.length; i++) {
         const j = (i + 1) % item.points.length;
@@ -720,10 +894,32 @@ function drawItem(item, color) {
           ? formatEdge(item.segValues[i]) : (item.segLabels && item.segLabels[i]);
         const segLbl = (item.customSegLabels && item.customSegLabels[i] != null)
           ? item.customSegLabels[i] : rawLbl;
-        if (segLbl) drawLabel(lp2.x, lp2.y, segLbl, color, fs * 0.88, item.id, 'seg' + i);
+        if (segLbl) drawLabel(lp2.x, lp2.y, segLbl, color, fs * 0.88, item.id, 'seg' + i, item.labelRotation, item.labelFontFamily);
       }
     }
   }
+}
+
+// ===== 線描画（実線/破線/点線・色・太さ） =====
+function drawLineItem(item, color) {
+  const pts = item.points;
+  if (!pts || pts.length < 2) return;
+  const lw = (item.lineWidth || 2);
+  ctx.strokeStyle = item.color || color || '#1a1a1a';
+  ctx.lineWidth = lw / App.vz;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const ls = item.lineStyle || 'solid';
+  if (ls === 'dashed')      ctx.setLineDash([lw * 3 / App.vz, lw * 2 / App.vz]);
+  else if (ls === 'dotted') ctx.setLineDash([lw * 0.1 / App.vz, lw * 2 / App.vz]);
+  else                      ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'miter';
 }
 
 // ===== 矢印描画 =====
@@ -751,12 +947,13 @@ function drawArrowItem(item, color) {
   ctx.closePath();
   ctx.fill();
 
-  drawDot(p1.x, p1.y, 3.5 / App.vz, color);
+  if (App.mode === 'vertex-edit') drawEditHandle(p1.x, p1.y, color);
 }
 
 // ===== テキスト・引出線描画 =====
 function drawLotTable(t) {
   const fs = pfs(t.fontSize || 11);
+  const fontFamily = canvasFontFamily(t.fontFamily);
   ctx.textBaseline = 'middle';
 
   const cellPadX = fs * 0.35;   // フォントに比例（ズームで伸びない）
@@ -764,7 +961,7 @@ function drawLotTable(t) {
   const titleH = t.title ? lineH * 1.2 : 0;
 
   // 列幅を計測
-  ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+  ctx.font = `bold ${fs}px ${fontFamily}`;
   const allRows = [t.headers, ...t.rows, t.totalRow];
   const colCount = t.headers.length;
   const colWidths = t.headers.map((_, ci) =>
@@ -772,16 +969,19 @@ function drawLotTable(t) {
   );
   // タイトルが列幅を超える場合は最終列を拡張
   if (t.title) {
-    ctx.font = `bold ${fs * 1.05}px 'Segoe UI', sans-serif`;
+    ctx.font = `bold ${fs * 1.05}px ${fontFamily}`;
     const tw = ctx.measureText(t.title).width + cellPadX * 4;
     const curW = colWidths.reduce((a, b) => a + b, 0);
     if (tw > curW) colWidths[colWidths.length - 1] += tw - curW;
-    ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+    ctx.font = `bold ${fs}px ${fontFamily}`;
   }
   const totalW = colWidths.reduce((a, b) => a + b, 0);
   const totalH = titleH + lineH * (allRows.length + 1);
   const x = t.x, y = t.y;
   const tblY = y + titleH; // テーブル本体の開始Y
+  const tblRot = (t.rotation || 0) * Math.PI / 180;
+  ctx.save();
+  if (tblRot) { const tcx = x + totalW / 2, tcy = y + totalH / 2; ctx.translate(tcx, tcy); ctx.rotate(tblRot); ctx.translate(-tcx, -tcy); }
 
   // 背景
   ctx.fillStyle = t.bgColor || 'rgba(255,255,255,0.95)';
@@ -792,7 +992,7 @@ function drawLotTable(t) {
   if (t.title) {
     ctx.fillStyle = '#1e3a5f';
     ctx.fillRect(x, y, totalW, titleH);
-    ctx.font = `bold ${fs * 1.05}px 'Segoe UI', sans-serif`;
+    ctx.font = `bold ${fs * 1.05}px ${fontFamily}`;
     ctx.fillStyle = '#bfdbfe';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(t.title, x + totalW / 2, y + titleH / 2);
@@ -845,14 +1045,14 @@ function drawLotTable(t) {
     const isHeader = ri === 0;
     const isTotal = ri === allRows.length - 1;
     ctx.fillStyle = isHeader ? '#334155' : isTotal ? (t.totalTextColor || '#1e40af') : '#1a1a1a';
-    ctx.font = (isHeader || isTotal) ? `bold ${fs}px 'Segoe UI', sans-serif`
-                                     : `${fs}px 'Segoe UI', sans-serif`;
+    ctx.font = (isHeader || isTotal) ? `bold ${fs}px ${fontFamily}`
+                                     : `${fs}px ${fontFamily}`;
     let cx2 = x;
     row.forEach((cell, ci) => {
       const cellY = ri === allRows.length - 1
         ? totalRowY + lineH * 0.4
         : tblY + ri * lineH + lineH * 0.5;
-      // 1列目は左寄せ（kaitori用）、数値列は右寄せ
+      // 1列目は名称なので左寄せ、数値列は右寄せ
       const isNumCol = ci > 0 || !t.title;
       if (isNumCol && ci > 0) {
         ctx.textAlign = 'right';
@@ -864,6 +1064,8 @@ function drawLotTable(t) {
       cx2 += colWidths[ci];
     });
   });
+
+  ctx.restore();
 
   // ヒットボックス
   const scx = x * App.vz + App.vx;
@@ -992,6 +1194,37 @@ function drawStamp(t) {
   });
 }
 
+function getTextAnnotationLayout(text, fs, vertical) {
+  const lines = (text || '').split('\n');
+  const lineH = fs * 1.4;
+  if (!vertical) {
+    return {
+      vertical: false,
+      lines,
+      maxW: lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0),
+      h: lineH * Math.max(1, lines.length),
+      lineH
+    };
+  }
+
+  const columns = lines.map(line => Array.from(line));
+  const allChars = columns.flat();
+  const maxCharW = allChars.reduce((m, ch) => Math.max(m, ctx.measureText(ch).width), 0);
+  const colW = Math.max(fs * 1.15, maxCharW * 1.12);
+  const charH = fs * 1.18;
+  const maxChars = Math.max(1, ...columns.map(col => col.length));
+  return {
+    vertical: true,
+    lines,
+    columns,
+    colW,
+    charH,
+    maxW: colW * Math.max(1, columns.length),
+    h: charH * maxChars,
+    lineH
+  };
+}
+
 function drawTextAnnotation(t) {
   if (t.textType === 'lot-table') { drawLotTable(t); return; }
   if (t.textType === 'north-arrow') { drawNorthArrow(t); return; }
@@ -1008,20 +1241,24 @@ function drawTextAnnotation(t) {
     ctx.moveTo(t.tipX, t.tipY);
     ctx.lineTo(t.x, t.y);
     ctx.stroke();
-    // 先端に小円
-    drawDot(t.tipX, t.tipY, 3.5 / App.vz, textColor);
+    // 先端は小さく控えめに表示
+    drawDot(t.tipX, t.tipY, 1.8 / App.vz, textColor);
   }
 
   const fs = pfs(t.fontSize || 14) * (App.subMeasureScale || 1.0);
-  ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+  ctx.font = `bold ${fs}px ${canvasFontFamily(t.fontFamily)}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  const lines = (t.text || '').split('\n');
-  const maxW = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
-  const lineH = fs * 1.4;
-  const h = lineH * lines.length;
+  const layout = getTextAnnotationLayout(t.text, fs, !!t.vertical);
+  const { lines, maxW, h, lineH } = layout;
   const pad = fs * 0.35;
   const x = t.x, y = t.y;
+
+  // 回転（ボックス中心を軸に。引出線の線部分は回さない）
+  const rot = (t.rotation || 0) * Math.PI / 180;
+  const bcx = x + maxW / 2, bcy = y + h / 2;
+  ctx.save();
+  if (rot) { ctx.translate(bcx, bcy); ctx.rotate(rot); ctx.translate(-bcx, -bcy); }
 
   const boxStyle = t.boxStyle || 'box';
 
@@ -1045,19 +1282,44 @@ function drawTextAnnotation(t) {
     ctx.strokeStyle = textColor + 'aa';
     ctx.lineWidth = 1.2 / App.vz;
     ctx.setLineDash([]);
-    lines.forEach((_, i) => {
-      const ly = y + i * lineH + lineH - pad * 0.2;
-      ctx.beginPath();
-      ctx.moveTo(x - pad, ly);
-      ctx.lineTo(x + maxW + pad, ly);
-      ctx.stroke();
-    });
+    if (layout.vertical) {
+      layout.columns.forEach((_, i) => {
+        const lx = x + i * layout.colW + layout.colW * 0.86;
+        ctx.beginPath();
+        ctx.moveTo(lx, y - pad * 0.2);
+        ctx.lineTo(lx, y + h + pad * 0.2);
+        ctx.stroke();
+      });
+    } else {
+      lines.forEach((_, i) => {
+        const ly = y + i * lineH + lineH - pad * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(x - pad, ly);
+        ctx.lineTo(x + maxW + pad, ly);
+        ctx.stroke();
+      });
+    }
   }
   // boxStyle === 'none': 枠なし・背景なし
 
   // テキスト
   ctx.fillStyle = textColor;
-  lines.forEach((line, i) => ctx.fillText(line, x, y + i * lineH));
+  if (layout.vertical) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    layout.columns.forEach((chars, colIdx) => {
+      const cx = x + colIdx * layout.colW + layout.colW / 2;
+      chars.forEach((ch, rowIdx) => {
+        ctx.fillText(ch, cx, y + rowIdx * layout.charH + layout.charH / 2);
+      });
+    });
+  } else {
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    lines.forEach((line, i) => ctx.fillText(line, x, y + i * lineH));
+  }
+
+  ctx.restore();
 
   // ヒットボックス登録（スクリーン座標）
   const scx2 = (x - pad) * App.vz + App.vx;
@@ -1071,6 +1333,79 @@ function drawTextAnnotation(t) {
     sw: sw2 + hp2*2, sh: sh2 + hp2*2,
     cx: x, cy: y,
   });
+}
+
+const PLACEMENT_PREVIEW_MODES = new Set([
+  'text', 'north-arrow', 'house-stamp', 'parking-stamp',
+]);
+
+function isPlacementPreviewMode() {
+  return PLACEMENT_PREVIEW_MODES.has(App.mode);
+}
+
+function hidePlacementPreview() {
+  if (!App.placementPreviewInside) return;
+  App.placementPreviewInside = false;
+  App.dirty = true;
+}
+
+function getPlacementPreviewObject() {
+  if ((!App.pdfReady && !App.paperMode) || !App.placementPreviewInside || !isPlacementPreviewMode()) return null;
+  if (!Number.isFinite(App.mx) || !Number.isFinite(App.my)) return null;
+
+  if (App.mode === 'north-arrow') {
+    return {
+      id: -1,
+      textType: 'north-arrow',
+      x: App.mx,
+      y: App.my,
+      angle: normalizeObjectAngle(App.northArrowAngle),
+      size: App.northArrowSize,
+      color: '#1e293b',
+    };
+  }
+
+  if (App.mode === 'house-stamp' || App.mode === 'parking-stamp') {
+    // メートル指定の実寸を表示できないため、縮尺未設定時はプレビューしない。
+    if (!App.mpp) return null;
+    const isParking = App.mode === 'parking-stamp';
+    return {
+      id: -1,
+      textType: App.mode,
+      x: App.mx,
+      y: App.my,
+      angle: normalizeObjectAngle(App.stampAngle),
+      wM: App.stampWM,
+      hM: App.stampHM,
+      label: App.stampLabel != null ? App.stampLabel : (isParking ? 'P' : '家屋'),
+      lineStyle: App.stampLineStyle || (isParking ? 'dashed' : 'solid'),
+      lineColor: App.stampLineColor || (isParking ? '#1d4ed8' : '#78350f'),
+      showDims: App.stampShowDims !== false,
+    };
+  }
+
+  return {
+    id: -1,
+    type: 'text',
+    text: App.placementText || '文字',
+    x: App.mx,
+    y: App.my,
+    ...App.textOptions,
+  };
+}
+
+function drawPlacementPreview() {
+  const preview = getPlacementPreviewObject();
+  if (!preview) return;
+
+  // 既存描画関数を使って完成時と同じ寸法で描く。描画関数が追加する
+  // 一時ヒットボックスは直後に破棄し、未配置物をクリック対象にしない。
+  const labelBoxCount = App.labelBoxes.length;
+  ctx.save();
+  ctx.globalAlpha = 0.68;
+  drawTextAnnotation(preview);
+  ctx.restore();
+  App.labelBoxes.length = labelBoxCount;
 }
 
 function drawInProgress() {
@@ -1091,7 +1426,7 @@ function drawInProgress() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  pts.forEach(p => drawDot(p.x, p.y, 5 / App.vz, '#fbbf24'));
+  pts.forEach(p => drawDot(p.x, p.y, 2.5 / App.vz, '#d79a16'));
 
   if (App.mpp && preview.length >= 2 && !App.calibrating) {
     let total = 0;
@@ -1116,13 +1451,29 @@ function drawInProgress() {
 }
 
 function drawDot(x, y, r, color) {
+  ctx.save();
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
-  ctx.strokeStyle = '#0f172a';
+  ctx.strokeStyle = 'rgba(255,255,255,0.62)';
+  ctx.lineWidth = 0.5 / App.vz;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEditHandle(x, y, color) {
+  const r = 2.2 / App.vz;
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.strokeStyle = color || '#64748b';
   ctx.lineWidth = 1 / App.vz;
   ctx.stroke();
+  ctx.restore();
 }
 
 // スナップ有効時に□インジケーターを描画
@@ -1134,8 +1485,11 @@ function drawSnapBox(x, y, color) {
   ctx.strokeRect(x - s, y - s, s * 2, s * 2);
 }
 
-function drawLabel(x, y, text, color, fontSize, itemId, labelKey) {
-  ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+function drawLabel(x, y, text, color, fontSize, itemId, labelKey, rotation, fontFamily) {
+  const _lrot = (App.mode === 'label-edit') ? 0 : (rotation || 0) * Math.PI / 180;
+  ctx.save();
+  if (_lrot) { ctx.translate(x, y); ctx.rotate(_lrot); ctx.translate(-x, -y); }
+  ctx.font = `bold ${fontSize}px ${canvasFontFamily(fontFamily)}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const tw = ctx.measureText(text).width;
@@ -1162,6 +1516,7 @@ function drawLabel(x, y, text, color, fontSize, itemId, labelKey) {
   }
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+  ctx.restore();
 
   // ヒットボックスをスクリーン座標で登録（確実にヒットするよう余裕 8px 追加）
   if (itemId !== undefined) {
@@ -1225,8 +1580,10 @@ function bindEvents() {
   // 下絵管理ボタン
   document.getElementById('btn-bg-clear')?.addEventListener('click', () => {
     if (!App.pdfReady) return;
-    if (!confirm('下絵（PDF/画像）だけを削除します。作成した図形は保持されます。よろしいですか？')) return;
-    clearBackground();
+    showInlineConfirm('下絵（PDF／画像）だけを削除します。作成した区画や文字は残ります。', {
+      confirmLabel: '下絵を削除',
+      onConfirm: clearBackground,
+    });
   });
   document.getElementById('btn-bg-replace-pdf')?.addEventListener('click', () =>
     document.getElementById('bg-replace-pdf-input')?.click());
@@ -1320,10 +1677,6 @@ function bindEvents() {
   document.querySelectorAll('.tool-btn[data-mode]').forEach(btn =>
     btn.addEventListener('click', () => setMode(btn.dataset.mode)));
 
-
-  // 1点戻す (サイドバー) - 計測サイドバー廃止後は存在しないためオプショナル
-  document.getElementById('btn-undo-side')?.addEventListener('click', undoLast);
-
   // ページ
   document.getElementById('btn-prev').addEventListener('click', () => changePage(-1));
   document.getElementById('btn-next').addEventListener('click', () => changePage(1));
@@ -1350,7 +1703,18 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.paper-btn').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
-      App.printSize = btn.dataset.size;
+      const size = btn.dataset.size;
+      if (App.paperMode) {
+        App.paperSize = size;
+        const d = getPaperDims(size);
+        App.paperW = d.w;
+        App.paperH = d.h;
+        document.querySelectorAll('.paper-size-btn').forEach(b => b.classList.toggle('active-paper-size', b.dataset.ps === size));
+        fitPaperToView();
+        App.dirty = true;
+      } else {
+        App.printSize = size;
+      }
     });
   });
   document.getElementById('print-cancel').addEventListener('click', () =>
@@ -1367,9 +1731,19 @@ function bindEvents() {
     document.getElementById('calibration-modal').classList.add('hidden'));
   document.getElementById('btn-apply-scale').addEventListener('click', applyManualScale);
   document.getElementById('btn-start-calibration').addEventListener('click', startCalibration);
-  document.getElementById('btn-cancel-calib-dist').addEventListener('click', () =>
-    document.getElementById('calibration-dist-modal').classList.add('hidden'));
+  document.getElementById('btn-cancel-calib-dist').addEventListener('click', cancelCalibrationDistance);
   document.getElementById('btn-apply-calibration').addEventListener('click', applyCalibrationDist);
+
+  // IME変換確定のEnterを「適用」と誤認しない。変換後のEnterだけを受け付ける。
+  document.getElementById('scale-input').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') { e.preventDefault(); applyManualScale(); }
+  });
+  document.getElementById('calibration-dist-input').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') { e.preventDefault(); applyCalibrationDist(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelCalibrationDistance(); }
+  });
 
   // scale-display バッジをクリックで縮尺設定を開く
   document.getElementById('scale-display').addEventListener('click', () => {
@@ -1401,6 +1775,8 @@ function bindEvents() {
   canvas.addEventListener('mousedown', onMouseDown);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
+  canvas.addEventListener('mouseleave', hidePlacementPreview);
+  window.addEventListener('mouseup', () => { App.canvasPointerDown = false; }, true);
   canvas.addEventListener('dblclick', onDblClick);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', e => {
@@ -1414,18 +1790,39 @@ function bindEvents() {
   // メモパネル
   const mi = document.getElementById('memo-input');
   mi.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
     // Shift+Enter or Ctrl+Enter で確定、単独Enter は改行（textarea のデフォルト動作）
     if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey)) { e.preventDefault(); commitTextInput(); }
     if (e.key === 'Escape') { e.preventDefault(); cancelTextInput(); }
   });
   document.getElementById('memo-ok').addEventListener('click', commitTextInput);
   document.getElementById('memo-cancel').addEventListener('click', cancelTextInput);
+  document.getElementById('memo-x')?.addEventListener('click', cancelTextInput);
+  document.getElementById('memo-delete')?.addEventListener('click', deleteMemoEditor);
 
   // メモパネル：文字サイズスライダー
   document.getElementById('text-size-slider')?.addEventListener('input', e => {
     App.textOptions.fontSize = parseInt(e.target.value);
     const v = document.getElementById('text-size-val');
     if (v) v.textContent = e.target.value;
+  });
+  const memoRotationSlider = document.getElementById('text-rotation-slider');
+  const memoRotationInput = document.getElementById('text-rotation-input');
+  memoRotationSlider?.addEventListener('input', () => {
+    const value = Math.max(-180, Math.min(180, parseFloat(memoRotationSlider.value) || 0));
+    App.textOptions.rotation = value;
+    if (memoRotationInput) memoRotationInput.value = value;
+  });
+  memoRotationInput?.addEventListener('input', () => {
+    const value = Math.max(-180, Math.min(180, parseFloat(memoRotationInput.value) || 0));
+    App.textOptions.rotation = value;
+    if (memoRotationSlider) memoRotationSlider.value = value;
+  });
+  memoRotationInput?.addEventListener('change', () => {
+    const value = Math.max(-180, Math.min(180, parseFloat(memoRotationInput.value) || 0));
+    memoRotationInput.value = value;
+    App.textOptions.rotation = value;
+    if (memoRotationSlider) memoRotationSlider.value = value;
   });
 
   // ヘルプバーの閉じるボタン
@@ -1465,15 +1862,22 @@ function bindEvents() {
   document.querySelectorAll('.cp-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
       const col = sw.dataset.c;
+      const target = App.cpTargetIsText
+        ? App.texts.find(x => x.id === App.cpTargetId)
+        : App.items.find(x => x.id === App.cpTargetId);
+      if (!target || target.color === col) {
+        document.getElementById('color-picker-popup').classList.add('hidden');
+        return;
+      }
+      saveState();
       if (App.cpTargetIsText) {
-        const t = App.texts.find(x => x.id === App.cpTargetId);
-        if (t) { t.color = col; }
+        target.color = col;
       } else {
-        const item = App.items.find(x => x.id === App.cpTargetId);
-        if (item) { item.color = col; }
+        target.color = col;
       }
       document.getElementById('color-picker-popup').classList.add('hidden');
       updateResults();
+      updateFormatPanel();
       App.dirty = true;
     });
   });
@@ -1507,15 +1911,39 @@ function bindEvents() {
 
   // キーボード
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { cancelCurrent(); cancelTextInput(); }
-    const tag = document.activeElement?.tagName;
-    const onInput = tag === 'INPUT' || tag === 'TEXTAREA';
-    const modalOpen = ['kaitori-modal','lot-edit-modal','calibration-modal'].some(
+    // 日本語IMEの変換確定中はグローバルショートカットを動かさない
+    if (e.isComposing || e.keyCode === 229) return;
+    const activeElement = document.activeElement;
+    const onInput = !!activeElement?.closest?.('input, textarea, select, [contenteditable="true"]')
+      || !!activeElement?.isContentEditable;
+    const modalOpen = ['lot-edit-modal','calibration-modal','calibration-dist-modal','print-modal','corner-cut-modal'].some(
       id => !document.getElementById(id)?.classList.contains('hidden'));
+    const transactionalEditorOpen = ['lot-edit-modal', 'memo-panel', 'stamp-edit-panel', 'north-arrow-edit-panel', 'label-edit-overlay'].some(id => {
+      const editor = document.getElementById(id);
+      return editor && !editor.classList.contains('hidden');
+    });
+    if (e.key === 'Escape') {
+      // 距離入力は選択した2点も含めて完全にキャンセルする
+      if (!document.getElementById('calibration-dist-modal')?.classList.contains('hidden')) {
+        cancelCalibrationDistance();
+        return;
+      }
+      cancelCurrent();
+      cancelTextInput();
+    }
+    // Transactional editors own their pending state. Do not let a global
+    // history/delete shortcut mutate the canvas behind an open editor.
+    // Focused form controls keep their native text editing and undo behavior.
+    const historyShortcut = (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase());
+    if (!onInput && transactionalEditorOpen
+      && ((e.key === 'Delete' || e.key === 'Backspace') || historyShortcut)) {
+      e.preventDefault();
+      return;
+    }
     if (!onInput && !modalOpen && (e.key === 'Delete' || e.key === 'Backspace')) undoLast();
     if (!onInput && e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
     if (!onInput && e.key === 'y' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redoLast(); }
-    if (!onInput && e.key === 'Escape') { App.lotPts = []; App.mergeSelect = []; App.splitTargetId = null; App.cornerCutLotId = null; App.cornerCutIdx = -1; updateSplitUI(); render(); App.dirty = false; }
+    if (!onInput && e.key === 'Escape') { App.lotPts = []; App.mergeSelect = []; App.splitTargetId = null; App.cornerCutLotId = null; App.cornerCutIdx = -1; updateSplitUI(); render(); App.dirty = false; notifyAppState('cancel'); }
 
     // コピー
     if (!onInput && !modalOpen && e.key === 'c' && (e.ctrlKey || e.metaKey)) {
@@ -1548,8 +1976,7 @@ function bindEvents() {
         newLot.id = App.nextId++;
         if (newLot.type === 'lot') newLot.lotNum = App.lotNextNum++;
         if (newLot.points) newLot.points = newLot.points.map(p => ({ x: p.x + off, y: p.y + off }));
-        if (newLot.labelOffX != null) { newLot.labelOffX += off; newLot.labelOffY += off; }
-        if (newLot.setbackOffX != null) { newLot.setbackOffX += off; newLot.setbackOffY += off; }
+        // ラベル位置は重心からの相対値なので、形状をずらしてもそのまま引き継ぐ。
         App.lots.push(newLot);
         App.lastClicked = { type: 'lot', id: newLot.id };
         updateLotPanel();
@@ -1614,38 +2041,62 @@ function bindEvents() {
     App.dirty = true;
   });
 
-  document.getElementById('btn-toggle-edge-lengths').addEventListener('click', () => {
+  document.getElementById('btn-toggle-edge-lengths')?.addEventListener('click', () => {
     App.lotShowEdgeLengths = !App.lotShowEdgeLengths;
-    const btn = document.getElementById('btn-toggle-edge-lengths');
-    btn.classList.toggle('toggle-on', App.lotShowEdgeLengths);
-    btn.style.color = App.lotShowEdgeLengths ? '#34d399' : '';
+    updateGlobalDisplayButtons();
     App.dirty = true;
   });
   document.getElementById('btn-stamp-list').addEventListener('click', stampLotList);
   document.getElementById('btn-renumber-lots').addEventListener('click', renumberLots);
-  document.getElementById('btn-kaitori').addEventListener('click', openKaitoriModal);
-  document.getElementById('kaitori-close').addEventListener('click', () =>
-    document.getElementById('kaitori-modal').classList.add('hidden'));
-  document.getElementById('kaitori-modal').addEventListener('click', e => {
-    if (e.target === document.getElementById('kaitori-modal'))
-      document.getElementById('kaitori-modal').classList.add('hidden');
+  // オーバーレイ外クリックで閉じる（残留オーバーレイによる入力ブロック防止）
+  document.getElementById('calibration-modal').addEventListener('click', e => {
+    if (e.target.id === 'calibration-modal')
+      document.getElementById('calibration-modal').classList.add('hidden');
   });
-  ['kai-sqm','kai-tsubo-price','kai-kosei','kai-sokuryo','kai-kaitai',
-   'kai-other1','kai-other2','kai-margin'].forEach(id => {
-    document.getElementById(id).addEventListener('input', calcKaitori);
+  document.getElementById('calibration-dist-modal').addEventListener('click', e => {
+    if (e.target.id === 'calibration-dist-modal')
+      cancelCalibrationDistance();
   });
-  document.getElementById('kai-stamp').addEventListener('click', stampKaitori);
-  document.getElementById('kai-clear').addEventListener('click', () => {
-    ['kai-sqm','kai-tsubo-price','kai-kosei','kai-sokuryo','kai-kaitai',
-     'kai-other1','kai-other2'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('kai-margin').value = '15';
-    calcKaitori();
+  document.getElementById('print-modal').addEventListener('click', e => {
+    if (e.target.id === 'print-modal')
+      document.getElementById('print-modal').classList.add('hidden');
+  });
+  document.getElementById('corner-cut-modal').addEventListener('click', e => {
+    if (e.target.id === 'corner-cut-modal') {
+      document.getElementById('corner-cut-modal').classList.add('hidden');
+      App.cornerCutLotId = null; App.cornerCutIdx = -1;
+    }
+  });
+  document.getElementById('lot-edit-modal').addEventListener('click', e => {
+    if (e.target.id === 'lot-edit-modal') cancelLotEdit();
   });
   document.getElementById('lot-text-scale-slider')?.addEventListener('input', e => {
     App.lotTextScale = parseFloat(e.target.value);
     const disp = document.getElementById('lot-text-scale-val');
     if (disp) disp.textContent = parseFloat(e.target.value).toFixed(1) + '×';
     App.dirty = true;
+  });
+  // モーダルの文字大きさスライダー（この区画だけ）
+  document.getElementById('modal-lot-text-scale')?.addEventListener('input', e => {
+    const v = parseFloat(e.target.value) || 1.0;
+    const mlv = document.getElementById('modal-lot-text-scale-val');
+    if (mlv) mlv.textContent = v.toFixed(1) + '×';
+    const lot = App.lots.find(l => l.id === _editingLotId);
+    if (lot && _editingLotKind !== 'road') {
+      lot.labelScale = v;
+      App.dirty = true;
+    }
+  });
+  // モーダルの寸法大きさスライダー（この区画だけ）
+  document.getElementById('modal-lot-edge-scale')?.addEventListener('input', e => {
+    const v = parseFloat(e.target.value) || 1.0;
+    const mev = document.getElementById('modal-lot-edge-scale-val');
+    if (mev) mev.textContent = v.toFixed(1) + '×';
+    const lot = App.lots.find(l => l.id === _editingLotId);
+    if (lot && _editingLotKind !== 'road') {
+      lot.edgeScale = v;
+      App.dirty = true;
+    }
   });
   document.getElementById('edge-scale-slider')?.addEventListener('input', e => {
     App.lotEdgeScale = parseFloat(e.target.value);
@@ -1657,30 +2108,119 @@ function bindEvents() {
     App.lotFillOpacity = parseInt(e.target.value) / 100;
     const disp = document.getElementById('lot-fill-opacity-val');
     if (disp) disp.textContent = e.target.value + '%';
+    const editOpacity = document.getElementById('lot-edit-fill-opacity');
+    const editOpacityVal = document.getElementById('lot-edit-fill-opacity-val');
+    if (editOpacity && editOpacity.dataset.custom !== '1') {
+      editOpacity.value = e.target.value;
+      if (editOpacityVal) editOpacityVal.textContent = e.target.value + '%';
+    }
     App.dirty = true;
   });
   const onSubMeasureScale = e => {
     App.subMeasureScale = parseFloat(e.target.value);
-    ['sub-measure-scale-val', 'measure-text-scale-val'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = parseFloat(e.target.value).toFixed(1) + '×';
-    });
-    ['sub-measure-scale-slider', 'measure-text-scale-slider'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el !== e.target) el.value = e.target.value;
-    });
+    const value = document.getElementById('sub-measure-scale-val');
+    if (value) value.textContent = parseFloat(e.target.value).toFixed(1) + '×';
     App.dirty = true;
   };
   document.getElementById('sub-measure-scale-slider')?.addEventListener('input', onSubMeasureScale);
-  document.getElementById('measure-text-scale-slider')?.addEventListener('input', onSubMeasureScale);
 
   // 分譲地内 矢印・文字・引出線
   document.getElementById('sub-btn-arrow').addEventListener('click', () => setSubMeasureMode('arrow'));
   document.getElementById('sub-btn-text').addEventListener('click', () => setSubMeasureMode('text'));
   document.getElementById('sub-btn-callout').addEventListener('click', () => setSubMeasureMode('callout'));
+  document.getElementById('sub-btn-line')?.addEventListener('click', () => setSubMeasureMode('line'));
+
+  // 線設定（線種・色・太さ）
+  document.querySelectorAll('.btn-line-style').forEach(btn => {
+    btn.addEventListener('click', () => {
+      App.lineStyle = btn.dataset.ls;
+      document.querySelectorAll('.btn-line-style').forEach(b => {
+        const on = b === btn;
+        b.classList.toggle('active-line-style', on);
+        b.style.background = on ? '#1d4ed8' : '#1e293b';
+        b.style.color = on ? '#fff' : '#94a3b8';
+        b.style.borderColor = on ? '#3b82f6' : '#334155';
+      });
+    });
+  });
+  document.querySelectorAll('.line-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      App.lineColor = sw.dataset.lc;
+      document.querySelectorAll('.line-color-swatch').forEach(s => {
+        s.style.outline = s === sw ? '2px solid #60a5fa' : 'none';
+        s.classList.toggle('active-line-color', s === sw);
+      });
+    });
+  });
+  document.getElementById('line-width-slider')?.addEventListener('input', e => {
+    App.lineWidth = parseFloat(e.target.value);
+    const v = document.getElementById('line-width-val');
+    if (v) v.textContent = parseFloat(e.target.value).toFixed(1);
+  });
+
+  // ===== 統一文字エディタ（選択した文字のそばに表示） =====
+  const tepText = document.getElementById('tep-text');
+  tepText?.addEventListener('input', e => { setSelectedText(e.target.value); });
+  // textarea内でEnter改行を許可（確定はフォーカスアウト/閉じる）
+  const tepSize = document.getElementById('tep-size');
+  const tepSizeNum = document.getElementById('tep-size-num');
+  const tepSizeUnit = document.getElementById('tep-size-unit');
+  function _tepSizeUpdate(v) {
+    setSelectedSize(v);
+    const isPx = getSelectedSizeKind() === 'px';
+    if (tepSize) tepSize.value = v;
+    if (tepSizeNum) { tepSizeNum.value = isPx ? Math.round(v) : parseFloat(v.toFixed(2)); tepSizeNum.step = isPx ? 1 : 0.05; }
+    if (tepSizeUnit) tepSizeUnit.textContent = isPx ? 'px' : '×';
+  }
+  tepSize?.addEventListener('input', e => { _tepSizeUpdate(parseFloat(e.target.value)); });
+  tepSizeNum?.addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    if (isNaN(v) || v <= 0) return;
+    setSelectedSize(v);
+    if (tepSize) tepSize.value = v;
+  });
+  document.getElementById('tep-vertical')?.addEventListener('change', e => {
+    setSelectedVertical(!!e.target.checked);
+  });
+  document.getElementById('tep-font')?.addEventListener('change', e => {
+    setSelectedFontFamily(e.target.value);
+  });
+  const tepRot = document.getElementById('tep-rot');
+  const tepRotNum = document.getElementById('tep-rot-num');
+  tepRot?.addEventListener('input', e => {
+    const d = parseInt(e.target.value) || 0;
+    setSelectedRotation(d); if (tepRotNum) tepRotNum.value = d; syncRotQuick(d);
+  });
+  tepRotNum?.addEventListener('input', e => {
+    let d = parseInt(e.target.value); if (isNaN(d)) return;
+    d = Math.max(-180, Math.min(180, d));
+    setSelectedRotation(d); if (tepRot) tepRot.value = d; syncRotQuick(d);
+  });
+  document.querySelectorAll('.tep-rq').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseInt(btn.dataset.a) || 0;
+      setSelectedRotation(d);
+      if (tepRot) tepRot.value = d; if (tepRotNum) tepRotNum.value = d; syncRotQuick(d);
+    });
+  });
+  document.querySelectorAll('#tep-colors .tep-sw').forEach(sw => {
+    sw.addEventListener('click', () => {
+      setSelectedColor(sw.dataset.c);
+      document.querySelectorAll('#tep-colors .tep-sw').forEach(x => x.classList.toggle('active-tep-sw', x === sw));
+    });
+  });
+  document.getElementById('tep-delete')?.addEventListener('click', deleteSelectedFormat);
+  document.getElementById('tep-detail')?.addEventListener('click', openSelectedDetail);
+  document.getElementById('tep-done')?.addEventListener('click', () => {
+    _fmtEditSaved = false;
+    App.selectedFormat = null;
+    updateFormatPanel();
+    notifyAppState('format-edit-complete');
+    App.dirty = true;
+  });
 
   document.getElementById('btn-lot-select').addEventListener('click', () => setLotTool('select'));
-  document.getElementById('btn-lot-label-move').addEventListener('click', () => setLotTool('label-move'));
+  document.getElementById('btn-edge-hide')?.addEventListener('click', () => setLotTool('edge-hide'));
   document.getElementById('btn-lot-delete-tool').addEventListener('click', () => setLotTool('delete'));
   document.getElementById('btn-divguide').addEventListener('click', () => setLotTool('divguide'));
   document.getElementById('btn-corner-cut').addEventListener('click', () => setLotTool('corner-cut'));
@@ -1732,26 +2272,76 @@ function bindEvents() {
   });
 
   // 区画編集モーダル
-  document.getElementById('lot-edit-cancel').addEventListener('click', () =>
-    document.getElementById('lot-edit-modal').classList.add('hidden'));
+  document.getElementById('lot-edit-cancel').addEventListener('click', cancelLotEdit);
+  document.getElementById('lot-edit-x')?.addEventListener('click', cancelLotEdit);
   document.getElementById('lot-edit-ok').addEventListener('click', commitLotEdit);
-  ['lot-edit-price', 'lot-edit-memo'].forEach(id => {
+  document.querySelectorAll('#lot-edit-kind-switch .next-editor-kind-button').forEach(btn => {
+    btn.addEventListener('click', () => setLotEditType(btn.dataset.kind));
+  });
+  ['lot-edit-area-label', 'lot-edit-tsubo-label', 'lot-edit-price', 'lot-edit-memo', 'lot-edit-top-label'].forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
-      // price は Enter で確定、memo は Shift+Enter で確定（textarea で Enter=改行）
-      if (e.key === 'Enter' && (id === 'lot-edit-price' || e.shiftKey || e.ctrlKey)) {
+      if (e.isComposing || e.keyCode === 229) return;
+      const isTextarea = e.target.tagName === 'TEXTAREA';
+      // input は Enter で確定、textarea は Shift+Enter / Ctrl+Enter で確定
+      if (e.key === 'Enter' && (!isTextarea || e.shiftKey || e.ctrlKey)) {
         e.preventDefault(); commitLotEdit();
       }
+    });
+    document.getElementById(id).addEventListener('input', syncLotEditPreview);
+  });
+  document.querySelectorAll('.lot-center-color-swatch').forEach(button => {
+    button.addEventListener('click', () => {
+      const lot = App.lots.find(item => item.id === _editingLotId);
+      const field = button.closest('.lot-center-color-palette')?.dataset.centerField;
+      if (!lot || _editingLotKind === 'road' || !['area', 'tsubo'].includes(field)) return;
+      const prop = field === 'area' ? 'customAreaLabelColor' : 'customTsuboLabelColor';
+      lot[prop] = button.dataset.color || null;
+      syncLotCenterColorControls(lot);
+      App.dirty = true;
     });
   });
   // 道路テンプレートボタン
   document.querySelectorAll('.road-tmpl-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.getElementById('lot-edit-road-label').value = btn.dataset.text;
+      syncRoadEditPreview();
     });
   });
+  ['lot-edit-road-label', 'lot-edit-road-width'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', syncRoadEditPreview);
+  });
+  const roadRotationSlider = document.getElementById('lot-edit-road-rotation');
+  const roadRotationNumber = document.getElementById('lot-edit-road-rotation-num');
+  roadRotationSlider?.addEventListener('input', () => {
+    if (roadRotationNumber) roadRotationNumber.value = roadRotationSlider.value;
+    syncRoadEditPreview();
+  });
+  roadRotationNumber?.addEventListener('input', () => {
+    const value = Math.max(-180, Math.min(180, parseFloat(roadRotationNumber.value) || 0));
+    if (roadRotationSlider) roadRotationSlider.value = value;
+    syncRoadEditPreview();
+  });
+  roadRotationNumber?.addEventListener('change', () => {
+    const value = Math.max(-180, Math.min(180, parseFloat(roadRotationNumber.value) || 0));
+    roadRotationNumber.value = value;
+    if (roadRotationSlider) roadRotationSlider.value = value;
+    syncRoadEditPreview();
+  });
+  document.getElementById('lot-edit-road-vertical')?.addEventListener('change', syncRoadEditPreview);
   // 道路文字サイズスライダー
-  document.getElementById('lot-edit-road-label-size').addEventListener('input', e => {
-    document.getElementById('lot-edit-road-label-size-val').textContent = parseFloat(e.target.value).toFixed(1) + '×';
+  [
+    ['lot-edit-road-title-size', 'lot-edit-road-title-size-val', 'roadLabelSize'],
+    ['lot-edit-road-width-size', 'lot-edit-road-width-size-val', 'roadWidthLabelSize'],
+  ].forEach(([inputId, valueId, prop]) => {
+    document.getElementById(inputId)?.addEventListener('input', e => {
+      const v = parseFloat(e.target.value) || 1.0;
+      document.getElementById(valueId).textContent = v.toFixed(1) + '×';
+      const lot = App.lots.find(l => l.id === _editingLotId);
+      if (lot && _editingLotKind === 'road') {
+        lot[prop] = v;
+        App.dirty = true;
+      }
+    });
   });
   // 道路文字色スウォッチ
   document.querySelectorAll('.road-text-swatch').forEach(sw => {
@@ -1763,6 +2353,14 @@ function bindEvents() {
       });
       sw.style.border = '2px solid #60a5fa';
       sw.classList.add('active-road-text');
+      syncRoadEditPreview();
+    });
+  });
+  document.querySelectorAll('.road-width-text-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('.road-width-text-swatch').forEach(s =>
+        s.classList.toggle('active-road-width-text', s === sw));
+      syncRoadEditPreview();
     });
   });
   // 道路塗り色スウォッチ
@@ -1775,6 +2373,9 @@ function bindEvents() {
       });
       sw.style.border = '2px solid #60a5fa';
       sw.classList.add('active-road-fill');
+      const section = document.getElementById('lot-edit-road-section');
+      if (section) section.dataset.styleChanged = '1';
+      syncRoadEditPreview();
     });
   });
   document.getElementById('lot-edit-price').addEventListener('input', e => {
@@ -1785,12 +2386,34 @@ function bindEvents() {
     // カーソル位置補正
     const delta = e.target.value.length - prevLen;
     try { e.target.setSelectionRange(cursor + delta, cursor + delta); } catch(_) {}
+    syncLotEditPreview();
   });
   document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
       document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(s => s.classList.remove('active-swatch'));
       sw.classList.add('active-swatch');
+      syncLotEditPreview();
     });
+  });
+  document.getElementById('lot-edit-fill-opacity')?.addEventListener('input', e => {
+    const v = parseInt(e.target.value) || 0;
+    e.target.dataset.custom = '1';
+    const disp = document.getElementById('lot-edit-fill-opacity-val');
+    if (disp) disp.textContent = v + '%';
+    syncLotEditPreview();
+  });
+  document.getElementById('lot-edit-fill-opacity-global')?.addEventListener('click', () => {
+    const lot = App.lots.find(l => l.id === _editingLotId);
+    const input = document.getElementById('lot-edit-fill-opacity');
+    const val = document.getElementById('lot-edit-fill-opacity-val');
+    const globalPct = Math.round((App.lotFillOpacity ?? 0.73) * 100);
+    if (lot && _editingLotKind !== 'road') delete lot.fillOpacity;
+    if (input) {
+      input.value = globalPct;
+      input.dataset.custom = '0';
+    }
+    if (val) val.textContent = globalPct + '%';
+    App.dirty = true;
   });
 
   // 区画の線色スウォッチ（モーダル内）
@@ -1801,6 +2424,19 @@ function bindEvents() {
       });
       sw.style.outline = '2px solid #60a5fa';
       sw.classList.add('active-border');
+      syncLotEditPreview();
+    });
+  });
+
+  // 区画ラベル文字色スウォッチ（モーダル内）
+  document.querySelectorAll('#lot-label-color-swatches .lotlabel-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      document.querySelectorAll('#lot-label-color-swatches .lotlabel-color-swatch').forEach(s => {
+        s.style.outline = 'none'; s.classList.remove('active-lotlabel-color');
+      });
+      sw.style.outline = '2px solid #60a5fa';
+      sw.classList.add('active-lotlabel-color');
+      syncLotEditPreview();
     });
   });
 
@@ -1812,17 +2448,29 @@ function bindEvents() {
       });
       sw.style.outline = '2px solid #60a5fa';
       sw.classList.add('active-edgelabel-color');
+      syncLotEditPreview();
     });
   });
 
-  // 表示設定トグルボタン（モーダル内 — イベント委譲）
-  ['lot-num-disp-group', 'lot-edge-disp-group', 'lot-area-disp-group', 'lot-yaku-disp-group'].forEach(groupId => {
+  // 表示設定トグルボタン（モーダル内 — クリック時にこの区画へ即反映）
+  const lotDisplayProps = {
+    'lot-num-disp-group': 'hideNumber',
+    'lot-edge-disp-group': 'edgeDisplay',
+    'lot-area-disp-group': 'areaDisplay',
+    'lot-yaku-disp-group': 'yakuMode'
+  };
+  Object.entries(lotDisplayProps).forEach(([groupId, prop]) => {
     document.getElementById(groupId)?.addEventListener('click', e => {
       const btn = e.target.closest('.lot-disp-btn');
       if (!btn) return;
       e.stopPropagation();
       document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(b => b.classList.remove('active-disp'));
       btn.classList.add('active-disp');
+      const lot = App.lots.find(l => l.id === _editingLotId);
+      if (lot && _editingLotKind !== 'road') {
+        lot[prop] = btn.dataset.val || null;
+        App.dirty = true;
+      }
     });
   });
 
@@ -1847,6 +2495,9 @@ function bindEvents() {
       btn.classList.add('active-box-style');
     });
   });
+  document.getElementById('text-vertical-check')?.addEventListener('change', e => {
+    App.textOptions.vertical = !!e.target.checked;
+  });
 
   // 用紙モード切り替えボタン（本図 ↔ 用紙）
   document.getElementById('btn-paper-mode')?.addEventListener('click', togglePaperMode);
@@ -1865,13 +2516,6 @@ function bindEvents() {
     App.dirty = true;
   });
 
-  // 全体移動ツール
-  document.getElementById('btn-move-all')?.addEventListener('click', () => setLotTool('move-all'));
-
-  // 頂点編集ボタン（計測サイドバー）
-  document.getElementById('btn-vertex-edit')?.addEventListener('click', () => setMode('vertex-edit'));
-  // ラベル編集ボタン（計測サイドバー）
-  document.getElementById('btn-label-edit')?.addEventListener('click', () => setMode('label-edit'));
   // 頂点編集ボタン（分譲地サイドバー）
   document.getElementById('btn-vertex-edit-sub')?.addEventListener('click', () => {
     setSubMeasureMode('vertex-edit');
@@ -1883,21 +2527,18 @@ function bindEvents() {
   // 区画番号ON/OFFトグル
   document.getElementById('btn-show-lot-numbers')?.addEventListener('click', () => {
     App.showLotNumbers = !App.showLotNumbers;
-    const btn = document.getElementById('btn-show-lot-numbers');
-    btn.classList.toggle('toggle-on', App.showLotNumbers);
-    btn.style.color = App.showLotNumbers ? '#34d399' : '';
+    updateGlobalDisplayButtons();
     App.dirty = true;
   });
 
-  // 約表記トグル（両サイドバー共通処理）
+  // 約表記トグル
   const applyYakuToggle = () => {
-    ['btn-yaku-toggle','btn-yaku-toggle-sub'].forEach(id => {
-      const btn = document.getElementById(id);
-      if (!btn) return;
+    const btn = document.getElementById('btn-yaku-toggle-sub');
+    if (btn) {
       btn.classList.toggle('toggle-on', App.useYaku);
       btn.style.color = App.useYaku ? '#34d399' : '';
       btn.textContent = App.useYaku ? '約 ON' : '約 OFF';
-    });
+    }
     App.items.forEach(item => {
       if (item.segValues) {
         item.segLabels = item.segValues.map((d, i) =>
@@ -1906,27 +2547,14 @@ function bindEvents() {
     });
     App.dirty = true;
   };
-  document.getElementById('btn-yaku-toggle')?.addEventListener('click', () => {
-    App.useYaku = !App.useYaku;
-    // 両セレクタを同期
-    const v = document.getElementById('yaku-decimal-sel')?.value;
-    if (v) { const sel2 = document.getElementById('yaku-decimal-sel-sub'); if (sel2) sel2.value = v; }
-    applyYakuToggle();
-  });
   document.getElementById('btn-yaku-toggle-sub')?.addEventListener('click', () => {
     App.useYaku = !App.useYaku;
-    const v = document.getElementById('yaku-decimal-sel-sub')?.value;
-    if (v) { const sel = document.getElementById('yaku-decimal-sel'); if (sel) sel.value = v; }
     applyYakuToggle();
   });
 
-  // 約小数点セレクタ（両サイドバー共通処理）
+  // 約小数点セレクタ
   const applyYakuDecimal = (val) => {
     App.yakuDecimal = parseInt(val);
-    ['yaku-decimal-sel','yaku-decimal-sel-sub'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el.value !== val) el.value = val;
-    });
     if (App.useYaku) {
       App.items.forEach(item => {
         if (item.segValues) {
@@ -1937,7 +2565,6 @@ function bindEvents() {
     }
     App.dirty = true;
   };
-  document.getElementById('yaku-decimal-sel')?.addEventListener('change', e => applyYakuDecimal(e.target.value));
   document.getElementById('yaku-decimal-sel-sub')?.addEventListener('change', e => applyYakuDecimal(e.target.value));
 
   // 約微調整ボタン
@@ -2001,24 +2628,22 @@ function bindEvents() {
     btn.style.color = App.stampShowDims ? '#fff' : '#94a3b8';
     btn.style.borderColor = App.stampShowDims ? '#3b82f6' : '#334155';
   });
-  document.getElementById('stamp-angle-input')?.addEventListener('input', e => {
-    App.stampAngle = parseFloat(e.target.value) || 0;
-    const sl = document.getElementById('stamp-angle-slider');
-    if (sl) sl.value = App.stampAngle;
+  const stampAngleInput = document.getElementById('stamp-angle-input');
+  const stampAngleSlider = document.getElementById('stamp-angle-slider');
+  const syncStampPlacementAngle = value => {
+    App.stampAngle = syncAngleControls(stampAngleInput, stampAngleSlider, value);
+  };
+  syncStampPlacementAngle(App.stampAngle);
+  stampAngleInput?.addEventListener('input', e => {
+    if (e.target.value === '') return; // 「-」入力途中は確定しない
+    syncStampPlacementAngle(e.target.value);
   });
-  document.getElementById('stamp-angle-slider')?.addEventListener('input', e => {
-    App.stampAngle = parseFloat(e.target.value) || 0;
-    const inp = document.getElementById('stamp-angle-input');
-    if (inp) inp.value = App.stampAngle;
-  });
+  stampAngleInput?.addEventListener('change', e => syncStampPlacementAngle(e.target.value));
+  stampAngleSlider?.addEventListener('input', e => syncStampPlacementAngle(e.target.value));
   document.querySelectorAll('.btn-stamp-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
-      App.stampAngle = ((App.stampAngle + d) % 360 + 360) % 360;
-      const inp = document.getElementById('stamp-angle-input');
-      const sl = document.getElementById('stamp-angle-slider');
-      if (inp) inp.value = App.stampAngle;
-      if (sl) sl.value = App.stampAngle;
+      syncStampPlacementAngle(App.stampAngle + d);
     });
   });
   document.querySelectorAll('.btn-stamp-line').forEach(btn => {
@@ -2041,25 +2666,31 @@ function bindEvents() {
   });
 
   // スタンプ編集オーバーレイ
+  const stampEditAngleInput = document.getElementById('stamp-edit-angle');
+  const stampEditAngleSlider = document.getElementById('stamp-edit-angle-slider');
+  syncAngleControls(stampEditAngleInput, stampEditAngleSlider, stampEditAngleInput?.value);
   const updateEditingStamp = () => {
     const t = App.texts.find(x => x.id === App.editingStampId);
     if (!t) return;
     t.wM   = parseFloat(document.getElementById('stamp-edit-w')?.value) || t.wM;
     t.hM   = parseFloat(document.getElementById('stamp-edit-h')?.value) || t.hM;
-    t.angle = parseFloat(document.getElementById('stamp-edit-angle')?.value) || 0;
+    t.angle = syncAngleControls(stampEditAngleInput, stampEditAngleSlider, stampEditAngleInput?.value);
     t.label    = document.getElementById('stamp-edit-label-text')?.value ?? t.label;
     t.showDims = document.getElementById('stamp-edit-dims-toggle')?.dataset.on !== 'false';
     const activeLine = document.querySelector('.btn-stamp-edit-line.active-stamp-edit-line');
     if (activeLine) t.lineStyle = activeLine.dataset.ls;
     const activeColor = document.querySelector('.stamp-edit-color-swatch.active-stamp-edit-color');
     if (activeColor) t.lineColor = activeColor.dataset.sc;
-    // スライダーと数値を同期
-    const sl = document.getElementById('stamp-edit-angle-slider');
-    if (sl) sl.value = t.angle;
     App.dirty = true;
   };
   // stamp-edit-panel 内のボタンはイベント委譲で処理（直接リスナーが効かないケース対策）
   document.getElementById('stamp-edit-panel')?.addEventListener('click', e => {
+    const kindButton = e.target.closest('#stamp-edit-kind-switch .next-editor-kind-button');
+    if (kindButton) {
+      e.stopPropagation();
+      setStampEditorKind(kindButton.dataset.kind);
+      return;
+    }
     const btn = e.target.closest('#stamp-edit-dims-toggle');
     if (!btn) return;
     e.stopPropagation();
@@ -2077,25 +2708,24 @@ function bindEvents() {
   document.getElementById('stamp-edit-w')?.addEventListener('input', updateEditingStamp);
   document.getElementById('stamp-edit-h')?.addEventListener('input', updateEditingStamp);
   document.getElementById('stamp-edit-label-text')?.addEventListener('input', updateEditingStamp);
-  document.getElementById('stamp-edit-angle')?.addEventListener('input', e => {
-    const sl = document.getElementById('stamp-edit-angle-slider');
-    if (sl) sl.value = parseFloat(e.target.value) || 0;
+  stampEditAngleInput?.addEventListener('input', e => {
+    if (e.target.value === '') return;
+    syncAngleControls(stampEditAngleInput, stampEditAngleSlider, e.target.value);
     updateEditingStamp();
   });
-  document.getElementById('stamp-edit-angle-slider')?.addEventListener('input', e => {
-    const inp = document.getElementById('stamp-edit-angle');
-    if (inp) inp.value = parseFloat(e.target.value) || 0;
+  stampEditAngleInput?.addEventListener('change', e => {
+    syncAngleControls(stampEditAngleInput, stampEditAngleSlider, e.target.value);
+    updateEditingStamp();
+  });
+  stampEditAngleSlider?.addEventListener('input', e => {
+    syncAngleControls(stampEditAngleInput, stampEditAngleSlider, e.target.value);
     updateEditingStamp();
   });
   document.querySelectorAll('.btn-stamp-edit-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
-      const inp = document.getElementById('stamp-edit-angle');
-      const sl = document.getElementById('stamp-edit-angle-slider');
-      const cur = parseFloat(inp?.value) || 0;
-      const next = ((cur + d) % 360 + 360) % 360;
-      if (inp) inp.value = next;
-      if (sl) sl.value = next;
+      const cur = normalizeObjectAngle(stampEditAngleInput?.value);
+      syncAngleControls(stampEditAngleInput, stampEditAngleSlider, cur + d);
       updateEditingStamp();
     });
   });
@@ -2121,26 +2751,26 @@ function bindEvents() {
     });
   });
   document.getElementById('btn-stamp-edit-ok')?.addEventListener('click', () => {
-    document.getElementById('stamp-edit-panel')?.classList.add('hidden');
-    App.editingStampId = null;
+    commitStampEditor();
   });
-  document.getElementById('btn-stamp-edit-delete')?.addEventListener('click', () => {
-    if (App.editingStampId != null) {
-      saveState();
-      App.texts = App.texts.filter(x => x.id !== App.editingStampId);
-      App.editingStampId = null;
-      document.getElementById('stamp-edit-panel')?.classList.add('hidden');
-      App.dirty = true;
-    }
-  });
+  document.getElementById('btn-stamp-edit-cancel')?.addEventListener('click', cancelStampEditor);
+  document.getElementById('btn-stamp-edit-x')?.addEventListener('click', cancelStampEditor);
+  document.getElementById('btn-stamp-edit-delete')?.addEventListener('click', deleteStampEditor);
 
   // 北マークツールボタン
   document.getElementById('sub-btn-north-arrow')?.addEventListener('click', () => setSubMeasureMode('north-arrow'));
 
   // 北マーク設定パネル（サイドバー）
-  document.getElementById('north-arrow-angle-input')?.addEventListener('input', e => {
-    App.northArrowAngle = parseFloat(e.target.value) || 0;
+  const northAngleInput = document.getElementById('north-arrow-angle-input');
+  const syncNorthPlacementAngle = value => {
+    App.northArrowAngle = syncAngleControls(northAngleInput, null, value);
+  };
+  syncNorthPlacementAngle(App.northArrowAngle);
+  northAngleInput?.addEventListener('input', e => {
+    if (e.target.value === '') return;
+    syncNorthPlacementAngle(e.target.value);
   });
+  northAngleInput?.addEventListener('change', e => syncNorthPlacementAngle(e.target.value));
   document.getElementById('north-arrow-size-input')?.addEventListener('input', e => {
     App.northArrowSize = parseFloat(e.target.value) || 1.0;
     document.getElementById('north-arrow-size-val').textContent = App.northArrowSize.toFixed(2).replace(/\.?0+$/, '') + '×';
@@ -2148,56 +2778,70 @@ function bindEvents() {
   document.querySelectorAll('.btn-na-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
-      const inp = document.getElementById('north-arrow-angle-input');
-      App.northArrowAngle = ((App.northArrowAngle + d) % 360 + 360) % 360;
-      if (inp) inp.value = App.northArrowAngle;
+      syncNorthPlacementAngle(App.northArrowAngle + d);
     });
   });
 
   // 北マーク編集オーバーレイ
   const naEditAngle = document.getElementById('na-edit-angle');
+  const naEditAngleSlider = document.getElementById('na-edit-angle-slider');
   const naEditSize = document.getElementById('na-edit-size');
+  syncAngleControls(naEditAngle, naEditAngleSlider, naEditAngle?.value);
   const updateEditingNorthArrow = () => {
     const t = App.texts.find(x => x.id === App.editingNorthArrowId);
     if (!t) return;
-    const a = parseFloat(naEditAngle?.value) || 0;
+    const a = syncAngleControls(naEditAngle, naEditAngleSlider, naEditAngle?.value);
     const s = parseFloat(naEditSize?.value) || 1.0;
     t.angle = a; t.size = s;
     document.getElementById('na-edit-size-val').textContent = s.toFixed(2).replace(/\.?0+$/, '') + '×';
     App.dirty = true;
   };
-  naEditAngle?.addEventListener('input', updateEditingNorthArrow);
+  naEditAngle?.addEventListener('input', () => {
+    if (naEditAngle.value === '') return;
+    syncAngleControls(naEditAngle, naEditAngleSlider, naEditAngle.value);
+    updateEditingNorthArrow();
+  });
+  naEditAngle?.addEventListener('change', () => {
+    syncAngleControls(naEditAngle, naEditAngleSlider, naEditAngle.value);
+    updateEditingNorthArrow();
+  });
+  naEditAngleSlider?.addEventListener('input', () => {
+    syncAngleControls(naEditAngle, naEditAngleSlider, naEditAngleSlider.value);
+    updateEditingNorthArrow();
+  });
   naEditSize?.addEventListener('input', updateEditingNorthArrow);
   document.querySelectorAll('.btn-na-edit-step').forEach(btn => {
     btn.addEventListener('click', () => {
       const d = parseFloat(btn.dataset.delta) || 0;
-      const cur = parseFloat(naEditAngle?.value) || 0;
-      const next = ((cur + d) % 360 + 360) % 360;
-      if (naEditAngle) naEditAngle.value = next;
+      const cur = normalizeObjectAngle(naEditAngle?.value);
+      syncAngleControls(naEditAngle, naEditAngleSlider, cur + d);
       updateEditingNorthArrow();
     });
   });
-  document.getElementById('btn-na-edit-ok')?.addEventListener('click', () => {
-    document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
-    App.editingNorthArrowId = null;
-  });
-  document.getElementById('btn-na-edit-delete')?.addEventListener('click', () => {
-    if (App.editingNorthArrowId != null) {
-      saveState();
-      App.texts = App.texts.filter(x => x.id !== App.editingNorthArrowId);
-      App.editingNorthArrowId = null;
-      document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+  document.querySelectorAll('.north-edit-color-swatch').forEach(button => {
+    button.addEventListener('click', () => {
+      const t = App.texts.find(x => x.id === App.editingNorthArrowId);
+      if (!t) return;
+      t.color = button.dataset.color || '#1e293b';
+      document.querySelectorAll('.north-edit-color-swatch').forEach(item =>
+        item.classList.toggle('is-active', item === button));
       App.dirty = true;
-    }
+    });
   });
+  document.getElementById('btn-na-edit-ok')?.addEventListener('click', commitNorthArrowEditor);
+  document.getElementById('btn-na-edit-cancel')?.addEventListener('click', cancelNorthArrowEditor);
+  document.getElementById('btn-na-edit-x')?.addEventListener('click', cancelNorthArrowEditor);
+  document.getElementById('btn-na-edit-delete')?.addEventListener('click', deleteNorthArrowEditor);
 
   // ラベル編集オーバーレイ
   document.getElementById('label-edit-input')?.addEventListener('keydown', e => {
+    if ((e.isComposing || e.keyCode === 229)) return;
     if (e.key === 'Enter') { e.preventDefault(); confirmLabelEdit(); }
     if (e.key === 'Escape') { e.preventDefault(); cancelLabelEdit(); }
   });
   document.getElementById('label-edit-ok')?.addEventListener('click', confirmLabelEdit);
   document.getElementById('label-edit-cancel')?.addEventListener('click', cancelLabelEdit);
+  document.getElementById('label-edit-x')?.addEventListener('click', cancelLabelEdit);
   // 色スウォッチ選択
   document.getElementById('label-color-row')?.addEventListener('click', e => {
     const btn = e.target.closest('.lec-sw');
@@ -2215,6 +2859,90 @@ function getPaperDims(size) {
   return { w: Math.round(842 * rs), h: Math.round(595 * rs) };  // A4
 }
 
+function getPaperSizeMm(size, landscape) {
+  const portrait = size === 'A3' ? { w: 297, h: 420 } : { w: 210, h: 297 };
+  return landscape ? { w: portrait.h, h: portrait.w } : portrait;
+}
+
+function mm(v) {
+  return (Math.round(v * 1000) / 1000).toString();
+}
+
+function detectPrintPaperSize() {
+  if (App.paperMode) return App.paperSize || 'A4';
+  if (!App.isImageMode && App.pageWidthPt && App.pageHeightPt) {
+    const shortPt = Math.min(App.pageWidthPt, App.pageHeightPt);
+    const longPt = Math.max(App.pageWidthPt, App.pageHeightPt);
+    if (Math.abs(shortPt - 595) <= 24 && Math.abs(longPt - 842) <= 24) return 'A4';
+    if (Math.abs(shortPt - 842) <= 30 && Math.abs(longPt - 1190) <= 30) return 'A3';
+  }
+  return App.printSize || 'A3';
+}
+
+function syncPrintPaperButtons(size) {
+  document.querySelectorAll('.paper-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.size === size);
+  });
+}
+
+function fitMmToPage(widthPx, heightPx, pageMm) {
+  const ratio = widthPx / Math.max(heightPx, 1);
+  let w = pageMm.w;
+  let h = w / ratio;
+  if (h > pageMm.h) {
+    h = pageMm.h;
+    w = h * ratio;
+  }
+  return { w, h };
+}
+
+function getPrintImageSizeMm(pc, pageMm) {
+  if (App.paperMode) return { ...pageMm };
+  if (!App.isImageMode && App.pageWidthPt && App.pageHeightPt) {
+    return {
+      w: App.pageWidthPt * 25.4 / 72,
+      h: App.pageHeightPt * 25.4 / 72,
+    };
+  }
+  return fitMmToPage(pc.width, pc.height, pageMm);
+}
+
+function buildPrintDocument({ title, dataUrl, pageSize, landscape, pageMm, imageMm, autoPrint }) {
+  const cssPageSize = `${pageSize} ${landscape ? 'landscape' : 'portrait'}`;
+  const script = autoPrint ? '<script>window.onload = function(){ window.print(); }<\/script>' : '';
+  return `<!DOCTYPE html><html lang="ja"><head>
+    <meta charset="UTF-8">
+    <title>${title}</title>
+    <style>
+      @page { size: ${cssPageSize}; margin: 0; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: ${mm(pageMm.w)}mm;
+        height: ${mm(pageMm.h)}mm;
+        overflow: hidden;
+        background: #fff;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      img {
+        display: block;
+        flex: 0 0 auto;
+        width: ${mm(imageMm.w)}mm;
+        height: ${mm(imageMm.h)}mm;
+        object-fit: contain;
+      }
+    </style>
+  </head><body>
+    <img src="${dataUrl}">
+    ${script}
+  </body></html>`;
+}
+
 function togglePaperMode() {
   App.paperMode = !App.paperMode;
   const btn = document.getElementById('btn-paper-mode');
@@ -2225,19 +2953,66 @@ function togglePaperMode() {
     const d = getPaperDims(App.paperSize);
     App.paperW = d.w; App.paperH = d.h;
     if (bar) { bar.classList.remove('hidden'); positionOverlayBar(bar); }
+    // 用紙モードでは下絵が無くても作図できるようドロップゾーンを隠す
+    document.getElementById('drop-zone').style.display = 'none';
     fitPaperToView();
   } else {
-    btn.textContent = '📄 用紙';
+    btn.textContent = '📄 作業用紙';
     btn.classList.remove('active-mode');
     if (bar) bar.classList.add('hidden');
+    // 下絵も図形も無ければドロップゾーンを戻す
+    const hasDrawings = App.lots.length || App.items.length || App.texts.length;
+    if (!App.pdfReady && !hasDrawings) document.getElementById('drop-zone').style.display = '';
     if (App.pdfReady) fitToView();
   }
   App.dirty = true;
 }
 
 // ===== マウスイベント =====
+function beginUndoableDrag(sx, sy) {
+  App.dragPending = true;
+  App.dragStartSX = sx;
+  App.dragStartSY = sy;
+}
+
+// スタンプ類は「配置」と「編集」を一続きにする。配置後も作成モードを
+// 残すと、編集のためのダブルクリックが追加配置として処理されるため、
+// 1個置いた時点で選択モードへ戻し、マウスを離してから編集画面を開く。
+function finishOneShotObjectPlacement(textObject, clientX, clientY) {
+  if (!textObject) return;
+  const isNorth = textObject.textType === 'north-arrow';
+  // The v1.4 command bar owns the placement lifecycle. Keep the active
+  // command and do not open a floating editor after the placement click.
+  if (App.commandShellV14) {
+    App.lastClicked = { type: 'text', id: textObject.id };
+    App.selectedFormat = { kind: isNorth ? 'north' : 'stamp', id: textObject.id };
+    updateResults();
+    updateFormatPanel();
+    App.dirty = true;
+    notifyAppState('placement-complete');
+    return;
+  }
+  setLotTool('select');
+  App.lastClicked = { type: 'text', id: textObject.id };
+  App.selectedFormat = { kind: isNorth ? 'north' : 'stamp', id: textObject.id };
+  updateResults();
+  updateFormatPanel();
+  App.dirty = true;
+
+  const openEditor = () => {
+    if (!App.texts.some(item => item.id === textObject.id)) return;
+    if (isNorth) openNorthArrowEditor(textObject.id, clientX, clientY);
+    else openStampEditor(textObject.id, clientX, clientY);
+  };
+  window.addEventListener('mouseup', () => {
+    window.setTimeout(openEditor, 0);
+  }, { once: true, capture: true });
+}
+
 function onMouseDown(e) {
+  e.preventDefault();
   if (!App.pdfReady && !App.paperMode) return;
+  App.canvasPointerDown = true;
   const { sx, sy } = getRel(e);
   const cp = s2c(sx, sy);
 
@@ -2245,10 +3020,18 @@ function onMouseDown(e) {
   if (e.button === 0) {
     const h = hitLabel(sx, sy);
     if (h) {
-      App.lastClicked = { type: h.isText ? 'text' : 'item', id: h.itemId };
+      if (h.isLotLabel || h.isLotEdge || h.isLotCenter) {
+        App.lastClicked = { type: 'lot', id: h.lotId };
+      } else {
+        App.lastClicked = { type: h.isText ? 'text' : 'item', id: h.itemId };
+      }
     } else {
       const l = hitLot(cp);
       if (l) App.lastClicked = { type: 'lot', id: l.id };
+      else {
+        const item = hitMeasureItem(cp);
+        if (item) App.lastClicked = { type: 'item', id: item.id };
+      }
     }
   }
 
@@ -2259,8 +3042,17 @@ function onMouseDown(e) {
     App.dirty = true;
     if (App.calibPts.length === 2) {
       App.calibrating = false;
-      document.getElementById('calibration-dist-modal').classList.remove('hidden');
-      document.getElementById('calibration-dist-input').focus();
+      // Wait until the second canvas click (including mouseup/click) has fully
+      // finished before opening the dialog. Showing it during mousedown can
+      // make the release land on a distance preset underneath the pointer and
+      // apply a value before the user gets a chance to type.
+      window.addEventListener('mouseup', () => {
+        setTimeout(() => {
+          if (App.calibPts.length !== 2 || App.calibrating) return;
+          document.getElementById('calibration-dist-modal').classList.remove('hidden');
+          notifyAppState('calibration-distance');
+        }, 0);
+      }, { once: true, capture: true });
     }
     return;
   }
@@ -2268,6 +3060,7 @@ function onMouseDown(e) {
   // ===== 分譲地モード =====
   if (App.appMode === 'subdivision') {
     if (e.button === 1 || (e.button === 0 && e.altKey) || App.mode === 'pan') {
+      hidePlacementPreview();
       App.panning = true;
       App.panSX = sx; App.panSY = sy;
       App.panVX = App.vx; App.panVY = App.vy;
@@ -2285,11 +3078,11 @@ function onMouseDown(e) {
     }
     // 全体移動モード
     if (App.lotTool === 'move-all') {
-      saveState();
+      beginUndoableDrag(sx, sy);
       App.moveAllDragging = true;
       App.moveAllStartX = cp.x;
       App.moveAllStartY = cp.y;
-      App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({ ...p })) : null, lox: l.labelOffX || 0, loy: l.labelOffY || 0, sbx: l.setbackOffX || 0, sby: l.setbackOffY || 0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
+      App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({ ...p })) : null, lox: l.labelOffX || 0, loy: l.labelOffY || 0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
       App.moveAllOrigItems = App.items.map(i => ({ id: i.id, pts: i.points ? i.points.map(p => ({ ...p })) : null, x1: i.x1, y1: i.y1, x2: i.x2, y2: i.y2, tipX: i.tipX, tipY: i.tipY, ox: i.offsetX, oy: i.offsetY }));
       App.moveAllOrigTexts = App.texts.map(t => ({ id: t.id, x: t.x, y: t.y, tipX: t.tipX, tipY: t.tipY }));
       canvas.style.cursor = 'grabbing';
@@ -2297,33 +3090,121 @@ function onMouseDown(e) {
     }
     // 削除モード
     if (App.lotTool === 'delete') {
-      saveState();
-      // 区画削除
-      const delLot = hitLot(cp);
-      if (delLot) {
-        App.lots = App.lots.filter(l => l.id !== delLot.id);
-        updateLotPanel(); App.dirty = true;
-        return;
-      }
-      // 計測アイテム削除
+      // 見た目の前面にある注記・計測を先に判定する。区画を先に
+      // 判定すると、区画内の文字を消すつもりで区画全体が消えていた。
       const hit = hitLabel(sx, sy);
-      if (hit) {
+      if (hit && !hit.isLotLabel && !hit.isLotEdge) {
+        saveState();
         if (hit.isText) {
           App.texts = App.texts.filter(t => t.id !== hit.itemId);
         } else {
           App.items = App.items.filter(i => i.id !== hit.itemId);
         }
+        reconcileSelectionState();
         updateResults();
         App.dirty = true;
         return;
       }
+      // 線・矢印などラベルを持たないアイテムの削除
+      const delItem = hitMeasureItem(cp);
+      if (delItem) {
+        saveState();
+        App.items = App.items.filter(i => i.id !== delItem.id);
+        reconcileSelectionState();
+        updateResults();
+        App.dirty = true;
+        return;
+      }
+      // 最後に区画本体を判定
+      const delLot = hitLot(cp);
+      if (delLot) {
+        saveState();
+        App.lots = App.lots.filter(l => l.id !== delLot.id);
+        reconcileSelectionState();
+        updateLotPanel(); App.dirty = true;
+        return;
+      }
       return;
     }
-    // 区画移動モード（区画クリック→個別移動、空白クリック→全体移動）
-    if (App.mode === 'select' && App.lotTool !== 'label-move' && App.lotTool !== 'merge' && App.lotTool !== 'corner-cut') {
+    // 寸法消しモード（辺の寸法をクリックで個別に表示/非表示トグル）
+    if (App.lotTool === 'edge-hide') {
+      const hit = hitLabel(sx, sy);
+      if (hit && hit.isLotEdge) {
+        saveState();
+        const lot = App.lots.find(l => l.id === hit.lotId);
+        if (lot) {
+          if (!lot.edgeHidden) lot.edgeHidden = {};
+          lot.edgeHidden[hit.edgeIdx] = !lot.edgeHidden[hit.edgeIdx];
+        }
+        App.dirty = true;
+      }
+      return;
+    }
+    // 選択・移動モード。v1.4では「選択」と「移動」を分離し、単なる
+    // 選択中に触れただけで図形が動かないようにする。
+    if (App.mode === 'select' && App.lotTool !== 'merge' && App.lotTool !== 'corner-cut' && App.lotTool !== 'edge-hide') {
+      // ① ラベル類を最優先で掴む（文字を掴めば文字だけ動く）
+      const labelHit = hitLabel(sx, sy);
+      if (labelHit) {
+        if (App.commandShellV14 && !App.selectionMoveEnabled) {
+          setSelectedFormatFromHit(labelHit);
+          App.lastClicked = labelHit.isLotLabel || labelHit.isLotEdge || labelHit.isLotCenter
+            ? { type: 'lot', id: labelHit.lotId }
+            : { type: labelHit.isText ? 'text' : 'item', id: labelHit.itemId };
+          notifyAppState('selection');
+          return;
+        }
+        beginUndoableDrag(sx, sy);
+        if (labelHit.isLotEdge) {
+          const lot = App.lots.find(l => l.id === labelHit.lotId);
+          if (lot) {
+            if (!lot.edgeLabelOffsets) lot.edgeLabelOffsets = {};
+            const uo = lot.edgeLabelOffsets[labelHit.edgeIdx] || { dx: 0, dy: 0 };
+            App.draggingEdgeLabelLotId = lot.id;
+            App.draggingEdgeLabelEdge = labelHit.edgeIdx;
+            App.dragEdgeLabelOffX = cp.x - uo.dx;
+            App.dragEdgeLabelOffY = cp.y - uo.dy;
+          }
+        } else if (labelHit.isLotLabel) {
+          // 区画ラベルブロック（番号・面積・価格など）
+          const lot = App.lots.find(l => l.id === labelHit.lotId);
+          if (lot) {
+            const cen = centroid(lot.points);
+            App.draggingLotLabelId = lot.id;
+            App.draggingRoadLabelPart = lot.type === 'road' ? (labelHit.roadLabelPart || 'title') : null;
+            App.dragLotLabelOffX = cp.x - labelHit.cx;
+            App.dragLotLabelOffY = cp.y - labelHit.cy;
+            if (lot.type !== 'road' || App.draggingRoadLabelPart === 'title') {
+              App.dragLotLabelOffX = cp.x - (cen.x + (lot.labelOffX || 0));
+              App.dragLotLabelOffY = cp.y - (cen.y + (lot.labelOffY || 0));
+            }
+          }
+        } else {
+          // 計測ラベル・メモ・引出線・スタンプ・北マーク
+          App.draggingId = labelHit.itemId;
+          App.dragLabelKey = labelHit.labelKey;
+          App.dragIsText = labelHit.isText;
+          App.dragOffX = cp.x - labelHit.cx;
+          App.dragOffY = cp.y - labelHit.cy;
+        }
+        setSelectedFormatFromHit(labelHit);
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+      // ラベル以外を掴むときは書式選択を解除
+      App.selectedFormat = null;
+      updateFormatPanel();
+      // ② 区画本体 → 区画ごと移動
       const lot = hitLot(cp);
       if (lot && lot.points) {
-        saveState();
+        if (App.commandShellV14 && !App.selectionMoveEnabled) {
+          App.lastClicked = { type: 'lot', id: lot.id };
+          App.selectedFormat = { kind: lot.type === 'road' ? 'road-label' : 'lot-label', id: lot.id };
+          updateFormatPanel();
+          notifyAppState('selection');
+          return;
+        }
+        beginUndoableDrag(sx, sy);
         App.draggingLotId = lot.id;
         const cen = centroid(lot.points);
         App.dragLotOffX = cp.x - cen.x;
@@ -2332,23 +3213,44 @@ function onMouseDown(e) {
         App.dragLotOrigCen = { x: cen.x, y: cen.y };
         canvas.style.cursor = 'grabbing';
       } else {
-        // 計測アイテム（ライン本体）のヒット → アイテム丸ごと移動
+        // ④ 計測・線アイテム本体 → アイテム丸ごと移動
         const hitItem = hitMeasureItem(cp);
         if (hitItem) {
-          saveState();
+          if (App.commandShellV14 && !App.selectionMoveEnabled) {
+            App.lastClicked = { type: 'item', id: hitItem.id };
+            App.selectedFormat = ['distance', 'polyline', 'area'].includes(hitItem.type)
+              ? { kind: 'item-label', id: hitItem.id, labelKey: 'main' }
+              : { kind: 'item', id: hitItem.id };
+            updateFormatPanel();
+            notifyAppState('selection');
+            return;
+          }
+          beginUndoableDrag(sx, sy);
           App.draggingItemId = hitItem.id;
           App.dragItemStartX = cp.x;
           App.dragItemStartY = cp.y;
           App.dragItemOrigPts = hitItem.points.map(p => ({ x: p.x, y: p.y }));
           App.dragItemOrigLabelPos = hitItem.labelPos ? { ...hitItem.labelPos } : null;
           App.dragItemOrigSegLabelPos = hitItem.segLabelPos ? hitItem.segLabelPos.map(p => p ? { ...p } : null) : null;
+          App.lastClicked = { type: 'item', id: hitItem.id };
+          App.selectedFormat = ['distance', 'polyline', 'area'].includes(hitItem.type)
+            ? { kind: 'item-label', id: hitItem.id, labelKey: 'main' }
+            : { kind: 'item', id: hitItem.id };
+          notifyAppState('selection');
           canvas.style.cursor = 'grabbing';
         } else {
-          // 空白クリック → 全体移動（旧:全体移動ボタン統合）
-          saveState();
+          // 空白ドラッグによる全体移動は明示的な「移動」中だけ許可。
+          if (App.commandShellV14 && !App.selectionMoveEnabled) {
+            App.lastClicked = null;
+            App.selectedFormat = null;
+            updateFormatPanel();
+            notifyAppState('selection');
+            return;
+          }
+          beginUndoableDrag(sx, sy);
           App.moveAllDragging = true;
           App.moveAllStartX = cp.x; App.moveAllStartY = cp.y;
-          App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({...p})) : null, lox: l.labelOffX||0, loy: l.labelOffY||0, sbx: l.setbackOffX||0, sby: l.setbackOffY||0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
+            App.moveAllOrigLots  = App.lots.map(l => ({ id: l.id, pts: l.points ? l.points.map(p => ({...p})) : null, lox: l.labelOffX||0, loy: l.labelOffY||0, elofs: l.edgeLabelOffsets ? JSON.parse(JSON.stringify(l.edgeLabelOffsets)) : null }));
           App.moveAllOrigItems = App.items.map(i => ({ id: i.id, pts: i.points ? i.points.map(p => ({...p})) : null, x1: i.x1, y1: i.y1, x2: i.x2, y2: i.y2, tipX: i.tipX, tipY: i.tipY, ox: i.offsetX, oy: i.offsetY }));
           App.moveAllOrigTexts = App.texts.map(t => ({ id: t.id, x: t.x, y: t.y, tipX: t.tipX, tipY: t.tipY }));
           canvas.style.cursor = 'grabbing';
@@ -2360,7 +3262,7 @@ function onMouseDown(e) {
     if (App.lotTool === 'label-move') {
       const hit = hitLabel(sx, sy);
       if (hit) {
-        saveState();
+        beginUndoableDrag(sx, sy);
         if (hit.isLotEdge) {
           // 辺の寸法テキスト移動（旧:edge-label-move統合）
           const lot = App.lots.find(l => l.id === hit.lotId);
@@ -2373,6 +3275,20 @@ function onMouseDown(e) {
             App.dragEdgeLabelOffY = cp.y - uo.dy;
             canvas.style.cursor = 'grabbing';
           }
+        } else if (hit.isLotLabel) {
+          const lot = App.lots.find(l => l.id === hit.lotId);
+          if (lot) {
+            const cen = centroid(lot.points);
+            App.draggingLotLabelId = lot.id;
+            App.draggingRoadLabelPart = lot.type === 'road' ? (hit.roadLabelPart || 'title') : null;
+            App.dragLotLabelOffX = cp.x - hit.cx;
+            App.dragLotLabelOffY = cp.y - hit.cy;
+            if (lot.type !== 'road' || App.draggingRoadLabelPart === 'title') {
+              App.dragLotLabelOffX = cp.x - (cen.x + (lot.labelOffX || 0));
+              App.dragLotLabelOffY = cp.y - (cen.y + (lot.labelOffY || 0));
+            }
+            canvas.style.cursor = 'grabbing';
+          }
         } else {
           App.draggingId = hit.itemId;
           App.dragLabelKey = hit.labelKey;
@@ -2382,38 +3298,15 @@ function onMouseDown(e) {
           canvas.style.cursor = 'grabbing';
         }
       } else {
-        // セットバックテキストのヒットテスト
-        const hitR = 20 / App.vz;
-        let sbHit = null;
-        for (const rl of App.lots) {
-          if (!rl.points || !rl.setback || rl.type !== 'road') continue;
-          const rcen = centroid(rl.points);
-          const scale = rl.roadLabelSize || 1.0;
-          const sbDef = pfs(11) * scale * 2.8;
-          const sbX = rcen.x + (rl.setbackOffX || 0);
-          const sbY = rcen.y + (rl.setbackOffY != null ? rl.setbackOffY : sbDef);
-          if (Math.hypot(cp.x - sbX, cp.y - sbY) < hitR) { sbHit = rl; break; }
-        }
-        if (sbHit) {
-          saveState();
-          const rcen = centroid(sbHit.points);
-          const scale = sbHit.roadLabelSize || 1.0;
-          const sbDef = pfs(11) * scale * 2.8;
-          if (sbHit.setbackOffY == null) sbHit.setbackOffY = sbDef;
-          App.draggingSetbackId = sbHit.id;
-          App.dragSetbackOffX = cp.x - (rcen.x + (sbHit.setbackOffX || 0));
-          App.dragSetbackOffY = cp.y - (rcen.y + sbHit.setbackOffY);
+        const lot = hitLot(cp);
+        if (lot && lot.points) {
+          beginUndoableDrag(sx, sy);
+          const cen = centroid(lot.points);
+          App.draggingLotLabelId = lot.id;
+          App.draggingRoadLabelPart = lot.type === 'road' ? 'title' : null;
+          App.dragLotLabelOffX = cp.x - (cen.x + (lot.labelOffX || 0));
+          App.dragLotLabelOffY = cp.y - (cen.y + (lot.labelOffY || 0));
           canvas.style.cursor = 'grabbing';
-        } else {
-          const lot = hitLot(cp);
-          if (lot && lot.points) {
-            saveState();
-            const cen = centroid(lot.points);
-            App.draggingLotLabelId = lot.id;
-            App.dragLotLabelOffX = cp.x - (cen.x + (lot.labelOffX || 0));
-            App.dragLotLabelOffY = cp.y - (cen.y + (lot.labelOffY || 0));
-            canvas.style.cursor = 'grabbing';
-          }
         }
       }
       return;
@@ -2426,7 +3319,7 @@ function onMouseDown(e) {
           if (!lot.points || lot.type === 'road') continue;
           const pts = lot.points;
           const cen = centroid(pts);
-          const scale = App.lotEdgeScale || 1.0;
+          const scale = parseFloat(lot.edgeScale) || App.lotEdgeScale || 1.0;
           const fsE = pfs(7.5) * scale;
           const baseOff = fsE * 0.75;
           for (let i = 0; i < pts.length; i++) {
@@ -2445,7 +3338,7 @@ function onMouseDown(e) {
           }
         }
         if (bestLot) {
-          saveState();
+          beginUndoableDrag(sx, sy);
           if (!bestLot.edgeLabelOffsets) bestLot.edgeLabelOffsets = {};
           const uo = bestLot.edgeLabelOffsets[bestEdge] || { dx: 0, dy: 0 };
           App.draggingEdgeLabelLotId = bestLot.id;
@@ -2581,6 +3474,7 @@ function onMouseDown(e) {
 
   // パン
   if (e.button === 1 || (e.button === 0 && e.altKey) || App.mode === 'pan') {
+    hidePlacementPreview();
     App.panning = true;
     App.panSX = sx; App.panSY = sy;
     App.panVX = App.vx; App.panVY = App.vy;
@@ -2609,6 +3503,7 @@ function onMouseDown(e) {
   if (App.mode === 'select') {
     const hit = hitLabel(sx, sy);   // スクリーン座標で判定
     if (hit) {
+      beginUndoableDrag(sx, sy);
       App.draggingId = hit.itemId;  // itemId が正しいキー
       App.dragLabelKey = hit.labelKey;
       App.dragIsText = hit.isText;
@@ -2640,7 +3535,7 @@ function onMouseDown(e) {
       }
     }
     if (best) {
-      saveState();
+      beginUndoableDrag(sx, sy);
       if (best.isLot) {
         App.draggingLotVertex = { lotId: best.lotId, ptIndex: best.ptIndex };
       } else {
@@ -2675,43 +3570,67 @@ function onMouseDown(e) {
 
   // メモモード
   if (App.mode === 'text') {
-    showTextInput(sx, sy, cp);
+    hidePlacementPreview();
+    showTextInput(sx, sy, cp, App.placementText || '');
     return;
   }
 
   // 北マークモード
   if (App.mode === 'north-arrow') {
+    hidePlacementPreview();
+    const existingHit = hitLabel(sx, sy);
+    const existingNorth = existingHit?.isText
+      ? App.texts.find(t => t.id === existingHit.itemId && t.textType === 'north-arrow')
+      : null;
+    if (existingNorth) {
+      finishOneShotObjectPlacement(existingNorth, e.clientX, e.clientY);
+      return;
+    }
+    if (e.detail > 1) return;
     saveState();
-    App.texts.push({
+    const northArrow = {
       id: App.nextId++,
       textType: 'north-arrow',
       x: cp.x, y: cp.y,
-      angle: App.northArrowAngle,
+      angle: normalizeObjectAngle(App.northArrowAngle),
       size: App.northArrowSize,
       color: '#1e293b',
-    });
-    App.dirty = true;
+    };
+    App.texts.push(northArrow);
+    finishOneShotObjectPlacement(northArrow, e.clientX, e.clientY);
     return;
   }
 
   // スタンプモード（家屋・駐車場）
   if (App.mode === 'house-stamp' || App.mode === 'parking-stamp') {
+    hidePlacementPreview();
+    const existingHit = hitLabel(sx, sy);
+    const existingStamp = existingHit?.isText
+      ? App.texts.find(t => t.id === existingHit.itemId
+        && (t.textType === 'house-stamp' || t.textType === 'parking-stamp'))
+      : null;
+    if (existingStamp) {
+      finishOneShotObjectPlacement(existingStamp, e.clientX, e.clientY);
+      return;
+    }
+    if (e.detail > 1) return;
     if (!App.mpp) { document.getElementById('calibration-modal').classList.remove('hidden'); return; }
     saveState();
     const isP = App.mode === 'parking-stamp';
-    App.texts.push({
+    const stamp = {
       id: App.nextId++,
       textType: App.mode,
       x: cp.x, y: cp.y,
-      angle: App.stampAngle,
+      angle: normalizeObjectAngle(App.stampAngle),
       wM: App.stampWM,
       hM: App.stampHM,
       label: App.stampLabel != null ? App.stampLabel : (isP ? 'P' : '家屋'),
       lineStyle: App.stampLineStyle || (isP ? 'dashed' : 'solid'),
       lineColor: App.stampLineColor || (isP ? '#1d4ed8' : '#78350f'),
       showDims: App.stampShowDims !== false,
-    });
-    App.dirty = true;
+    };
+    App.texts.push(stamp);
+    finishOneShotObjectPlacement(stamp, e.clientX, e.clientY);
     return;
   }
 
@@ -2723,7 +3642,7 @@ function onMouseDown(e) {
     } else {
       App.pendingCalloutTip = App.pts[0];
       App.pts = [];
-      showTextInput(sx, sy, cp);
+      showTextInput(sx, sy, cp, App.placementText || '');
     }
     return;
   }
@@ -2747,6 +3666,7 @@ function onMouseMove(e) {
   const { sx, sy } = getRel(e);
 
   if (App.panning) {
+    hidePlacementPreview();
     App.vx = App.panVX + sx - App.panSX;
     App.vy = App.panVY + sy - App.panSY;
     updateZoomInfo();
@@ -2756,22 +3676,21 @@ function onMouseMove(e) {
 
   const cp = s2c(sx, sy);
   App.mx = cp.x; App.my = cp.y;
+  if (isPlacementPreviewMode()) {
+    App.placementPreviewInside = true;
+    App.dirty = true;
+  }
+  if (App.dragPending) {
+    if (Math.hypot(sx - App.dragStartSX, sy - App.dragStartSY) < 4) return;
+    saveState();
+    App.dragPending = false;
+  }
   // スナッププレビュー更新（全モード共通）
   const _sp = snapPoint(cp.x, cp.y);
   App.snapPt = _sp.pt; App.snapType = _sp.type;
 
   // 分譲地モード
   if (App.appMode === 'subdivision') {
-    if (App.draggingSetbackId !== null) {
-      const lot = App.lots.find(l => l.id === App.draggingSetbackId);
-      if (lot) {
-        const cen = centroid(lot.points);
-        lot.setbackOffX = cp.x - App.dragSetbackOffX - cen.x;
-        lot.setbackOffY = cp.y - App.dragSetbackOffY - cen.y;
-        App.dirty = true;
-      }
-      return;
-    }
     if (App.draggingEdgeLabelLotId !== null) {
       const lot = App.lots.find(l => l.id === App.draggingEdgeLabelLotId);
       if (lot) {
@@ -2812,7 +3731,6 @@ function onMouseMove(e) {
         if (!orig) return;
         if (lot.points && orig.pts) lot.points.forEach((p, i) => { p.x = orig.pts[i].x + dx; p.y = orig.pts[i].y + dy; });
         lot.labelOffX = orig.lox; lot.labelOffY = orig.loy;
-        lot.setbackOffX = orig.sbx; lot.setbackOffY = orig.sby;
         if (lot.edgeLabelOffsets && orig.elofs) lot.edgeLabelOffsets = JSON.parse(JSON.stringify(orig.elofs));
       });
       // 計測アイテム
@@ -2838,8 +3756,13 @@ function onMouseMove(e) {
       const lot = App.lots.find(l => l.id === App.draggingLotLabelId);
       if (lot) {
         const cen = centroid(lot.points);
-        lot.labelOffX = cp.x - App.dragLotLabelOffX - cen.x;
-        lot.labelOffY = cp.y - App.dragLotLabelOffY - cen.y;
+        if (lot.type === 'road' && App.draggingRoadLabelPart === 'width') {
+          lot.roadWidthOffX = cp.x - App.dragLotLabelOffX - cen.x;
+          lot.roadWidthOffY = cp.y - App.dragLotLabelOffY - cen.y;
+        } else {
+          lot.labelOffX = cp.x - App.dragLotLabelOffX - cen.x;
+          lot.labelOffY = cp.y - App.dragLotLabelOffY - cen.y;
+        }
       }
       App.dirty = true;
       return;
@@ -2957,6 +3880,8 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
+  App.canvasPointerDown = false;
+  App.dragPending = false;
   if (App.panning) {
     App.panning = false;
     canvas.style.cursor = getCursor();
@@ -2984,15 +3909,12 @@ function onMouseUp(e) {
   }
   if (App.draggingLotLabelId !== null) {
     App.draggingLotLabelId = null;
+    App.draggingRoadLabelPart = null;
     canvas.style.cursor = App.mode === 'select' ? 'default' : 'crosshair';
   }
   if (App.draggingEdgeLabelLotId !== null) {
     App.draggingEdgeLabelLotId = null;
     App.draggingEdgeLabelEdge = -1;
-    canvas.style.cursor = 'crosshair';
-  }
-  if (App.draggingSetbackId !== null) {
-    App.draggingSetbackId = null;
     canvas.style.cursor = 'crosshair';
   }
   if (App.draggingVertex !== null) {
@@ -3007,40 +3929,243 @@ function onMouseUp(e) {
     canvas.style.cursor = 'crosshair';
     App.dirty = true;
   }
+  // ドラッグ終了 → 文字エディタを再表示（ドラッグ中は隠れている）
+  if (App.selectedFormat && App.mode === 'select') updateFormatPanel();
+}
+
+function restoreEditedText(session) {
+  if (!session) return;
+  const index = App.texts.findIndex(t => t.id === session.id);
+  if (index >= 0) App.texts[index] = JSON.parse(JSON.stringify(session.original));
+}
+
+function refreshObjectEditorResult() {
+  updateResults();
+  updateFormatPanel();
+  App.dirty = true;
+}
+
+function setStampEditorKind(kind, { mutate = true } = {}) {
+  if (!['house-stamp', 'parking-stamp'].includes(kind)) return;
+  const stamp = App.texts.find(t => t.id === App.editingStampId);
+  if (!stamp) return;
+  const previousKind = stamp.textType === 'parking-stamp' ? 'parking-stamp' : 'house-stamp';
+  const previousDefault = previousKind === 'parking-stamp' ? 'P' : '家屋';
+  const nextDefault = kind === 'parking-stamp' ? 'P' : '家屋';
+  if (mutate) {
+    stamp.textType = kind;
+    if (stamp.label == null || stamp.label === previousDefault) stamp.label = nextDefault;
+  }
+  const labelInput = document.getElementById('stamp-edit-label-text');
+  if (labelInput) labelInput.value = stamp.label ?? '';
+  const title = document.getElementById('stamp-edit-label');
+  if (title) title.textContent = kind === 'parking-stamp' ? '駐車場スタンプを編集' : '家屋スタンプを編集';
+  document.querySelectorAll('#stamp-edit-kind-switch .next-editor-kind-button').forEach(btn => {
+    const active = btn.dataset.kind === kind;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  if (mutate) App.dirty = true;
+}
+
+function cancelStampEditor() {
+  restoreEditedText(_stampEditSession);
+  _stampEditSession = null;
+  App.editingStampId = null;
+  document.getElementById('stamp-edit-panel')?.classList.add('hidden');
+  refreshObjectEditorResult();
+}
+
+function commitStampEditor() {
+  const stamp = App.texts.find(t => t.id === App.editingStampId);
+  if (stamp) stamp.angle = normalizeObjectAngle(stamp.angle);
+  if (_stampEditSession && stamp && JSON.stringify(stamp) !== JSON.stringify(_stampEditSession.original)) {
+    pushHistoryState(_stampEditSession.historyState);
+  }
+  _stampEditSession = null;
+  App.editingStampId = null;
+  document.getElementById('stamp-edit-panel')?.classList.add('hidden');
+  refreshObjectEditorResult();
+}
+
+function deleteStampEditor() {
+  if (App.editingStampId == null) return;
+  if (_stampEditSession) pushHistoryState(_stampEditSession.historyState);
+  else saveState();
+  App.texts = App.texts.filter(t => t.id !== App.editingStampId);
+  _stampEditSession = null;
+  App.editingStampId = null;
+  document.getElementById('stamp-edit-panel')?.classList.add('hidden');
+  reconcileSelectionState();
+  refreshObjectEditorResult();
+}
+
+function cancelNorthArrowEditor() {
+  restoreEditedText(_northEditSession);
+  _northEditSession = null;
+  App.editingNorthArrowId = null;
+  document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+  refreshObjectEditorResult();
+}
+
+function commitNorthArrowEditor() {
+  const north = App.texts.find(t => t.id === App.editingNorthArrowId);
+  if (north) north.angle = normalizeObjectAngle(north.angle);
+  if (_northEditSession && north && JSON.stringify(north) !== JSON.stringify(_northEditSession.original)) {
+    pushHistoryState(_northEditSession.historyState);
+  }
+  _northEditSession = null;
+  App.editingNorthArrowId = null;
+  document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+  refreshObjectEditorResult();
+}
+
+function deleteNorthArrowEditor() {
+  if (App.editingNorthArrowId == null) return;
+  if (_northEditSession) pushHistoryState(_northEditSession.historyState);
+  else saveState();
+  App.texts = App.texts.filter(t => t.id !== App.editingNorthArrowId);
+  _northEditSession = null;
+  App.editingNorthArrowId = null;
+  document.getElementById('north-arrow-edit-panel')?.classList.add('hidden');
+  reconcileSelectionState();
+  refreshObjectEditorResult();
+}
+
+function hideFloatingEditors(exceptId = '') {
+  const stampPanel = document.getElementById('stamp-edit-panel');
+  const northPanel = document.getElementById('north-arrow-edit-panel');
+  const memoPanel = document.getElementById('memo-panel');
+  const labelPanel = document.getElementById('label-edit-overlay');
+  if (exceptId !== 'stamp-edit-panel' && stampPanel && !stampPanel.classList.contains('hidden')) cancelStampEditor();
+  if (exceptId !== 'north-arrow-edit-panel' && northPanel && !northPanel.classList.contains('hidden')) cancelNorthArrowEditor();
+  if (exceptId !== 'memo-panel' && memoPanel && !memoPanel.classList.contains('hidden')) cancelTextInput();
+  if (exceptId !== 'label-edit-overlay' && labelPanel && !labelPanel.classList.contains('hidden')) cancelLabelEdit();
+  if (exceptId !== 'color-picker-popup') document.getElementById('color-picker-popup')?.classList.add('hidden');
+}
+
+function getFloatingEditorSafeRect() {
+  const canvasContainer = document.getElementById('canvas-container');
+  const rect = canvasContainer?.getBoundingClientRect();
+  const margin = 8;
+  const fallback = { left: margin, top: margin, right: window.innerWidth - margin, bottom: window.innerHeight - margin };
+  if (!rect || rect.width < 220 || rect.height < 180) return fallback;
+  return {
+    left: Math.max(margin, rect.left + margin),
+    top: Math.max(margin, rect.top + margin),
+    right: Math.min(window.innerWidth - margin, rect.right - margin),
+    bottom: Math.min(window.innerHeight - margin, rect.bottom - margin),
+  };
+}
+
+function clampFloatingEditorPosition(panel, left, top) {
+  const safe = getFloatingEditorSafeRect();
+  const rect = panel.getBoundingClientRect();
+  const maxLeft = Math.max(safe.left, safe.right - rect.width);
+  const maxTop = Math.max(safe.top, safe.bottom - rect.height);
+  return {
+    left: Math.min(Math.max(left, safe.left), maxLeft),
+    top: Math.min(Math.max(top, safe.top), maxTop),
+    maxHeight: Math.max(180, safe.bottom - safe.top),
+  };
+}
+
+function positionCanvasFloatingPanel(panel, clientX, clientY) {
+  positionViewportFloatingPanel(panel, clientX + 12, clientY - 20);
+}
+
+function positionViewportFloatingPanel(panel, clientX, clientY) {
+  if (!panel) return;
+  hideFloatingEditors(panel.id);
+  if (['memo-panel', 'stamp-edit-panel', 'north-arrow-edit-panel'].includes(panel.id)) {
+    document.getElementById('text-editor-pop')?.classList.add('hidden');
+  }
+  panel.classList.remove('hidden');
+  panel.style.visibility = 'hidden';
+  panel.style.left = '0px';
+  panel.style.top = '0px';
+  const safe = getFloatingEditorSafeRect();
+  const docked = window.innerWidth <= 900 || window.innerHeight <= 640;
+  panel.classList.toggle('is-docked-editor', docked);
+  panel.style.maxHeight = Math.max(180, safe.bottom - safe.top) + 'px';
+  const rect = panel.getBoundingClientRect();
+  const preferredLeft = docked ? safe.right - rect.width : clientX;
+  const preferredTop = docked ? safe.top : clientY;
+  const pos = clampFloatingEditorPosition(panel, preferredLeft, preferredTop);
+  panel.style.left = pos.left + 'px';
+  panel.style.top = pos.top + 'px';
+  panel.style.visibility = '';
+}
+
+function focusFloatingInputAfterPointer(input, { select = false } = {}) {
+  if (!input) return;
+  const focus = () => {
+    if (!input.isConnected || input.closest('.hidden')) return;
+    input.focus({ preventScroll: true });
+    if (select) input.select?.();
+  };
+  if (App.canvasPointerDown) {
+    window.addEventListener('mouseup', () => {
+      App.canvasPointerDown = false;
+      requestAnimationFrame(focus);
+    }, { once: true, capture: true });
+  } else {
+    requestAnimationFrame(focus);
+  }
 }
 
 function openNorthArrowEditor(id, clientX, clientY) {
+  const alreadyOpen = _northEditSession?.id === id
+    && !document.getElementById('north-arrow-edit-panel')?.classList.contains('hidden');
+  if (alreadyOpen) return;
+  if (_northEditSession) cancelNorthArrowEditor();
   const t = App.texts.find(x => x.id === id);
   if (!t) return;
   App.editingNorthArrowId = id;
+  _northEditSession = {
+    id,
+    original: JSON.parse(JSON.stringify(t)),
+    historyState: captureHistoryState(),
+  };
   const panel = document.getElementById('north-arrow-edit-panel');
   if (!panel) return;
-  document.getElementById('na-edit-angle').value = t.angle || 0;
+  const angleInput = document.getElementById('na-edit-angle');
+  const angleSlider = document.getElementById('na-edit-angle-slider');
+  const angle = syncAngleControls(angleInput, angleSlider, t.angle);
+  t.angle = angle;
   const sz = t.size || 1.0;
   document.getElementById('na-edit-size').value = sz;
   document.getElementById('na-edit-size-val').textContent = sz.toFixed(2).replace(/\.?0+$/, '') + '×';
-  const rect = canvas.getBoundingClientRect();
-  const px = Math.min(clientX - rect.left, canvas.clientWidth - 260);
-  const py = Math.max(clientY - rect.top - 20, 4);
-  panel.style.left = px + 'px';
-  panel.style.top = py + 'px';
-  panel.classList.remove('hidden');
+  const color = t.color || '#1e293b';
+  document.querySelectorAll('.north-edit-color-swatch').forEach(button => {
+    button.classList.toggle('is-active', button.dataset.color === color);
+  });
+  positionCanvasFloatingPanel(panel, clientX, clientY);
 }
 
 function openStampEditor(id, clientX, clientY) {
+  const alreadyOpen = _stampEditSession?.id === id
+    && !document.getElementById('stamp-edit-panel')?.classList.contains('hidden');
+  if (alreadyOpen) return;
+  if (_stampEditSession) cancelStampEditor();
   const t = App.texts.find(x => x.id === id);
   if (!t) return;
   App.editingStampId = id;
+  _stampEditSession = {
+    id,
+    original: JSON.parse(JSON.stringify(t)),
+    historyState: captureHistoryState(),
+  };
   const panel = document.getElementById('stamp-edit-panel');
   if (!panel) return;
   const isParking = t.textType === 'parking-stamp';
-  document.getElementById('stamp-edit-label').textContent = isParking ? '🅿 駐車場スタンプ' : '🏠 家屋スタンプ';
+  setStampEditorKind(isParking ? 'parking-stamp' : 'house-stamp', { mutate: false });
   document.getElementById('stamp-edit-w').value = t.wM;
   document.getElementById('stamp-edit-h').value = t.hM;
-  const ang = t.angle || 0;
-  document.getElementById('stamp-edit-angle').value = ang;
+  const angleInput = document.getElementById('stamp-edit-angle');
   const sl = document.getElementById('stamp-edit-angle-slider');
-  if (sl) sl.value = ang;
+  const ang = syncAngleControls(angleInput, sl, t.angle);
+  t.angle = ang;
   // テキスト
   const labelInp = document.getElementById('stamp-edit-label-text');
   if (labelInp) labelInp.value = t.label != null ? t.label : (isParking ? 'P' : '家屋');
@@ -3065,14 +4190,12 @@ function openStampEditor(id, clientX, clientY) {
   if (dimsBtn) {
     const on = t.showDims !== false;
     dimsBtn.textContent = on ? '寸法 ON' : '寸法 OFF';
+    dimsBtn.dataset.on = String(on);
     dimsBtn.style.background = on ? '#1d4ed8' : '#1e293b';
     dimsBtn.style.color = on ? '#fff' : '#94a3b8';
     dimsBtn.style.borderColor = on ? '#3b82f6' : '#334155';
   }
-  const rect = canvas.getBoundingClientRect();
-  panel.style.left = Math.min(clientX - rect.left, canvas.clientWidth - 280) + 'px';
-  panel.style.top  = Math.max(clientY - rect.top - 20, 4) + 'px';
-  panel.classList.remove('hidden');
+  positionCanvasFloatingPanel(panel, clientX, clientY);
 }
 
 function onDblClick(e) {
@@ -3106,26 +4229,32 @@ function onDblClick(e) {
       return;
     }
     if ((App.lotTool === 'draw' || App.lotTool === 'road') && App.lotPts.length >= 2) {
-      App.lotPts.pop();
-      confirmLotDraw();
+      const candidate = [...App.lotPts];
+      const last = candidate[candidate.length - 1];
+      const prev = candidate[candidate.length - 2];
+      if (last && prev && dist(last, prev) <= 8 / App.vz) candidate.pop();
+      App.lotPts = candidate;
+      if (candidate.length >= 3) confirmLotDraw();
+      else App.dirty = true;
       return;
     }
     // 計測モードのダブルクリックは共通処理へ落とす
     if (App.lotTool === 'measure') { /* fall through */ }
     else {
-      // label-moveツール時: テキスト注記をダブルクリックで編集
-      if (App.lotTool === 'label-move') {
-        const hit = hitLabel(sx, sy);
+      // 選択・移動ツール: メモ・引出線をダブルクリックで編集（スタンプ/北マークは冒頭で処理済み）
+      if (App.mode === 'select') {
+        const hit = hitS || hitLabel(sx, sy);
+        // 区画・道路ラベルは本体から離して配置できるため、ポリゴンの
+        // ヒット判定より先にラベルから統合エディタへ到達できるようにする。
+        // 個別ラベル編集モードでは従来どおり1クリック編集を優先する。
+        if (hit && (hit.isLotLabel || hit.isLotEdge || hit.isLotCenter)) {
+          openLotEditor(hit.lotId);
+          return;
+        }
         if (hit && hit.isText) {
           const t = App.texts.find(t => t.id === hit.itemId);
-          if (t) {
-            App.editingTextId = t.id;
-            App.textOptions.fontSize = t.fontSize || 14;
-            App.textOptions.color    = t.color    || '#1a1a1a';
-            App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
-            App.textOptions.boxStyle = t.boxStyle  || 'box';
-            App.pendingTextPos = { x: t.x, y: t.y };
-            showTextInput(sx, sy, { x: t.x, y: t.y }, t.text);
+          if (t && !t.textType) {  // 通常メモ・引出線のみ
+            openMemoEditor(t.id, e.clientX, e.clientY);
             return;
           }
         }
@@ -3141,20 +4270,12 @@ function onDblClick(e) {
     const hit = hitLabel(sx, sy);   // スクリーン座標で判定
     if (hit && hit.isText) {
       const t = App.texts.find(t => t.id === hit.itemId);
-      if (t) {
-        App.editingTextId = t.id;
-        App.textOptions.fontSize = t.fontSize || 14;
-        App.textOptions.color    = t.color    || '#1a1a1a';
-        App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
-        App.textOptions.boxStyle = t.boxStyle  || 'box';
-        App.pendingTextPos = { x: t.x, y: t.y };
-        showTextInput(sx, sy, { x: t.x, y: t.y }, t.text);
-      }
+      if (t && !t.textType) openMemoEditor(t.id, e.clientX, e.clientY);
     }
     return;
   }
 
-  if ((App.mode === 'polyline' || App.mode === 'area') && App.pts.length >= 2) {
+  if ((App.mode === 'polyline' || App.mode === 'area' || App.mode === 'line') && App.pts.length >= 2) {
     App.pts.pop();
     finishMeasurement();
   }
@@ -3200,6 +4321,7 @@ function hitLabel(sx, sy) {
 
 // ===== モード =====
 function setMode(mode) {
+  if (blockToolSwitchDuringCalibration()) return;
   cancelCurrent();
   App._hoverLabelKey = null;
   App.mode = mode;
@@ -3207,6 +4329,7 @@ function setMode(mode) {
     btn.classList.toggle('active', btn.dataset.mode === mode));
   canvas.style.cursor = getCursor();
   updateHint();
+  notifyAppState('tool');
 }
 
 function getCursor() {
@@ -3219,11 +4342,14 @@ function getCursor() {
 }
 
 function cancelCurrent() {
+  hidePlacementPreview();
   App.pts = [];
   App.lotPts = [];
   App.calibPts = [];
   App.calibrating = false;
   App.draggingId = null;
+  App.draggingLotLabelId = null;
+  App.draggingRoadLabelPart = null;
   App.draggingVertex = null;
   App.draggingLotVertex = null;
   cancelLabelEdit();
@@ -3235,14 +4361,15 @@ function showLabelEditOverlay(currentText, sx, sy, showColor, currentColor) {
   const overlay = document.getElementById('label-edit-overlay');
   const input = document.getElementById('label-edit-input');
   const colorRow = document.getElementById('label-color-row');
-  const ox = Math.min(sx, window.innerWidth - 250);
-  const oy = Math.min(sy - 40, window.innerHeight - 120);
-  overlay.style.left = ox + 'px';
-  overlay.style.top = Math.max(8, oy) + 'px';
-  overlay.style.display = 'block';
+  if (!overlay || !input || !colorRow) {
+    showToast('ラベル編集画面を開けませんでした', 3000);
+    cancelLabelEdit();
+    return;
+  }
+  const canvasRect = canvas.getBoundingClientRect();
+  positionViewportFloatingPanel(overlay, canvasRect.left + sx + 12, canvasRect.top + sy - 20);
   input.value = currentText;
-  input.select();
-  input.focus();
+  focusFloatingInputAfterPointer(input, { select: true });
   // 色選択行の表示/非表示
   colorRow.style.display = showColor ? 'flex' : 'none';
   if (showColor) {
@@ -3314,8 +4441,14 @@ function openLotEdgeLabelEditor(lot, edgeIdx, sx, sy) {
 
 function confirmLabelEdit() {
   const input = document.getElementById('label-edit-input');
+  if (!input) {
+    showToast('ラベル編集を確定できませんでした', 3000);
+    cancelLabelEdit();
+    return;
+  }
   const val = input.value.trim();
-  saveState();
+  const historyState = captureHistoryState();
+  const historyStateJson = JSON.stringify(historyState);
 
   const colorVal = App._editingLabelColor || null; // ''→null（自動）
 
@@ -3354,13 +4487,101 @@ function confirmLabelEdit() {
     }
   }
 
+  if (JSON.stringify(captureHistoryState()) !== historyStateJson) {
+    pushHistoryState(historyState);
+  }
+
   App.editingLabelItem = null;
   App.editingLabelKey = null;
   App.editingLotId = null;
   App.editingLotCenterKey = null;
   App.editingLotEdgeIdx = null;
-  document.getElementById('label-edit-overlay').style.display = 'none';
+  const _leo = document.getElementById('label-edit-overlay');
+  if (_leo) _leo.classList.add('hidden');
   App.dirty = true;
+}
+
+// v1.4 command boundary ---------------------------------------------------
+//
+// The legacy UI had two independent tool states (`mode` and `lotTool`) and
+// several editors kept their draft values after the visible tool changed.
+// A command change must be a hard boundary: keep the document and viewport,
+// but discard every in-progress gesture/editor/placement.  The v1.4 shell
+// calls this before activating any command.
+function resetCommandSession(options = {}) {
+  const preserveSelection = options.preserveSelection === true;
+
+  // Editors modify a live object while open.  Use their own cancel paths so a
+  // half-edited object is restored instead of being silently committed.
+  if (typeof _lotEditSession !== 'undefined' && _lotEditSession) cancelLotEdit();
+  if (_memoEditSession) cancelTextInput();
+  if (_stampEditSession) cancelStampEditor();
+  if (_northEditSession) cancelNorthArrowEditor();
+
+  cancelCurrent();
+  App.parallelBase = null;
+  App.parallelFlip = 1;
+  App.parallelCount = 0;
+  App.parallelDivCount = 0;
+  App.mergeSelect = [];
+  App.splitTargetId = null;
+  App.cornerCutLotId = null;
+  App.cornerCutIdx = -1;
+  App.snapPt = null;
+  App.snapType = null;
+  App.pendingTextPos = null;
+  App.pendingCalloutTip = null;
+  App.editingTextId = null;
+  App.cpTargetId = null;
+  App.cpTargetIsText = false;
+  App.editingLabelItem = null;
+  App.editingLabelKey = null;
+  App._editingLabelColor = '';
+  App._hoverLabelKey = null;
+  App.editingStampId = null;
+  App.editingNorthArrowId = null;
+  App.editingLotId = null;
+  App.editingLotEdgeIdx = null;
+  App.editingLotCenterKey = null;
+  App.draggingId = null;
+  App.draggingItemId = null;
+  App.draggingLotId = null;
+  App.draggingLotLabelId = null;
+  App.draggingRoadLabelPart = null;
+  App.draggingEdgeLabelLotId = null;
+  App.draggingEdgeLabelEdge = -1;
+  App.draggingVertex = null;
+  App.draggingLotVertex = null;
+  App.dragItemOrigPts = null;
+  App.dragItemOrigLabelPos = null;
+  App.dragItemOrigSegLabelPos = null;
+  App.dragLotOrigPoints = null;
+  App.dragLotOrigCen = null;
+  App.moveAllDragging = false;
+  App.moveAllOrigLots = null;
+  App.moveAllOrigItems = null;
+  App.moveAllOrigTexts = null;
+  App.panning = false;
+  App.canvasPointerDown = false;
+  App.dragPending = false;
+  App.placementPreviewInside = false;
+
+  if (!preserveSelection) {
+    App.lastClicked = null;
+    App.selectedFormat = null;
+  }
+
+  [
+    'calibration-modal', 'calibration-dist-modal', 'corner-cut-modal',
+    'lot-edit-modal', 'memo-panel', 'stamp-edit-panel',
+    'north-arrow-edit-panel', 'label-edit-overlay', 'color-picker-popup',
+  ].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  document.getElementById('bg-adjust-bar')?.classList.add('hidden');
+  updateSplitUI();
+  updateFormatPanel();
+  updateHint();
+  App.dirty = true;
+  notifyAppState('command-reset');
 }
 
 function cancelLabelEdit() {
@@ -3370,7 +4591,619 @@ function cancelLabelEdit() {
   App.editingLotEdgeIdx = null;
   App.editingLotCenterKey = null;
   const overlay = document.getElementById('label-edit-overlay');
-  if (overlay) overlay.style.display = 'none';
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function updateGlobalDisplayButtons() {
+  const edgeBtn = document.getElementById('btn-toggle-edge-lengths');
+  if (edgeBtn) {
+    edgeBtn.classList.toggle('toggle-on', App.lotShowEdgeLengths);
+    edgeBtn.style.color = App.lotShowEdgeLengths ? '#34d399' : '';
+    edgeBtn.textContent = App.lotShowEdgeLengths ? '辺寸法 表示' : '辺寸法 非表示';
+  }
+  const numBtn = document.getElementById('btn-show-lot-numbers');
+  if (numBtn) {
+    numBtn.classList.toggle('toggle-on', App.showLotNumbers);
+    numBtn.style.color = App.showLotNumbers ? '#34d399' : '';
+    numBtn.textContent = App.showLotNumbers ? '番号 表示' : '番号 非表示';
+  }
+}
+
+function updateLotEditGlobalDisplayControls() {
+  updateGlobalDisplayButtons();
+}
+
+// ===== 選択中の書式（回転）パネル =====
+function setSelectedFormatFromHit(labelHit) {
+  _fmtEditSaved = false; // 新しい選択 = 新しい編集セッション（undoまとめ用）
+  if (!labelHit) { App.selectedFormat = null; updateFormatPanel(); return; }
+  if (labelHit.isLotEdge) {
+    // 区画の辺の寸法（辺沿いの自動回転＋追加オフセット）
+    App.selectedFormat = { kind: 'lot-edge', id: labelHit.lotId, edge: labelHit.edgeIdx };
+  } else if (labelHit.isLotLabel) {
+    const lot = App.lots.find(l => l.id === labelHit.lotId);
+    App.selectedFormat = (lot && lot.type === 'road')
+      ? { kind: labelHit.roadLabelPart === 'width' ? 'road-width-label' : 'road-label', id: labelHit.lotId }
+      : { kind: 'lot-label', id: labelHit.lotId };
+  } else if (labelHit.isText) {
+    const t = App.texts.find(x => x.id === labelHit.itemId);
+    if (!t) { App.selectedFormat = null; updateFormatPanel(); return; }
+    if (t.textType === 'north-arrow') App.selectedFormat = { kind: 'north', id: t.id };
+    else if (t.textType === 'house-stamp' || t.textType === 'parking-stamp') App.selectedFormat = { kind: 'stamp', id: t.id };
+    else if (t.textType === 'lot-table') App.selectedFormat = { kind: 'table', id: t.id };
+    else App.selectedFormat = { kind: 'text', id: t.id }; // メモ・引出線
+  } else {
+    // 計測ラベル（距離・折れ線・面積の数字）
+    const it = App.items.find(x => x.id === labelHit.itemId);
+    App.selectedFormat = it ? { kind: 'item-label', id: it.id, labelKey: labelHit.labelKey || 'main' } : null;
+  }
+  updateFormatPanel();
+}
+
+// ===== 統一文字エディタ: 選択要素アクセサ =====
+// 編集セッション中は最初の変更だけ saveState（スライダー連続操作を1 undo にまとめる）
+let _fmtEditSaved = false;
+function _fmtSaveOnce() { if (!_fmtEditSaved) { saveState(); _fmtEditSaved = true; } }
+function _selLot()     { const sf = App.selectedFormat; return sf ? App.lots.find(x => x.id === sf.id)  : null; }
+function _selItem()    { const sf = App.selectedFormat; return sf ? App.items.find(x => x.id === sf.id) : null; }
+function _selTextObj() { const sf = App.selectedFormat; return sf ? App.texts.find(x => x.id === sf.id) : null; }
+
+function getSelectedRotation() {
+  const sf = App.selectedFormat;
+  if (!sf) return 0;
+  if (sf.kind === 'item') return 0;
+  if (sf.kind === 'lot-label')  { const l = _selLot(); return (l && l.labelRotation) || 0; }
+  if (sf.kind === 'road-label') { const l = _selLot(); return (l && l.roadLabelRotation) || 0; }
+  if (sf.kind === 'road-width-label') { const l = _selLot(); return (l && l.roadLabelRotation) || 0; }
+  if (sf.kind === 'lot-edge')   { const l = _selLot(); return (l && l.edgeRotationOffset && l.edgeRotationOffset[sf.edge]) || 0; }
+  if (sf.kind === 'item-label') { const it = _selItem(); return (it && it.labelRotation) || 0; }
+  const t = _selTextObj();
+  if (!t) return 0;
+  if (sf.kind === 'stamp' || sf.kind === 'north') return normalizeObjectAngle(t.angle);
+  return t.rotation || 0;
+}
+
+function setSelectedRotation(deg) {
+  const sf = App.selectedFormat;
+  if (!sf || sf.kind === 'item') return;
+  _fmtSaveOnce();
+  if (sf.kind === 'lot-label')  { const l = _selLot(); if (l) l.labelRotation = deg; }
+  else if (sf.kind === 'road-label') { const l = _selLot(); if (l) l.roadLabelRotation = deg; }
+  else if (sf.kind === 'road-width-label') { const l = _selLot(); if (l) l.roadLabelRotation = deg; }
+  else if (sf.kind === 'lot-edge') { const l = _selLot(); if (l) { if (!l.edgeRotationOffset) l.edgeRotationOffset = {}; l.edgeRotationOffset[sf.edge] = deg; } }
+  else if (sf.kind === 'item-label') { const it = _selItem(); if (it) it.labelRotation = deg; }
+  else {
+    const t = _selTextObj();
+    if (t) { if (sf.kind === 'stamp' || sf.kind === 'north') t.angle = normalizeObjectAngle(deg); else t.rotation = deg; }
+  }
+  App.dirty = true;
+}
+
+// --- テキスト内容（編集不可の種別は null を返す） ---
+function getSelectedText() {
+  const sf = App.selectedFormat; if (!sf) return null;
+  if (sf.kind === 'lot-label')  { const l = _selLot();  return l ? (l.topLabel || '') : null; }
+  if (sf.kind === 'road-label') { const l = _selLot();  return l ? (l.roadLabel !== undefined ? l.roadLabel : '道路') : null; }
+  if (sf.kind === 'road-width-label') { const l = _selLot(); return l ? (l.roadWidth != null ? String(l.roadWidth) : '') : null; }
+  if (sf.kind === 'item-label') {
+    const it = _selItem();
+    if (!it) return null;
+    if (sf.labelKey?.startsWith('seg')) {
+      const index = parseInt(sf.labelKey.slice(3));
+      const custom = it.customSegLabels?.[index];
+      if (custom != null) return custom;
+      if (it.segLabels?.[index] != null) return it.segLabels[index];
+      if (it.segValues?.[index] != null) return formatEdge(it.segValues[index]);
+      return '';
+    }
+    return it.customLabel != null ? it.customLabel : (it.label || '');
+  }
+  if (sf.kind === 'lot-edge')   { const l = _selLot(); if (!l) return null;
+    const cv = l.customEdgeLabels && l.customEdgeLabels[sf.edge];
+    if (cv != null) return cv;
+    if (App.mpp) { const p1 = l.points[sf.edge], p2 = l.points[(sf.edge + 1) % l.points.length]; return formatEdge(dist(p1, p2) * App.mpp); }
+    return ''; }
+  if (sf.kind === 'text') { const t = _selTextObj(); return t ? (t.text || '') : null; }
+  return null; // stamp / north はテキスト編集不可（詳細で）
+}
+function setSelectedText(str) {
+  const sf = App.selectedFormat; if (!sf) return;
+  _fmtSaveOnce();
+  if (sf.kind === 'lot-label')  { const l = _selLot(); if (l) l.topLabel = str.trim() === '' ? null : str; }
+  else if (sf.kind === 'road-label') { const l = _selLot(); if (l) l.roadLabel = str; }
+  else if (sf.kind === 'road-width-label') { const l = _selLot(); if (l) l.roadWidth = parseFloat(str.replace(/[^0-9.]/g, '')) || null; }
+  else if (sf.kind === 'item-label') {
+    const it = _selItem();
+    if (it && sf.labelKey?.startsWith('seg')) {
+      const index = parseInt(sf.labelKey.slice(3));
+      if (!it.customSegLabels) it.customSegLabels = {};
+      it.customSegLabels[index] = str.trim() === '' ? null : str;
+    } else if (it) {
+      it.customLabel = str.trim() === '' ? null : str;
+    }
+  }
+  else if (sf.kind === 'lot-edge')   { const l = _selLot(); if (l) { if (!l.customEdgeLabels) l.customEdgeLabels = {}; l.customEdgeLabels[sf.edge] = str.trim() === '' ? null : str; } }
+  else if (sf.kind === 'text') { const t = _selTextObj(); if (t) t.text = str; }
+  App.dirty = true;
+}
+
+function getSelectedVertical() {
+  const sf = App.selectedFormat;
+  if (!sf) return null;
+  if (sf.kind === 'road-label') return !!_selLot()?.roadVertical;
+  if (sf.kind !== 'text') return null;
+  const t = _selTextObj();
+  return t ? !!t.vertical : false;
+}
+function setSelectedVertical(on) {
+  const sf = App.selectedFormat;
+  _fmtSaveOnce();
+  if (sf?.kind === 'road-label') {
+    const lot = _selLot();
+    if (lot) lot.roadVertical = !!on;
+  } else if (sf?.kind === 'text') {
+    const t = _selTextObj();
+    if (t) t.vertical = !!on;
+  }
+  App.dirty = true;
+}
+
+function getSelectedFontFamily() {
+  const sf = App.selectedFormat;
+  if (!sf) return null;
+  if (sf.kind === 'lot-label') return normalizeFontFamily(_selLot()?.labelFontFamily);
+  if (sf.kind === 'road-label') return normalizeFontFamily(_selLot()?.roadLabelFontFamily);
+  if (sf.kind === 'road-width-label') return normalizeFontFamily(_selLot()?.roadWidthFontFamily || _selLot()?.roadLabelFontFamily);
+  if (sf.kind === 'lot-edge') {
+    const lot = _selLot();
+    return normalizeFontFamily(lot?.customEdgeFontFamilies?.[sf.edge] || lot?.edgeFontFamily);
+  }
+  if (sf.kind === 'item-label') return normalizeFontFamily(_selItem()?.labelFontFamily);
+  if (sf.kind === 'text' || sf.kind === 'table') return normalizeFontFamily(_selTextObj()?.fontFamily);
+  return null;
+}
+
+function setSelectedFontFamily(value) {
+  const sf = App.selectedFormat;
+  if (!sf) return;
+  const fontFamily = normalizeFontFamily(value);
+  _fmtSaveOnce();
+  if (sf.kind === 'lot-label') { const lot = _selLot(); if (lot) lot.labelFontFamily = fontFamily; }
+  else if (sf.kind === 'road-label') { const lot = _selLot(); if (lot) lot.roadLabelFontFamily = fontFamily; }
+  else if (sf.kind === 'road-width-label') { const lot = _selLot(); if (lot) lot.roadWidthFontFamily = fontFamily; }
+  else if (sf.kind === 'lot-edge') {
+    const lot = _selLot();
+    if (lot) {
+      if (!lot.customEdgeFontFamilies) lot.customEdgeFontFamilies = {};
+      lot.customEdgeFontFamilies[sf.edge] = fontFamily;
+    }
+  } else if (sf.kind === 'item-label') { const item = _selItem(); if (item) item.labelFontFamily = fontFamily; }
+  else if (sf.kind === 'text' || sf.kind === 'table') { const text = _selTextObj(); if (text) text.fontFamily = fontFamily; }
+  App.dirty = true;
+}
+
+// --- 大きさ（text=fontSize実px / north=size倍率 / その他=係数 / stamp=詳細で実寸） ---
+function getSelectedSizeKind() {
+  const sf = App.selectedFormat; if (!sf) return null;
+  if (sf.kind === 'item') return null;
+  if (sf.kind === 'text' || sf.kind === 'table') return 'px';
+  if (sf.kind === 'stamp') return null;
+  return 'scale';
+}
+function getSelectedSize() {
+  const sf = App.selectedFormat; if (!sf) return 1;
+  if (sf.kind === 'text' || sf.kind === 'table') { const t = _selTextObj(); return t ? (t.fontSize || (sf.kind === 'table' ? 11 : 14)) : 14; }
+  if (sf.kind === 'lot-label')  { const l = _selLot();  return l ? (parseFloat(l.labelScale) || App.lotTextScale || 1) : 1; }
+  if (sf.kind === 'road-label') { const l = _selLot();  return l ? (l.roadLabelSize || 1) : 1; }
+  if (sf.kind === 'road-width-label') { const l = _selLot(); return l ? (l.roadWidthLabelSize || l.roadLabelSize || 1) : 1; }
+  if (sf.kind === 'item-label') { const it = _selItem(); return it ? (it.labelScale || 1) : 1; }
+  if (sf.kind === 'lot-edge')   { const l = _selLot(); return l ? ((l.customEdgeScales && l.customEdgeScales[sf.edge]) || 1) : 1; }
+  if (sf.kind === 'north')      { const t = _selTextObj(); return t ? (t.size || 1) : 1; }
+  return 1;
+}
+function setSelectedSize(v) {
+  const sf = App.selectedFormat; if (!sf) return;
+  const scale = Math.max(0.3, Math.min(5, Number(v) || 1));
+  _fmtSaveOnce();
+  if (sf.kind === 'text' || sf.kind === 'table') { const t = _selTextObj(); if (t) t.fontSize = Math.max(6, Math.min(72, v)); }
+  else if (sf.kind === 'lot-label')  { const l = _selLot(); if (l) l.labelScale = scale; }
+  else if (sf.kind === 'road-label') { const l = _selLot(); if (l) l.roadLabelSize = scale; }
+  else if (sf.kind === 'road-width-label') { const l = _selLot(); if (l) l.roadWidthLabelSize = scale; }
+  else if (sf.kind === 'item-label') { const it = _selItem(); if (it) it.labelScale = scale; }
+  else if (sf.kind === 'lot-edge')   { const l = _selLot(); if (l) { if (!l.customEdgeScales) l.customEdgeScales = {}; l.customEdgeScales[sf.edge] = scale; } }
+  else if (sf.kind === 'north')      { const t = _selTextObj(); if (t) t.size = scale; }
+  App.dirty = true;
+}
+
+// --- 文字色（lot-label=自動色・編集不可は null） ---
+function getSelectedColor() {
+  const sf = App.selectedFormat; if (!sf) return null;
+  if (sf.kind === 'lot-label')  { const l = _selLot(); return l ? (l.labelTextColor || '#1e293b') : null; }
+  if (sf.kind === 'road-label') { const l = _selLot(); return l ? (l.roadLabelColor || '#475569') : null; }
+  if (sf.kind === 'road-width-label') { const l = _selLot(); return l ? (l.roadWidthLabelColor || l.roadLabelColor || '#475569') : null; }
+  if (sf.kind === 'lot-edge')   { const l = _selLot(); return l ? ((l.customEdgeLabelColors && l.customEdgeLabelColors[sf.edge]) || l.edgeLabelColor || '#334155') : null; }
+  if (sf.kind === 'item-label') { const it = _selItem(); return it ? (it.color || '#dc2626') : null; }
+  if (sf.kind === 'text')       { const t = _selTextObj(); return t ? (t.color || '#1a1a1a') : null; }
+  if (sf.kind === 'stamp')      { const t = _selTextObj(); return t ? (t.lineColor || '#78350f') : null; }
+  if (sf.kind === 'north')      { const t = _selTextObj(); return t ? (t.color || '#1e293b') : null; }
+  return null;
+}
+function setSelectedColor(c) {
+  const sf = App.selectedFormat; if (!sf) return;
+  _fmtSaveOnce();
+  if (sf.kind === 'lot-label')  { const l = _selLot(); if (l) l.labelTextColor = c; }
+  else if (sf.kind === 'road-label') { const l = _selLot(); if (l) l.roadLabelColor = c; }
+  else if (sf.kind === 'road-width-label') { const l = _selLot(); if (l) l.roadWidthLabelColor = c; }
+  else if (sf.kind === 'lot-edge')   { const l = _selLot(); if (l) { if (!l.customEdgeLabelColors) l.customEdgeLabelColors = {}; l.customEdgeLabelColors[sf.edge] = c; } }
+  else if (sf.kind === 'item-label') { const it = _selItem(); if (it) it.color = c; }
+  else if (sf.kind === 'text')       { const t = _selTextObj(); if (t) t.color = c; }
+  else if (sf.kind === 'stamp')      { const t = _selTextObj(); if (t) t.lineColor = c; }
+  else if (sf.kind === 'north')      { const t = _selTextObj(); if (t) t.color = c; }
+  App.dirty = true;
+}
+
+function getRoadWidthLabelCenter(lot) {
+  if (!lot || !lot.points) return null;
+  const c = centroid(lot.points);
+  const titleScale = parseFloat(lot.roadLabelSize) || 1.0;
+  const widthScale = parseFloat(lot.roadWidthLabelSize) || titleScale;
+  const fs = pfs(11) * titleScale;
+  const fsW = pfs(9) * widthScale;
+  const titleX = c.x + (lot.labelOffX || 0);
+  const titleY = c.y + (lot.labelOffY || 0);
+  const hasCustom = lot.roadWidthOffX != null || lot.roadWidthOffY != null;
+  if (hasCustom) return { x: c.x + (lot.roadWidthOffX || 0), y: c.y + (lot.roadWidthOffY || 0) };
+  if (lot.roadVertical) return { x: titleX + fs * 1.3, y: titleY };
+  const text = lot.roadLabel !== undefined ? lot.roadLabel : '道路';
+  const textLines = text.split('\n');
+  const totalTextH = Math.max(1, textLines.length) * fs * 1.25;
+  const widthOffset = lot.roadWidth ? -(fsW * 0.6) : 0;
+  return { x: titleX, y: titleY + totalTextH / 2 + widthOffset + fsW * 0.8 };
+}
+
+// --- 選択要素の中心（canvas座標）: ポップアップ位置・ハイライト用 ---
+function getSelectedAnchor() {
+  const sf = App.selectedFormat; if (!sf) return null;
+  if (sf.kind === 'lot-label' || sf.kind === 'road-label') {
+    const l = _selLot(); if (!l || !l.points) return null;
+    const c = centroid(l.points);
+    return { x: c.x + (l.labelOffX || 0), y: c.y + (l.labelOffY || 0) };
+  }
+  if (sf.kind === 'road-width-label') {
+    const l = _selLot();
+    return getRoadWidthLabelCenter(l);
+  }
+  if (sf.kind === 'lot-edge') {
+    const l = _selLot(); if (!l || !l.points) return null;
+    const i = sf.edge, j = (i + 1) % l.points.length;
+    const m = midPt(l.points[i], l.points[j]);
+    const uo = (l.edgeLabelOffsets && l.edgeLabelOffsets[i]) || { dx: 0, dy: 0 };
+    return { x: m.x + uo.dx, y: m.y + uo.dy };
+  }
+  if (sf.kind === 'item-label') {
+    const it = _selItem(); if (!it || !it.points) return null;
+    if (sf.labelKey?.startsWith('seg')) {
+      const index = parseInt(sf.labelKey.slice(3));
+      const nextIndex = it.type === 'area' ? (index + 1) % it.points.length : index + 1;
+      if (!it.points[index] || !it.points[nextIndex]) return null;
+      return it.segLabelPos?.[index] || midPt(it.points[index], it.points[nextIndex]);
+    }
+    return it.labelPos || (it.type === 'area' ? centroid(it.points) : midPt(it.points[0], it.points[it.points.length - 1]));
+  }
+  if (sf.kind === 'item') {
+    const it = _selItem();
+    if (!it?.points?.length) return null;
+    return it.points.length >= 3 ? centroid(it.points) : midPt(it.points[0], it.points[it.points.length - 1]);
+  }
+  const t = _selTextObj(); if (!t) return null;
+  return { x: t.x, y: t.y };
+}
+
+function syncRotQuick(d) {
+  document.querySelectorAll('.tep-rq').forEach(b => b.classList.toggle('active-tep-rq', parseInt(b.dataset.a) === d));
+}
+
+// 統一文字エディタの内容更新＋表示制御
+function updateFormatPanel() {
+  const pop = document.getElementById('text-editor-pop');
+  if (!pop) return;
+  const dedicatedEditorOpen = ['memo-panel', 'stamp-edit-panel', 'north-arrow-edit-panel']
+    .some(id => {
+      const panel = document.getElementById(id);
+      return panel && !panel.classList.contains('hidden');
+    });
+  if (dedicatedEditorOpen) {
+    pop.classList.add('hidden');
+    return;
+  }
+  const sf = App.selectedFormat;
+  const dragging = App.draggingId != null || App.draggingLotLabelId != null ||
+    App.draggingEdgeLabelLotId != null || App.draggingLotId != null;
+  if (!sf || App.mode !== 'select' || dragging) { pop.classList.add('hidden'); return; }
+
+  const tableObject = sf.kind === 'table' ? _selTextObj() : null;
+  const kindLabel = sf.kind === 'item-label' && sf.labelKey?.startsWith('seg')
+    ? '区間ラベル'
+    : sf.kind === 'table'
+      ? (tableObject?.title ? '積算表' : '面積表')
+      : ({ text: '文字', 'lot-label': '区画ラベル', 'road-label': '道路名', 'road-width-label': '道路幅員', stamp: 'スタンプ', north: '北マーク', 'item-label': '計測ラベル', item: '線・矢印', 'lot-edge': '辺の寸法' }[sf.kind] || '文字');
+  document.getElementById('tep-kind').textContent = kindLabel;
+
+  // 線・矢印はキャンバス上での移動と削除だけを扱う。表は描画に効く
+  // サイズ・角度を残し、本文・縦書き・色だけを各アクセサで非表示にする。
+  const editorBody = pop.querySelector('.tep-body');
+  if (editorBody) editorBody.style.display = sf.kind === 'item' ? 'none' : '';
+  const formatTabs = pop.querySelector('.v140-format-tabs');
+  if (formatTabs) formatTabs.style.display = sf.kind === 'item' ? 'none' : '';
+
+  // テキスト行
+  const txt = getSelectedText();
+  const textWrap = document.getElementById('tep-text-wrap');
+  if (txt === null) { textWrap.style.display = 'none'; }
+  else {
+    textWrap.style.display = '';
+    const ta = document.getElementById('tep-text');
+    if (document.activeElement !== ta) ta.value = txt; // 入力中は上書きしない
+  }
+
+  // 大きさ行
+  const sizeKind = getSelectedSizeKind();
+  const sizeWrap = document.getElementById('tep-size-wrap');
+  if (!sizeKind) { sizeWrap.style.display = 'none'; }
+  else {
+    sizeWrap.style.display = '';
+    const sl = document.getElementById('tep-size');
+    const num = document.getElementById('tep-size-num');
+    const unit = document.getElementById('tep-size-unit');
+    const sz = getSelectedSize();
+    if (sizeKind === 'px') {
+      if (sl) { sl.min = 6; sl.max = 72; sl.step = 1; sl.value = sz; }
+      if (num) { num.min = 6; num.max = 72; num.step = 1; num.value = Math.round(sz); }
+      if (unit) unit.textContent = 'px';
+    } else {
+      if (sl) { sl.min = 0.3; sl.max = 5; sl.step = 0.05; sl.value = sz; }
+      if (num) { num.min = 0.3; num.max = 5; num.step = 0.05; num.value = parseFloat(sz.toFixed(2)); }
+      if (unit) unit.textContent = '×';
+    }
+  }
+
+  const verticalWrap = document.getElementById('tep-vertical-wrap');
+  const verticalValue = getSelectedVertical();
+  if (verticalWrap) {
+    verticalWrap.style.display = verticalValue === null ? 'none' : '';
+    const verticalCheck = document.getElementById('tep-vertical');
+    if (verticalCheck) verticalCheck.checked = !!verticalValue;
+  }
+
+  // 角度
+  const deg = Math.round(getSelectedRotation());
+  document.getElementById('tep-rot').value = deg;
+  document.getElementById('tep-rot-num').value = deg;
+  syncRotQuick(deg);
+
+  // 文字色
+  const col = getSelectedColor();
+  const colorWrap = document.getElementById('tep-color-wrap');
+  if (col === null) { colorWrap.style.display = 'none'; }
+  else {
+    colorWrap.style.display = '';
+    document.querySelectorAll('#tep-colors .tep-sw').forEach(s =>
+      s.classList.toggle('active-tep-sw', (s.dataset.c || '').toLowerCase() === col.toLowerCase()));
+  }
+
+  // 対象種別ごとの専用編集画面へ進む。
+  document.getElementById('tep-detail').style.display =
+    ['text', 'lot-label', 'road-label', 'road-width-label', 'stamp', 'north'].includes(sf.kind) ? '' : 'none';
+  const deleteButton = document.getElementById('tep-delete');
+  if (deleteButton) {
+    const deleteLabels = {
+      'lot-label': 'この文字を消す', 'road-label': 'この文字を消す', 'road-width-label': '幅員表示を消す',
+      'lot-edge': 'この寸法を非表示', 'item-label': 'この計測を削除',
+      text: 'この注記を削除', stamp: 'このスタンプを削除', north: 'この方位記号を削除',
+      table: 'この表を削除', item: 'この図形を削除'
+    };
+    deleteButton.textContent = `🗑 ${deleteLabels[sf.kind] || 'この項目を削除'}`;
+  }
+
+  const fontWrap = document.getElementById('tep-font-wrap');
+  const fontValue = getSelectedFontFamily();
+  if (fontWrap) {
+    fontWrap.style.display = fontValue === null ? 'none' : '';
+    const fontSelect = document.getElementById('tep-font');
+    if (fontSelect && fontValue !== null) fontSelect.value = fontValue;
+  }
+
+  pop.classList.remove('hidden');
+  positionTextEditor();
+}
+
+// サイドバー固定のため位置計算不要
+function positionTextEditor() {}
+
+// 選択中ハイライト（render内・ワールド座標系で呼ぶ）
+function drawSelectionHighlight() {
+  if (App.mode !== 'select') return;
+  const selected = App.lastClicked;
+  ctx.save();
+  const drawPath = (points, closed) => {
+    if (!points?.length) return false;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    if (closed) ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(37,99,235,0.18)';
+    ctx.lineWidth = 5 / App.vz;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(37,99,235,0.68)';
+    ctx.lineWidth = 1 / App.vz;
+    ctx.stroke();
+    return true;
+  };
+
+  let shapeHighlighted = false;
+  if (selected?.type === 'lot') {
+    const lot = App.lots.find(item => item.id === selected.id);
+    shapeHighlighted = drawPath(lot?.points, true);
+  } else if (selected?.type === 'item') {
+    const item = App.items.find(value => value.id === selected.id);
+    shapeHighlighted = drawPath(item?.points, item?.type === 'area');
+  }
+
+  const needsAnchor = App.selectedFormat && (!shapeHighlighted ||
+    ['lot-edge', 'road-width-label', 'item-label', 'text', 'table', 'stamp', 'north'].includes(App.selectedFormat.kind));
+  if (needsAnchor) {
+    const anc = getSelectedAnchor();
+    if (anc) {
+      const r = 4 / App.vz;
+      ctx.strokeStyle = 'rgba(37,99,235,0.62)';
+      ctx.lineWidth = 1 / App.vz;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(anc.x, anc.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// 「削除」: 文字系は要素削除、ラベル系は文字だけ消す
+function deleteSelectedFormat() {
+  const sf = App.selectedFormat;
+  if (!sf) return;
+  saveState();
+  if (sf.kind === 'item-label') {
+    const item = _selItem();
+    if (item && sf.labelKey?.startsWith('seg')) {
+      const index = parseInt(sf.labelKey.slice(3));
+      if (!item.customSegLabels) item.customSegLabels = {};
+      item.customSegLabels[index] = '';
+    } else if (item) {
+      item.customLabel = '';
+    }
+  }
+  else if (sf.kind === 'item') App.items = App.items.filter(x => x.id !== sf.id);
+  else if (sf.kind === 'text' || sf.kind === 'stamp' || sf.kind === 'north' || sf.kind === 'table') App.texts = App.texts.filter(x => x.id !== sf.id);
+  else if (sf.kind === 'lot-label')  { const l = _selLot(); if (l) l.topLabel = null; }
+  else if (sf.kind === 'road-label') { const l = _selLot(); if (l) l.roadLabel = ''; }
+  else if (sf.kind === 'road-width-label') { const l = _selLot(); if (l) l.roadWidth = null; }
+  else if (sf.kind === 'lot-edge')   { const l = _selLot(); if (l) { if (!l.edgeHidden) l.edgeHidden = {}; l.edgeHidden[sf.edge] = true; } }
+  App.selectedFormat = null;
+  reconcileSelectionState();
+  updateFormatPanel();
+  if (typeof updateLotPanel === 'function') updateLotPanel();
+  if (typeof updateResults === 'function') updateResults();
+  App.dirty = true;
+}
+
+function selectedKindForTextObject(textObject) {
+  if (!textObject) return 'text';
+  if (textObject.textType === 'north-arrow') return 'north';
+  if (textObject.textType === 'house-stamp' || textObject.textType === 'parking-stamp') return 'stamp';
+  if (textObject.textType === 'lot-table') return 'table';
+  return 'text';
+}
+
+// 結果一覧と右プロパティから同じ選択状態を作るための共通入口。
+function selectObjectReference(ref) {
+  if (!ref || ref.id == null) return null;
+  _fmtEditSaved = false;
+  let object = null;
+  if (ref.type === 'lot') {
+    object = App.lots.find(item => item.id === ref.id);
+    if (object) {
+      // 隅切りは道路と同じ配列に保持するが、道路名・幅員を持つ編集対象ではない。
+      App.selectedFormat = object.type === 'road' && object.lotNum === 0
+        ? null
+        : { kind: object.type === 'road' ? 'road-label' : 'lot-label', id: object.id };
+    }
+  } else if (ref.type === 'text') {
+    object = App.texts.find(item => item.id === ref.id);
+    if (object) App.selectedFormat = { kind: selectedKindForTextObject(object), id: object.id };
+  } else if (ref.type === 'item') {
+    object = App.items.find(item => item.id === ref.id);
+    if (object) {
+      const hasEditableLabel = ['distance', 'polyline', 'area'].includes(object.type);
+      App.selectedFormat = hasEditableLabel
+        ? { kind: 'item-label', id: object.id, labelKey: 'main' }
+        : { kind: 'item', id: object.id };
+    }
+  }
+  if (!object) return null;
+  App.lastClicked = { type: ref.type, id: object.id };
+  updateFormatPanel();
+  notifyAppState('selection');
+  return object;
+}
+
+function getTextObjectClientPoint(textObject) {
+  const canvasRect = canvas.getBoundingClientRect();
+  if (!textObject) {
+    return { x: canvasRect.left + canvasRect.width / 2, y: canvasRect.top + canvasRect.height / 2 };
+  }
+  return {
+    x: canvasRect.left + App.vx + textObject.x * App.vz,
+    y: canvasRect.top + App.vy + textObject.y * App.vz,
+  };
+}
+
+function activateUniversalSelectionTool() {
+  const selectionButton = document.getElementById('btn-lot-select');
+  if (selectionButton) selectionButton.click();
+  else setLotTool('select');
+}
+
+// 結果一覧・右プロパティ・統一文字エディタの詳細ボタンから利用する。
+// 戻り値は専用編集画面を開いたかどうか（false は選択ツールへ移っただけ）。
+function openObjectDetail(ref, clientX, clientY) {
+  const object = selectObjectReference(ref);
+  if (!object) return false;
+  if (ref.type === 'lot') {
+    if (object.type === 'road' && object.lotNum === 0) {
+      activateUniversalSelectionTool();
+      return false;
+    }
+    openLotEditor(object.id);
+    return true;
+  }
+  if (ref.type === 'text') {
+    const kind = selectedKindForTextObject(object);
+    if (kind === 'table') {
+      activateUniversalSelectionTool();
+      return false;
+    }
+    const point = getTextObjectClientPoint(object);
+    const x = Number.isFinite(clientX) ? clientX : point.x;
+    const y = Number.isFinite(clientY) ? clientY : point.y;
+    if (kind === 'stamp') openStampEditor(object.id, x, y);
+    else if (kind === 'north') openNorthArrowEditor(object.id, x, y);
+    else if (typeof openMemoEditor === 'function') openMemoEditor(object.id, x, y);
+    return true;
+  }
+  activateUniversalSelectionTool();
+  return false;
+}
+
+// 「詳細…」: 既存の編集モーダル/パネルを開く
+function openSelectedDetail() {
+  const sf = App.selectedFormat;
+  if (!sf) return;
+  const isLot = sf.kind.startsWith('lot') || sf.kind.startsWith('road');
+  const isText = ['text', 'stamp', 'north', 'table'].includes(sf.kind);
+  openObjectDetail({ type: isLot ? 'lot' : isText ? 'text' : 'item', id: sf.id });
+}
+
+function updateGlobalLotColorControls() {
+  document.querySelectorAll('#lot-sc-picker .sc-swatch').forEach(swatch => {
+    swatch.classList.toggle('active-sc', swatch.dataset.sc === App.lotStrokeColor);
+  });
+  document.querySelectorAll('#lot-border-color-picker .border-gc-swatch').forEach(swatch => {
+    const active = swatch.dataset.bc === App.lotBorderColor;
+    swatch.classList.toggle('active-border-gc', active);
+    swatch.style.outline = active ? '2px solid #60a5fa' : 'none';
+  });
 }
 
 function updateHint() {
@@ -3412,8 +5245,8 @@ function updateZoomInfo() {
 
 // ===== 計測確定 =====
 function finishMeasurement() {
-  // 矢印は縮尺不要（他は onMouseDown 側で事前チェック済み）
-  if (!App.mpp && App.mode !== 'arrow') {
+  // 矢印・線は縮尺不要（他は onMouseDown 側で事前チェック済み）
+  if (!App.mpp && App.mode !== 'arrow' && App.mode !== 'line') {
     App.pts = [];
     App.dirty = true;
     return;
@@ -3424,7 +5257,11 @@ function finishMeasurement() {
   const color = App.strokeColor;
   let item = null;
 
-  if (App.mode === 'arrow' && pts.length === 2) {
+  if (App.mode === 'line' && pts.length >= 2) {
+    item = { id: App.nextId++, type: 'line', points: pts,
+      color: App.lineColor, lineStyle: App.lineStyle, lineWidth: App.lineWidth };
+
+  } else if (App.mode === 'arrow' && pts.length === 2) {
     item = { id: App.nextId++, type: 'arrow', points: pts, color, label: '' };
 
   } else if (App.mode === 'distance' && pts.length === 2) {
@@ -3466,15 +5303,61 @@ function finishMeasurement() {
 }
 
 // ===== Undo / Redo =====
-function saveState() {
-  App.undoStack.push({
+function reconcileSelectionState() {
+  const hasId = (list, id) => id != null && list.some(item => item.id === id);
+  if (App.lastClicked) {
+    const exists = App.lastClicked.type === 'lot' ? hasId(App.lots, App.lastClicked.id)
+      : App.lastClicked.type === 'text' ? hasId(App.texts, App.lastClicked.id)
+      : hasId(App.items, App.lastClicked.id);
+    if (!exists) App.lastClicked = null;
+  }
+  if (App.selectedFormat) {
+    const kind = App.selectedFormat.kind || '';
+    const exists = kind.startsWith('lot') || kind.startsWith('road')
+      ? hasId(App.lots, App.selectedFormat.id)
+      : (kind === 'text' || kind === 'stamp' || kind === 'north' || kind === 'table')
+        ? hasId(App.texts, App.selectedFormat.id)
+        : hasId(App.items, App.selectedFormat.id);
+    if (!exists) App.selectedFormat = null;
+  }
+  if (!hasId(App.texts, App.editingTextId)) App.editingTextId = null;
+  if (!hasId(App.texts, App.editingStampId)) App.editingStampId = null;
+  if (!hasId(App.texts, App.editingNorthArrowId)) App.editingNorthArrowId = null;
+  if (!hasId(App.lots, App.editingLotId)) {
+    App.editingLotId = null;
+    App.editingLotEdgeIdx = null;
+    App.editingLotCenterKey = null;
+  }
+  App.draggingId = null;
+  App.draggingItemId = null;
+  App.draggingLotId = null;
+  App.draggingLotLabelId = null;
+  App.draggingEdgeLabelLotId = null;
+  App.draggingVertex = null;
+  App.draggingLotVertex = null;
+  App.dragPending = false;
+  updateFormatPanel();
+  notifyAppState('selection');
+}
+
+function captureHistoryState() {
+  return {
     items: JSON.parse(JSON.stringify(App.items)),
     texts: JSON.parse(JSON.stringify(App.texts)),
     lots: JSON.parse(JSON.stringify(App.lots)),
     lotNextNum: App.lotNextNum,
     divGuides: JSON.parse(JSON.stringify(App.divGuides)),
-  });
+  };
+}
+
+function pushHistoryState(state) {
+  if (!state) return;
+  App.undoStack.push(state);
   App.redoStack = [];
+}
+
+function saveState() {
+  pushHistoryState(captureHistoryState());
 }
 
 function undoLast() {
@@ -3494,6 +5377,7 @@ function undoLast() {
   App.lots = prev.lots || [];
   App.lotNextNum = prev.lotNextNum || App.lotNextNum;
   App.divGuides = prev.divGuides || [];
+  reconcileSelectionState();
   updateResults();
   updateLotPanel();
   App.dirty = true;
@@ -3514,6 +5398,7 @@ function redoLast() {
   App.lots = next.lots || [];
   App.lotNextNum = next.lotNextNum || App.lotNextNum;
   App.divGuides = next.divGuides || [];
+  reconcileSelectionState();
   updateResults();
   updateLotPanel();
   App.dirty = true;
@@ -3522,7 +5407,11 @@ function redoLast() {
 function clearMeasurements(confirm_) {
   const hasData = App.items.length > 0 || App.texts.length > 0 || App.lots.length > 0;
   if (confirm_ && hasData) {
-    if (!confirm('すべての計測・区画・メモをクリアしますか？')) return;
+    showInlineConfirm('すべての計測・区画・文字・スタンプを削除します。この操作は元に戻せません。', {
+      confirmLabel: 'すべて削除',
+      onConfirm: () => clearMeasurements(false),
+    });
+    return;
   }
   App.items = [];
   App.texts = [];
@@ -3537,29 +5426,70 @@ function clearMeasurements(confirm_) {
 
 // ===== メモ入力 =====
 function showTextInput(sx, sy, cp, existingText = '') {
+  const calloutTip = App.pendingCalloutTip
+    ? { x: App.pendingCalloutTip.x, y: App.pendingCalloutTip.y }
+    : null;
+  if (_memoEditSession) cancelTextInput();
+  App.editingTextId = null;
   App.pendingTextPos = cp;
+  App.pendingCalloutTip = calloutTip;
+  _memoEditSession = {
+    kind: 'new',
+    originalOptions: JSON.parse(JSON.stringify(App.textOptions)),
+    historyState: captureHistoryState(),
+  };
   const rect = canvas.getBoundingClientRect();
   showTextInputAt(rect.left + sx + 12, rect.top + sy - 10, existingText);
+}
+
+function openMemoEditor(id, clientX, clientY) {
+  const textObject = App.texts.find(item => item.id === id);
+  if (!textObject || textObject.textType) return;
+  const panel = document.getElementById('memo-panel');
+  if (_memoEditSession?.kind === 'edit' && _memoEditSession.id === id
+      && panel && !panel.classList.contains('hidden')) return;
+  if (_memoEditSession) cancelTextInput();
+
+  const originalOptions = JSON.parse(JSON.stringify(App.textOptions));
+  _memoEditSession = {
+    kind: 'edit',
+    id,
+    original: JSON.parse(JSON.stringify(textObject)),
+    originalOptions,
+    historyState: captureHistoryState(),
+  };
+  App.editingTextId = id;
+  App.pendingTextPos = { x: textObject.x, y: textObject.y };
+  App.pendingCalloutTip = null;
+  App.textOptions = {
+    fontSize: textObject.fontSize || 14,
+    fontFamily: normalizeFontFamily(textObject.fontFamily),
+    color: textObject.color || '#1a1a1a',
+    bgColor: textObject.bgColor || 'rgba(255,255,220,0.92)',
+    boxStyle: textObject.boxStyle || 'box',
+    vertical: !!textObject.vertical,
+    rotation: parseFloat(textObject.rotation) || 0,
+  };
+
+  const rect = canvas.getBoundingClientRect();
+  const x = Number.isFinite(clientX) ? clientX : rect.left + App.vx + textObject.x * App.vz;
+  const y = Number.isFinite(clientY) ? clientY : rect.top + App.vy + textObject.y * App.vz;
+  showTextInputAt(x + 12, y - 10, textObject.text || '');
 }
 
 function showTextInputAt(clientX, clientY, existingText = '') {
   const panel = document.getElementById('memo-panel');
   const input = document.getElementById('memo-input');
-  let px = clientX, py = clientY;
-  if (px + 280 > window.innerWidth)  px = window.innerWidth - 290;
-  if (py + 200 > window.innerHeight) py = py - 200;
-  if (py < 0) py = 4;
-  panel.style.left = px + 'px';
-  panel.style.top  = py + 'px';
-  panel.classList.remove('hidden');
+  if (!panel || !input) return;
   syncMemoPanelUI();
   input.value = existingText;
-  setTimeout(() => { input.focus(); if (existingText) input.select(); }, 50);
+  positionViewportFloatingPanel(panel, clientX, clientY);
+  focusFloatingInputAfterPointer(input, { select: !!existingText });
 }
 
 // メモパネルのUI（ボタン・スウォッチ）をApp.textOptionsと同期
 function syncMemoPanelUI() {
-  const { fontSize, color, bgColor, boxStyle } = App.textOptions;
+  const { fontSize, color, bgColor, boxStyle, vertical, rotation = 0 } = App.textOptions;
   const slider = document.getElementById('text-size-slider');
   if (slider) { slider.value = fontSize; }
   const val = document.getElementById('text-size-val');
@@ -3573,110 +5503,232 @@ function syncMemoPanelUI() {
   document.querySelectorAll('.box-style-btn').forEach(b => {
     b.classList.toggle('active-box-style', b.dataset.bs === (boxStyle || 'box'));
   });
+  const verticalCheck = document.getElementById('text-vertical-check');
+  if (verticalCheck) verticalCheck.checked = !!vertical;
+  const rotationValue = Math.max(-180, Math.min(180, parseFloat(rotation) || 0));
+  const rotationSlider = document.getElementById('text-rotation-slider');
+  const rotationInput = document.getElementById('text-rotation-input');
+  if (rotationSlider) rotationSlider.value = rotationValue;
+  if (rotationInput) rotationInput.value = rotationValue;
+  const isEditing = _memoEditSession?.kind === 'edit' && App.editingTextId != null;
+  document.getElementById('memo-delete')?.classList.toggle('hidden', !isEditing);
+  const title = document.getElementById('memo-panel-title');
+  if (title) title.textContent = isEditing ? '文字・メモを編集' : '文字・メモを追加';
 }
 
 function commitTextInput() {
   const input = document.getElementById('memo-input');
   const text = input.value.trim();
-  if (text && App.pendingTextPos) {
-    saveState();
-    const opts = App.textOptions;
-    if (App.editingTextId !== null) {
-      // 既存テキストを更新
-      const t = App.texts.find(x => x.id === App.editingTextId);
-      if (t) {
-        t.text = text;
-        t.fontSize = opts.fontSize;
-        t.color = opts.color;
-        t.bgColor = opts.bgColor;
-        t.boxStyle = opts.boxStyle || 'box';
-      }
-      App.editingTextId = null;
-    } else if (App.pendingCalloutTip) {
-      // 引出線
-      App.texts.push({
-        id: App.nextId++,
-        type: 'callout',
-        tipX: App.pendingCalloutTip.x, tipY: App.pendingCalloutTip.y,
-        x: App.pendingTextPos.x, y: App.pendingTextPos.y,
-        text, fontSize: opts.fontSize,
-        color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
-      });
-      App.pendingCalloutTip = null;
-    } else {
-      // 通常メモ
-      App.texts.push({
-        id: App.nextId++,
-        x: App.pendingTextPos.x, y: App.pendingTextPos.y,
-        text, fontSize: opts.fontSize,
-        color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
-      });
-    }
-    updateResults();
+  if (!text) {
+    showToast('文字を入力してください。削除する場合は「削除」を押してください', 3500);
+    input.focus({ preventScroll: true });
+    return;
   }
+  if (!App.pendingTextPos) {
+    showToast('配置位置を確認できませんでした。いったんキャンセルして置き直してください', 4000);
+    return;
+  }
+
+  const session = _memoEditSession;
+  const historyState = session?.historyState || captureHistoryState();
+  const opts = App.textOptions;
+  let changed = false;
+  if (App.editingTextId !== null) {
+    const t = App.texts.find(x => x.id === App.editingTextId);
+    if (!t) {
+      showToast('編集対象が見つかりませんでした', 3000);
+      cancelTextInput();
+      return;
+    }
+    t.text = text;
+    t.fontSize = opts.fontSize;
+    t.fontFamily = normalizeFontFamily(opts.fontFamily);
+    t.color = opts.color;
+    t.bgColor = opts.bgColor;
+    t.boxStyle = opts.boxStyle || 'box';
+    t.vertical = !!opts.vertical;
+    t.rotation = parseFloat(opts.rotation) || 0;
+    changed = !session?.original || JSON.stringify(t) !== JSON.stringify(session.original);
+  } else if (App.pendingCalloutTip) {
+    App.texts.push({
+      id: App.nextId++,
+      type: 'callout',
+      tipX: App.pendingCalloutTip.x, tipY: App.pendingCalloutTip.y,
+      x: App.pendingTextPos.x, y: App.pendingTextPos.y,
+      text, fontSize: opts.fontSize, fontFamily: normalizeFontFamily(opts.fontFamily),
+      color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
+      vertical: !!opts.vertical, rotation: parseFloat(opts.rotation) || 0,
+    });
+    changed = true;
+  } else {
+    App.texts.push({
+      id: App.nextId++,
+      x: App.pendingTextPos.x, y: App.pendingTextPos.y,
+      text, fontSize: opts.fontSize, fontFamily: normalizeFontFamily(opts.fontFamily),
+      color: opts.color, bgColor: opts.bgColor, boxStyle: opts.boxStyle || 'box',
+      vertical: !!opts.vertical, rotation: parseFloat(opts.rotation) || 0,
+    });
+    changed = true;
+  }
+  if (changed) pushHistoryState(historyState);
+
+  const restoreOptions = session?.kind === 'edit' ? session.originalOptions : null;
   document.getElementById('memo-panel').classList.add('hidden');
   input.value = '';
+  App.editingTextId = null;
   App.pendingTextPos = null;
   App.pendingCalloutTip = null;
-  App.dirty = true;
+  _memoEditSession = null;
+  if (restoreOptions) App.textOptions = JSON.parse(JSON.stringify(restoreOptions));
+  reconcileSelectionState();
+  updateResults();
+  updateFormatPanel();
+  App.dirty = App.dirty || changed;
 }
 
 function cancelTextInput() {
+  const session = _memoEditSession;
+  if (session?.kind === 'edit' && session.original) restoreEditedText(session);
+  if (session?.originalOptions) {
+    App.textOptions = JSON.parse(JSON.stringify(session.originalOptions));
+  }
   document.getElementById('memo-panel').classList.add('hidden');
   document.getElementById('memo-input').value = '';
   App.pendingTextPos = null;
   App.pendingCalloutTip = null;
   App.editingTextId = null;
+  _memoEditSession = null;
+  reconcileSelectionState();
+  updateResults();
+  updateFormatPanel();
+  App.dirty = true;
+}
+
+function deleteMemoEditor() {
+  const session = _memoEditSession;
+  const id = App.editingTextId;
+  if (id == null || session?.kind !== 'edit') return;
+  pushHistoryState(session.historyState || captureHistoryState());
+  App.texts = App.texts.filter(item => item.id !== id);
+  if (session.originalOptions) {
+    App.textOptions = JSON.parse(JSON.stringify(session.originalOptions));
+  }
+  document.getElementById('memo-panel')?.classList.add('hidden');
+  document.getElementById('memo-input').value = '';
+  App.pendingTextPos = null;
+  App.pendingCalloutTip = null;
+  App.editingTextId = null;
+  _memoEditSession = null;
+  reconcileSelectionState();
+  updateResults();
+  updateFormatPanel();
+  App.dirty = true;
 }
 
 // ===== 結果リスト =====
 function updateResults() {
   const list = document.getElementById('results-list');
   const empty = document.getElementById('results-empty');
+  if (!list || !empty) return;
   list.innerHTML = '';
-  const total = App.items.length + App.texts.length;
 
-  if (total === 0) { empty.style.display = ''; return; }
+  const typeLabel = {
+    distance: '直線距離', polyline: '折れ線距離', area: '面積',
+    text: 'メモ', line: '線', arrow: '矢印', callout: '引出線'
+  };
+  const truncate = (value, max = 28) => {
+    const text = String(value ?? '');
+    return text.slice(0, max) + (text.length > max ? '…' : '');
+  };
+  const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  const measureRows = App.items.map(item => ({
+    id: item.id,
+    refType: 'item',
+    title: typeLabel[item.type] || item.type || '計測',
+    label: item.label || '',
+    color: item.color || '#dc2626',
+    colorEditable: true,
+  }));
+
+  const annotationRows = App.texts.map(textObject => {
+    const kind = selectedKindForTextObject(textObject);
+    if (kind === 'stamp') {
+      const isParking = textObject.textType === 'parking-stamp';
+      const fallback = isParking ? 'P' : '家屋';
+      const dimensions = textObject.wM != null && textObject.hM != null
+        ? ` · ${textObject.wM}m × ${textObject.hM}m` : '';
+      return {
+        id: textObject.id, refType: 'text',
+        title: isParking ? '駐車場スタンプ' : '家屋スタンプ',
+        label: `${textObject.label != null ? textObject.label : fallback}${dimensions}`,
+        color: textObject.lineColor || (isParking ? '#1d4ed8' : '#78350f'),
+        editKind: 'stamp', editLabel: 'スタンプを編集',
+      };
+    }
+    if (kind === 'north') {
+      return {
+        id: textObject.id, refType: 'text', title: '北マーク', label: '方位記号 N',
+        color: textObject.color || '#1e293b', editKind: 'north', editLabel: '北マークを編集',
+      };
+    }
+    if (kind === 'table') {
+      const isAccumulation = !!textObject.title;
+      return {
+        id: textObject.id, refType: 'text',
+        title: isAccumulation ? '積算表' : '面積表',
+        label: textObject.title || `${textObject.rows?.length || 0} 行の面積一覧`,
+        color: '#64748b', isTable: true,
+      };
+    }
+    const text = textObject.text || '';
+    return {
+      id: textObject.id, refType: 'text',
+      title: typeLabel[textObject.type] || 'メモ', label: truncate(text),
+      color: textObject.color || '#fbbf24', colorEditable: true,
+      editKind: 'memo', editLabel: '文字・注記を編集',
+    };
+  });
+
+  // 空表示は App の総数ではなく、実際にこの一覧へ描画する行で判定する。
+  const rows = [...measureRows, ...annotationRows];
+  if (rows.length === 0) { empty.style.display = ''; return; }
   empty.style.display = 'none';
 
-  const typeLabel = { distance: '直線距離', polyline: '折れ線距離', area: '面積', text: 'メモ', arrow: '矢印', callout: '引出線' };
-
-  const measureItems = App.items.map((item, i) => ({ ...item, _isText: false }));
-  // textType 付きはスタンプ・北マーク等 → 結果パネルには表示しない
-  const textItems = App.texts
-    .filter(t => !t.textType || t.textType === 'callout')
-    .map(t => {
-      const txt = t.text || '';
-      return {
-        ...t,
-        type: t.type || 'text',
-        label: txt.slice(0, 20) + (txt.length > 20 ? '…' : ''),
-        color: t.color || '#fbbf24',
-        _isText: true,
-      };
-    });
-
-  [...measureItems, ...textItems].forEach((item) => {
+  rows.forEach((item) => {
     const div = document.createElement('div');
     div.className = 'result-item';
-    const editBtn = item._isText
-      ? `<button class="btn-edit-text" data-id="${item.id}" title="編集">✏</button>`
+    div.dataset.id = String(item.id);
+    div.dataset.refType = item.refType;
+    const isText = item.refType === 'text';
+    const editBtn = item.editKind
+      ? `<button class="btn-edit-text" data-id="${item.id}" data-edit-kind="${item.editKind}" title="${escapeHtml(item.editLabel)}" aria-label="${escapeHtml(item.editLabel)}">✏</button>`
       : '';
+    const dotAttrs = item.colorEditable
+      ? `data-id="${item.id}" data-istext="${isText}" title="色を変更" style="background:${escapeHtml(item.color)};cursor:pointer"`
+      : `title="${item.isTable ? '選択ツールで移動・削除' : '詳細編集で色を変更'}" style="background:${escapeHtml(item.color)}"`;
+    const deleteLabel = item.isTable ? '表を削除'
+      : item.editKind === 'stamp' ? 'スタンプを削除'
+        : item.editKind === 'north' ? '北マークを削除'
+          : isText ? '注記を削除' : '計測を削除';
     div.innerHTML = `
       <div class="result-header">
-        <span class="result-dot" style="background:${item.color};cursor:pointer" data-id="${item.id}" data-istext="${item._isText}" title="色を変更"></span>
-        <span class="result-title">${typeLabel[item.type] || item.type}</span>
+        <span class="result-dot" ${dotAttrs}></span>
+        <span class="result-title">${escapeHtml(item.title)}</span>
         ${editBtn}
-        <button class="btn-delete" data-id="${item.id}" data-istext="${item._isText}">✕</button>
+        <button class="btn-delete" data-id="${item.id}" data-istext="${isText}" title="${deleteLabel}" aria-label="${deleteLabel}">✕</button>
       </div>
-      <div class="result-value">${item.label}</div>
+      <div class="result-value">${escapeHtml(item.label)}</div>
     `;
     list.appendChild(div);
   });
 
   // 削除ボタン
   list.querySelectorAll('.btn-delete').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
       const id = parseInt(btn.dataset.id);
       saveState();
       if (btn.dataset.istext === 'true') {
@@ -3684,29 +5736,26 @@ function updateResults() {
       } else {
         App.items = App.items.filter(i => i.id !== id);
       }
+      reconcileSelectionState();
       updateResults();
       App.dirty = true;
     });
   });
 
-  // テキスト編集ボタン
+  // 注記ごとの専用編集画面。表には編集ボタンを付けず、移動・削除だけにする。
   list.querySelectorAll('.btn-edit-text').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
       const id = parseInt(btn.dataset.id);
-      const t = App.texts.find(x => x.id === id);
-      if (!t) return;
-      App.editingTextId = id;
-      // テキストオプションを現在の値に合わせる
-      App.textOptions.fontSize = t.fontSize || 14;
-      App.textOptions.color    = t.color    || '#1a1a1a';
-      App.textOptions.bgColor  = t.bgColor  || 'rgba(255,255,220,0.92)';
-      App.textOptions.boxStyle = t.boxStyle  || 'box';
-      syncMemoPanelUI();
-      // キャンバス中央付近に表示
-      const cx = canvas.getBoundingClientRect().left + canvas.width / 2;
-      const cy = canvas.getBoundingClientRect().top  + canvas.height / 2;
-      App.pendingTextPos = { x: t.x, y: t.y };
-      showTextInputAt(cx, cy, t.text);
+      openObjectDetail({ type: 'text', id }, event.clientX, event.clientY);
+    });
+  });
+
+  // 行自体をクリックすると右プロパティとキャンバス選択を同じ対象へ揃える。
+  list.querySelectorAll('.result-item[data-id][data-ref-type]').forEach(row => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('button, .result-dot[data-id]')) return;
+      selectObjectReference({ type: row.dataset.refType, id: parseInt(row.dataset.id) });
     });
   });
 
@@ -3717,9 +5766,7 @@ function updateResults() {
       App.cpTargetId     = parseInt(dot.dataset.id);
       App.cpTargetIsText = dot.dataset.istext === 'true';
       const popup = document.getElementById('color-picker-popup');
-      popup.style.left = (e.clientX + 4) + 'px';
-      popup.style.top  = (e.clientY + 4) + 'px';
-      popup.classList.remove('hidden');
+      positionViewportFloatingPanel(popup, e.clientX + 4, e.clientY + 4);
     });
   });
 }
@@ -3731,22 +5778,71 @@ function updatePageInfo() {
   document.getElementById('btn-next').disabled = App.pageNum >= App.pageCount;
 }
 
-async function changePage(delta) {
-  const p = App.pageNum + delta;
-  if (p < 1 || p > App.pageCount) return;
+async function applyPageChange(p) {
+  hidePlacementPreview();
   App.pageNum = p;
   App.pdfReady = false;
   clearMeasurements(false);
   await renderPDFPage(p);
 }
 
+async function changePage(delta) {
+  const p = App.pageNum + delta;
+  if (p < 1 || p > App.pageCount) return;
+  const hasPageData = App.lots.length > 0 || App.texts.length > 0 || App.items.length > 0;
+  if (hasPageData) {
+    showInlineConfirm('ページを切り替えると、現在の区画・文字・スタンプ・計測は削除されます。', {
+      confirmLabel: '削除して切り替え',
+      onConfirm: () => { void applyPageChange(p); },
+    });
+    return;
+  }
+  await applyPageChange(p);
+}
+
 // ===== 縮尺設定 =====
+function normalizeJapaneseNumber(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[．。・，]/g, '.')
+    .replace(/[／]/g, '/')
+    .replace(/,/g, '')
+    .replace(/[ｍＭm]/g, '')
+    .replace(/[\s　]+/g, '');
+}
+
+function readPositiveNumber(input, { integer = false, allowScaleNotation = false } = {}) {
+  let normalized = normalizeJapaneseNumber(input.value);
+  if (allowScaleNotation && normalized.includes('/')) normalized = normalized.split('/').pop();
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || value <= 0) {
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+    return null;
+  }
+  input.removeAttribute('aria-invalid');
+  const result = integer ? Math.round(value) : value;
+  input.value = integer ? String(result) : String(result);
+  return result;
+}
+
 function applyManualScale() {
-  const val = parseInt(document.getElementById('scale-input').value);
-  if (!val || val <= 0) { alert('正しい縮尺を入力してください'); return; }
+  const input = document.getElementById('scale-input');
+  const val = readPositiveNumber(input, { integer: true, allowScaleNotation: true });
+  if (val === null) { showToast('正しい縮尺を入力してください（例：500）'); return; }
   setMapScale(val);
   setScaleDisplay(`縮尺 1/${val} (手動設定)`);
   document.getElementById('calibration-modal').classList.add('hidden');
+  showToast(`縮尺 1/${val} を適用しました`);
+  notifyAppState('scale');
+}
+
+function blockToolSwitchDuringCalibration() {
+  if (!App.calibrating) return false;
+  showToast('縮尺合わせ中です。先に「作業を中止」または Esc で解除してください');
+  notifyAppState('calibration-blocked');
+  return true;
 }
 
 function startCalibration() {
@@ -3754,19 +5850,38 @@ function startCalibration() {
   App.calibrating = true;
   App.calibPts = [];
   App.dirty = true;
-  alert('地図上の2点をクリックしてください（距離がわかる2点の両端）');
+  document.getElementById('hint-text').textContent = '縮尺設定：距離が分かる2点の両端をクリックしてください';
+  showToast('図面上の基準にする2点をクリックしてください');
+  notifyAppState('calibration-start');
 }
 
 function applyCalibrationDist() {
-  const d = parseFloat(document.getElementById('calibration-dist-input').value);
-  if (!d || d <= 0) { alert('正しい距離を入力してください'); return; }
+  const input = document.getElementById('calibration-dist-input');
+  const d = readPositiveNumber(input);
+  if (d === null) { showToast('0より大きい距離を入力してください'); return; }
   commitCalibrationDist(d);
 }
 
+function cancelCalibrationDistance() {
+  document.getElementById('calibration-dist-modal').classList.add('hidden');
+  const input = document.getElementById('calibration-dist-input');
+  input.value = '';
+  input.removeAttribute('aria-invalid');
+  App.calibPts = [];
+  App.calibrating = false;
+  App.dirty = true;
+  updateHint();
+  notifyAppState('calibration-cancel');
+}
+
 function commitCalibrationDist(d) {
-  if (App.calibPts.length < 2) { alert('先に2点をクリックしてください'); return; }
+  if (App.calibPts.length < 2) {
+    showToast('基準点が失われました。もう一度2点を選択してください');
+    cancelCalibrationDistance();
+    return;
+  }
   const px = dist(App.calibPts[0], App.calibPts[1]);
-  if (px === 0) { alert('2点が同じ位置です'); return; }
+  if (px === 0) { showToast('2点が同じ位置です。離れた2点を選択してください'); return; }
   const oldMpp = App.mpp;
   const newMpp = d / px;
   if (oldMpp && Math.abs(oldMpp - newMpp) > 1e-12) rescaleAll(oldMpp / newMpp);
@@ -3776,7 +5891,11 @@ function commitCalibrationDist(d) {
   document.getElementById('calibration-dist-modal').classList.add('hidden');
   document.getElementById('calibration-dist-input').value = '';
   App.calibPts = [];
+  App.calibrating = false;
   App.dirty = true;
+  showToast(`2点間 ${d}m から縮尺を設定しました`);
+  updateHint();
+  notifyAppState('calibration-complete');
 }
 
 // ===== PNG保存 =====
@@ -3789,7 +5908,10 @@ function saveCanvasPNG() {
 }
 
 // ===== プロジェクトJSON保存 =====
-async function saveProjectJSON() {
+async function saveProjectJSON(options = {}) {
+  const closeAfterSave = options?.closeAfter === true;
+  notifyProjectLifecycle('saving');
+  try {
   const data = {
     version: 3,
     savedAt: new Date().toISOString(),
@@ -3798,10 +5920,21 @@ async function saveProjectJSON() {
     vx: App.vx, vy: App.vy, vz: App.vz,
     pageNum: App.pageNum,
     isImageMode: App.isImageMode,
-    bgScale: App.bgScale, bgOffsetX: App.bgOffsetX, bgOffsetY: App.bgOffsetY, bgRotation: App.bgRotation,
+    bgScale: App.bgScale, bgOffsetX: App.bgOffsetX, bgOffsetY: App.bgOffsetY, bgRotation: App.bgRotation, bgLocked: App.bgLocked,
     lots: App.lots,
     lotNextNum: App.lotNextNum,
+    lotStrokeColor: App.lotStrokeColor,
     lotBorderColor: App.lotBorderColor,
+    lotFillOpacity: App.lotFillOpacity,
+    lotShowEdgeLengths: App.lotShowEdgeLengths,
+    lotTextScale: App.lotTextScale,
+    lotEdgeScale: App.lotEdgeScale,
+    subMeasureScale: App.subMeasureScale,
+    showSideLengths: App.showSideLengths,
+    useYaku: App.useYaku,
+    yakuDecimal: App.yakuDecimal,
+    yakuAdjust: App.yakuAdjust,
+    showLotNumbers: App.showLotNumbers,
     paperMode: App.paperMode,
     paperSize: App.paperSize,
     paperW: App.paperW, paperH: App.paperH,
@@ -3821,12 +5954,29 @@ async function saveProjectJSON() {
     // 画像モードはオフスクリーンキャンバスからPNGとして保存
     data.imageDataUrl = App.pdfOffscreen.toDataURL('image/png');
   }
-  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
   const dt = new Date().toISOString().slice(0, 10);
-  const a = document.createElement('a');
-  a.href = url; a.download = `kozu-project-${dt}.json`; a.click();
-  URL.revokeObjectURL(url);
+  const fileName = `kozu-project-${dt}.json`;
+  const contents = JSON.stringify(data);
+  let savedName = fileName;
+
+  if (closeAfterSave && window.electronAPI?.saveProjectBeforeClose) {
+    const result = await window.electronAPI.saveProjectBeforeClose({ fileName, contents });
+    savedName = result?.fileName || fileName;
+  } else {
+    const blob = new Blob([contents], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName; a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+  notifyProjectLifecycle('saved', { name: savedName });
+  return true;
+  } catch (err) {
+    console.error(err);
+    notifyProjectLifecycle('error', { action: 'save', message: err.message });
+    showToast('保存ファイルを作成できませんでした: ' + err.message, 4000);
+    return false;
+  }
 }
 
 // ===== プロジェクトJSON読み込み =====
@@ -3842,7 +5992,7 @@ function loadProjectJSON(file) {
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         App.pdfBytes = bytes;
         App.isImageMode = false;
-        App.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        App.pdf = await pdfjsLib.getDocument({ data: bytes, ...PDFJS_OPTS }).promise;
         App.pageCount = App.pdf.numPages;
         App.pageNum = data.pageNum || 1;
         document.getElementById('page-nav').classList.remove('hidden');
@@ -3872,10 +6022,30 @@ function loadProjectJSON(file) {
       App.bgOffsetX  = data.bgOffsetX  ?? 0;
       App.bgOffsetY  = data.bgOffsetY  ?? 0;
       App.bgRotation = data.bgRotation ?? 0;
+      App.bgLocked   = data.bgLocked !== false;
       if (data.vx != null) { App.vx = data.vx; App.vy = data.vy; App.vz = data.vz; }
       App.lots       = data.lots       || [];
       App.lotNextNum = data.lotNextNum || 1;
+      if (data.lotStrokeColor) App.lotStrokeColor = data.lotStrokeColor;
       if (data.lotBorderColor) App.lotBorderColor = data.lotBorderColor;
+      if (data.lotFillOpacity != null) {
+        App.lotFillOpacity = data.lotFillOpacity;
+        const lo = document.getElementById('lot-fill-opacity-slider');
+        const lov = document.getElementById('lot-fill-opacity-val');
+        if (lo) lo.value = Math.round(App.lotFillOpacity * 100);
+        if (lov) lov.textContent = Math.round(App.lotFillOpacity * 100) + '%';
+      }
+      if (data.lotShowEdgeLengths != null) App.lotShowEdgeLengths = !!data.lotShowEdgeLengths;
+      if (data.lotTextScale != null) App.lotTextScale = Number(data.lotTextScale) || 1.4;
+      if (data.lotEdgeScale != null) App.lotEdgeScale = Number(data.lotEdgeScale) || 1;
+      if (data.subMeasureScale != null) App.subMeasureScale = Number(data.subMeasureScale) || 0.9;
+      if (data.showSideLengths != null) App.showSideLengths = !!data.showSideLengths;
+      if (data.useYaku != null) App.useYaku = !!data.useYaku;
+      if (data.yakuDecimal != null) App.yakuDecimal = Math.max(0, Math.min(2, Number(data.yakuDecimal) || 0));
+      if (data.yakuAdjust != null) App.yakuAdjust = Number(data.yakuAdjust) || 0;
+      if (data.showLotNumbers != null) App.showLotNumbers = !!data.showLotNumbers;
+      updateGlobalDisplayButtons();
+      updateGlobalLotColorControls();
       if (data.paperMode != null) {
         App.paperMode = data.paperMode;
         App.paperSize = data.paperSize || 'A4';
@@ -3886,7 +6056,7 @@ function loadProjectJSON(file) {
         const bar = document.getElementById('paper-info-bar');
         if (bar) { bar.classList.toggle('hidden', !App.paperMode); if (App.paperMode) positionOverlayBar(bar); }
         const pmBtn = document.getElementById('btn-paper-mode');
-        if (pmBtn) { pmBtn.textContent = App.paperMode ? '本図に戻す' : '📄 用紙'; pmBtn.classList.toggle('active-mode', App.paperMode); }
+        if (pmBtn) { pmBtn.textContent = App.paperMode ? '本図に戻す' : '📄 作業用紙'; pmBtn.classList.toggle('active-mode', App.paperMode); }
       }
       if (data.paperInfo) {
         App.paperInfo = data.paperInfo;
@@ -3907,7 +6077,13 @@ function loadProjectJSON(file) {
       else if (App.mpp) setScaleDisplay(`縮尺設定済`);
       updateZoomInfo();
       App.dirty = true;
-    } catch (err) { alert('読み込みに失敗しました: ' + err.message); }
+      notifyProjectLifecycle('loaded', { name: file.name, kind: 'project' });
+      notifyAppState('project-loaded');
+    } catch (err) {
+      console.error(err);
+      notifyProjectLifecycle('error', { action: 'load', message: err.message });
+      showToast('作業データを読み込めませんでした: ' + err.message, 4000);
+    }
   };
   reader.readAsText(file);
 }
@@ -3915,10 +6091,10 @@ function loadProjectJSON(file) {
 // ===== PDF書き込み保存 =====
 async function savePDF() {
   if (!App.pdfBytes) {
-    alert('PDF保存はPDFファイルのみ対応しています。\n画像の場合は「印刷」からPDFとして保存してください。');
+    showToast('PDF保存はPDFファイルのみ対応しています。画像の場合は「印刷」からPDFとして保存してください。', 5000);
     return;
   }
-  if (App.items.length === 0 && App.texts.length === 0) { alert('計測データがありません'); return; }
+  if (App.items.length === 0 && App.texts.length === 0) { showToast('計測データがありません', 3000); return; }
 
   try {
     const { PDFDocument, rgb, StandardFonts } = PDFLib;
@@ -3993,19 +6169,22 @@ async function savePDF() {
     a.href = url; a.download = `公図_計測済み_${getDateTimeStr()}.pdf`; a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
-    alert('PDF保存エラー: ' + e.message);
+    showToast('PDF保存エラー: ' + e.message, 5000);
     console.error(e);
   }
 }
 
 // ===== 印刷モーダルを開く =====
 function openPrintModal() {
-  if (!App.pdfReady) { alert('ファイルを開いてください'); return; }
+  if (!App.pdfReady && !App.paperMode) { showToast('先に図面を開いてください', 3000); return; }
+  const size = detectPrintPaperSize();
+  App.printSize = size;
+  syncPrintPaperButtons(size);
   document.getElementById('print-modal').classList.remove('hidden');
 }
 
 // ===== 印刷 =====
-function printMeasurements() {
+async function printMeasurements() {
   // 計測線・ラベルを合成した画像を作成
   const pc = document.createElement('canvas');
   const origCtx = ctx;
@@ -4041,25 +6220,34 @@ function printMeasurements() {
   [App.vz, App.vx, App.vy] = sv;
 
   const dataUrl = pc.toDataURL('image/png');
-  // 用紙モードは用紙サイズ横向き・余白なし、本図モードはA3
-  const size = App.paperMode ? `${App.paperSize} landscape` : (App.printSize || 'A3');
-  const pageMargin = App.paperMode ? '0' : '10mm';
+  const pageSize = App.paperMode ? (App.paperSize || 'A4') : (App.printSize || detectPrintPaperSize());
+  const landscape = App.paperMode
+    ? true
+    : (App.pageWidthPt && App.pageHeightPt ? App.pageWidthPt >= App.pageHeightPt : pc.width >= pc.height);
+  const pageMm = getPaperSizeMm(pageSize, landscape);
+  const imageMm = getPrintImageSizeMm(pc, pageMm);
+  const title = `公図_${getDateTimeStr()}`;
+  const html = buildPrintDocument({ title, dataUrl, pageSize, landscape, pageMm, imageMm, autoPrint: false });
+
+  if (window.electronAPI && typeof window.electronAPI.printDrawing === 'function') {
+    try {
+      await window.electronAPI.printDrawing({
+        html,
+        pageSize,
+        landscape,
+        marginType: 'none',
+      });
+    } catch (e) {
+      showToast('印刷エラー: ' + (e.message || e), 5000);
+      console.error(e);
+    }
+    return;
+  }
 
   const win = window.open('', '_blank');
-  if (!win) { alert('ポップアップをブロックしています。許可してください。'); return; }
+  if (!win) { showToast('印刷画面を開けませんでした。ポップアップの許可を確認してください。', 5000); return; }
 
-  win.document.write(`<!DOCTYPE html><html lang="ja"><head>
-    <meta charset="UTF-8">
-    <title>公図_${getDateTimeStr()}</title>
-    <style>
-      @page { size: ${size}; margin: ${pageMargin}; }
-      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-      img { width: 100%; height: 100%; object-fit: contain; display: block; page-break-after: avoid; }
-    </style>
-  </head><body>
-    <img src="${dataUrl}">
-    <script>window.onload = function(){ window.print(); }<\/script>
-  </body></html>`);
+  win.document.write(buildPrintDocument({ title, dataUrl, pageSize, landscape, pageMm, imageMm, autoPrint: true }));
   win.document.close();
 }
 
@@ -4186,6 +6374,8 @@ function updateSplitUI() {
 }
 
 function setLotTool(tool) {
+  if (blockToolSwitchDuringCalibration()) return;
+  hidePlacementPreview();
   App.lotTool = tool;
   App.lotPts = [];
   App.pts = [];
@@ -4193,8 +6383,8 @@ function setLotTool(tool) {
   App.mergeSelect = [];
   // 選択分割以外のツールに切り替えたらクリアUIをリセット
   if (tool !== 'split') { App.splitTargetId = null; updateSplitUI(); }
-  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'delete') ? 'select' : 'draw';
-  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : 'crosshair';
+  App.mode = (tool === 'select' || tool === 'label-move' || tool === 'move-all' || tool === 'merge' || tool === 'corner-cut' || tool === 'delete' || tool === 'edge-hide') ? 'select' : 'draw';
+  canvas.style.cursor = tool === 'delete' ? 'not-allowed' : (tool === 'edge-hide' ? 'pointer' : 'crosshair');
   document.getElementById('btn-divguide')?.classList.toggle('active', tool === 'divguide');
   document.getElementById('divguide-panel')?.classList.toggle('hidden', tool !== 'divguide');
   document.getElementById('btn-lot-draw').classList.toggle('active', tool === 'draw');
@@ -4206,17 +6396,29 @@ function setLotTool(tool) {
   document.getElementById('sub-btn-parallel').classList.toggle('active', tool === 'parallel');
   document.getElementById('parallel-panel').classList.toggle('hidden', tool !== 'parallel');
   document.getElementById('parallel-create').disabled = true;
-  ['sub-btn-distance','sub-btn-polyline','sub-btn-area'].forEach(id =>
+  [
+    'sub-btn-distance', 'sub-btn-polyline', 'sub-btn-area',
+    'sub-btn-arrow', 'sub-btn-text', 'sub-btn-callout', 'sub-btn-line',
+    'sub-btn-north-arrow', 'sub-btn-house-stamp', 'sub-btn-parking-stamp',
+    'btn-vertex-edit-sub', 'btn-label-edit-sub',
+  ].forEach(id =>
     document.getElementById(id)?.classList.remove('active'));
+  document.getElementById('line-settings')?.classList.add('hidden');
+  document.getElementById('north-arrow-settings')?.classList.add('hidden');
+  document.getElementById('stamp-settings')?.classList.add('hidden');
   document.getElementById('btn-lot-delete-tool')?.classList.toggle('active', tool === 'delete');
   document.getElementById('btn-lot-select')?.classList.toggle('active', tool === 'select');
-  document.getElementById('btn-lot-label-move')?.classList.toggle('active', tool === 'label-move');
-  document.getElementById('btn-move-all')?.classList.toggle('active', tool === 'move-all');
+  document.getElementById('btn-edge-hide')?.classList.toggle('active', tool === 'edge-hide');
+  if (tool !== 'select') App.selectedFormat = null;
+  updateFormatPanel();
   updateHint();
   App.dirty = true;
+  notifyAppState('tool');
 }
 
 function setSubMeasureMode(mode) {
+  if (blockToolSwitchDuringCalibration()) return;
+  hidePlacementPreview();
   App.lotPts = [];
   App.pts = [];
   App.parallelBase = null;
@@ -4228,19 +6430,22 @@ function setSubMeasureMode(mode) {
     document.getElementById(id)?.classList.remove('active'));
   document.getElementById('parallel-panel').classList.add('hidden');
   document.querySelectorAll('#tools-subdivision .btn-lot-tool').forEach(b => b.classList.remove('active'));
-  ['distance','polyline','area','arrow','text','callout','north-arrow','house-stamp','parking-stamp','vertex-edit','label-edit'].forEach(m => {
+  ['distance','polyline','area','arrow','text','callout','line','north-arrow','house-stamp','parking-stamp','vertex-edit','label-edit'].forEach(m => {
     const id = (m === 'vertex-edit') ? 'btn-vertex-edit-sub'
              : (m === 'label-edit')  ? 'btn-label-edit-sub'
              : `sub-btn-${m}`;
     document.getElementById(id)?.classList.toggle('active', m === mode);
   });
   // パネル表示切替
+  document.getElementById('line-settings')?.classList.toggle('hidden', mode !== 'line');
   document.getElementById('north-arrow-settings')?.classList.toggle('hidden', mode !== 'north-arrow');
   const showStamp = mode === 'house-stamp' || mode === 'parking-stamp';
   document.getElementById('stamp-settings')?.classList.toggle('hidden', !showStamp);
   if (showStamp) {
     const label = document.getElementById('stamp-settings-label');
-    if (label) label.textContent = mode === 'parking-stamp' ? '🅿 駐車場スタンプ' : '🏠 家屋スタンプ';
+    if (label) label.textContent = mode === 'parking-stamp'
+      ? '配置前の初期設定 — 駐車場'
+      : '配置前の初期設定 — 家屋';
     // モード切替時のデフォルト値をセット
     const defs = mode === 'parking-stamp' ? [5, 2.5] : [10, 8];
     const wInp = document.getElementById('stamp-w-input');
@@ -4248,8 +6453,11 @@ function setSubMeasureMode(mode) {
     if (wInp && !wInp._userEdited) { wInp.value = defs[0]; App.stampWM = defs[0]; }
     if (hInp && !hInp._userEdited) { hInp.value = defs[1]; App.stampHM = defs[1]; }
   }
+  App.selectedFormat = null;
+  updateFormatPanel();
   updateHint();
   App.dirty = true;
+  notifyAppState('tool');
 }
 
 function snapToGrid(val) {
@@ -4320,14 +6528,26 @@ function hitLot(cp) {
 function confirmLotDraw() {
   const pts = [...App.lotPts];
   App.lotPts = [];
-  if (pts.length < 2) { App.dirty = true; return; }
+  if (pts.length < 3) { App.dirty = true; return; }
   saveState();
   if (App.lotTool === 'road') {
-    App.lots.push({ id: App.nextId++, type: 'road', points: pts, color: '#94a3b8' });
+    const defaults = App.commandDefaults?.road || {};
+    App.lots.push({
+      id: App.nextId++, type: 'road', points: pts,
+      color: defaults.color || '#cbd5e1',
+      borderColor: defaults.borderColor || '#64748b',
+      fillOpacity: Number.isFinite(defaults.fillOpacity) ? defaults.fillOpacity : 0.48,
+      roadLabel: defaults.roadLabel ?? '公道',
+      roadWidth: Number(defaults.roadWidth) || 4,
+    });
   } else {
+    const defaults = App.commandDefaults?.lot || {};
     App.lots.push({
       id: App.nextId++, type: 'lot', points: pts,
-      lotNum: App.lotNextNum++, price: '', memo: '', color: App.lotStrokeColor,
+      lotNum: App.lotNextNum++, price: '', memo: '',
+      color: defaults.color || App.lotStrokeColor || '#fff0bd',
+      borderColor: defaults.borderColor || App.lotBorderColor || '#a46a08',
+      fillOpacity: Number.isFinite(defaults.fillOpacity) ? defaults.fillOpacity : App.lotFillOpacity,
     });
   }
   updateLotPanel();
@@ -4397,8 +6617,9 @@ function drawLot(lot) {
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
-  const opHex = Math.round((App.lotFillOpacity ?? 0.73) * 255).toString(16).padStart(2, '0');
-  ctx.fillStyle = isRoad ? (lot.color || '#94a3b8') + opHex : (lot.color || '#bfdbfe') + opHex;
+  const fillOpacity = isRoad ? (lot.fillOpacity ?? 0.48) : (lot.fillOpacity ?? App.lotFillOpacity ?? 0.58);
+  const opHex = Math.round(fillOpacity * 255).toString(16).padStart(2, '0');
+  ctx.fillStyle = isRoad ? (lot.color || '#cbd5e1') + opHex : (lot.color || '#fff0bd') + opHex;
   ctx.fill();
   const isMergeSelected = App.lotTool === 'merge' && App.mergeSelect.includes(lot.id);
   ctx.strokeStyle = isMergeSelected ? '#f59e0b'
@@ -4407,70 +6628,113 @@ function drawLot(lot) {
   ctx.lineWidth = (isMergeSelected ? 3 : 1.5) / App.vz;
   ctx.stroke();
 
-  // 頂点ドット（スナップON時のみ表示）- 線の色に連動
-  if (App.gridSnap) {
+  // 吸着のON/OFFと点表示を分離。確定済み頂点は編集時だけ控えめに示す。
+  if (App.mode === 'vertex-edit') {
     const dotColor = isRoad ? (lot.borderColor || '#94a3b8') : (lot.borderColor || App.lotBorderColor || '#1d4ed8');
-    pts.forEach(p => drawDot(p.x, p.y, 2.5 / App.vz, dotColor));
+    pts.forEach(p => drawEditHandle(p.x, p.y, dotColor));
   }
 
   const mpp = App.mpp;
   const cen = centroid(pts);
 
   if (isRoad) {
-    const scale = lot.roadLabelSize || 1.0;
-    const fs = pfs(11) * scale;
-    const fsW = pfs(9) * scale;
+    const titleScale = parseFloat(lot.roadLabelSize) || 1.0;
+    const widthScale = parseFloat(lot.roadWidthLabelSize) || titleScale;
+    const fs = pfs(11) * titleScale;
+    const fsW = pfs(9) * widthScale;
     const text = lot.roadLabel !== undefined ? lot.roadLabel : '道路';
-    const lx = cen.x + (lot.labelOffX || 0);
-    const ly = cen.y + (lot.labelOffY || 0);
+    const titleX = cen.x + (lot.labelOffX || 0);
+    const titleY = cen.y + (lot.labelOffY || 0);
+    const widthHasCustomPos = lot.roadWidthOffX != null || lot.roadWidthOffY != null;
     const textColor = lot.roadLabelColor || '#475569';
+    const widthColor = lot.roadWidthLabelColor || textColor;
+    const titleFont = canvasFontFamily(lot.roadLabelFontFamily);
+    const widthFont = canvasFontFamily(lot.roadWidthFontFamily || lot.roadLabelFontFamily);
+    const roadRot = (App.mode === 'label-edit') ? 0 : (lot.roadLabelRotation || 0) * Math.PI / 180;
+    const textLines = text.split('\n');
+    let titleBox = null;
+    let widthBox = null;
+
+    ctx.save();
+    if (roadRot) { ctx.translate(titleX, titleY); ctx.rotate(roadRot); ctx.translate(-titleX, -titleY); }
     ctx.fillStyle = textColor;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if (lot.roadVertical && text.length > 0) {
       const chars = [...text];
       const lineH = fs * 1.3;
       const totalH = chars.length * lineH;
-      ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+      ctx.font = `bold ${fs}px ${titleFont}`;
       chars.forEach((ch, i) => {
-        ctx.fillText(ch, lx, ly - totalH / 2 + lineH * (i + 0.5));
+        ctx.fillText(ch, titleX, titleY - totalH / 2 + lineH * (i + 0.5));
       });
+      titleBox = { cx: titleX, cy: titleY, w: fs * 1.35, h: Math.max(lineH, totalH) };
       // 幅員（縦書きで右横に並べる）
       if (lot.roadWidth) {
         const wChars = [...`幅員${lot.roadWidth}m`];
         const wLineH = fsW * 1.25;
         const wTotalH = wChars.length * wLineH;
-        ctx.font = `${fsW}px 'Segoe UI', sans-serif`;
+        const widthX = widthHasCustomPos ? cen.x + (lot.roadWidthOffX || 0) : titleX + fs * 1.3;
+        const widthY = widthHasCustomPos ? cen.y + (lot.roadWidthOffY || 0) : titleY;
+        ctx.fillStyle = widthColor;
+        ctx.font = `${fsW}px ${widthFont}`;
         wChars.forEach((ch, i) => {
-          ctx.fillText(ch, lx + fs * 1.3, ly - wTotalH / 2 + wLineH * (i + 0.5));
+          ctx.fillText(ch, widthX, widthY - wTotalH / 2 + wLineH * (i + 0.5));
         });
+        widthBox = { cx: widthX, cy: widthY, w: fsW * 1.35, h: Math.max(wLineH, wTotalH) };
       }
     } else {
-      ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
-      ctx.fillText(text, lx, lot.roadWidth ? ly - fsW * 0.7 : ly);
+      const lineH = fs * 1.25;
+      const totalTextH = textLines.length * lineH;
+      const widthOffset = lot.roadWidth ? -(fsW * 0.6) : 0;
+      ctx.font = `bold ${fs}px ${titleFont}`;
+      let titleW = fs * 2;
+      textLines.forEach((line, i) => {
+        titleW = Math.max(titleW, ctx.measureText(line || '　').width);
+        ctx.fillText(line, titleX, titleY - totalTextH / 2 + lineH * (i + 0.5) + widthOffset);
+      });
+      titleBox = { cx: titleX, cy: titleY + widthOffset, w: titleW, h: Math.max(lineH, totalTextH) };
       if (lot.roadWidth) {
-        ctx.font = `${fsW}px 'Segoe UI', sans-serif`;
-        ctx.fillText(`幅員 ${lot.roadWidth}m`, lx, ly + fs * 0.8);
+        const widthText = `幅員 ${lot.roadWidth}m`;
+        const defaultWidthX = titleX;
+        const defaultWidthY = titleY + totalTextH / 2 + widthOffset + fsW * 0.8;
+        const widthX = widthHasCustomPos ? cen.x + (lot.roadWidthOffX || 0) : defaultWidthX;
+        const widthY = widthHasCustomPos ? cen.y + (lot.roadWidthOffY || 0) : defaultWidthY;
+        ctx.fillStyle = widthColor;
+        ctx.font = `${fsW}px ${widthFont}`;
+        const widthW = Math.max(fsW * 2, ctx.measureText(widthText).width);
+        ctx.fillText(widthText, widthX, widthY);
+        widthBox = { cx: widthX, cy: widthY, w: widthW, h: fsW * 1.25 };
       }
     }
-    // セットバック表示
-    if (lot.setback) {
-      const sbDef = fs * 2.8;
-      const sbX = cen.x + (lot.setbackOffX || 0);
-      const sbY = cen.y + (lot.setbackOffY != null ? lot.setbackOffY : sbDef);
-      const fsSb = pfs(9) * scale;
-      ctx.font = `bold ${fsSb}px 'Segoe UI', sans-serif`;
-      ctx.fillStyle = '#dc2626';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('☒ 要セットバック', sbX, sbY);
+    ctx.restore();
+
+    // 道路ラベルのヒットボックス（タイトル・幅員を別々に掴む用）
+    if (App.mode !== 'label-edit') {
+      const pushRoadBox = (box, part) => {
+        if (!box) return;
+        const pad = 6;
+        App.labelBoxes.push({
+          lotId: lot.id, isLotLabel: true, isText: false,
+          roadLabelPart: part,
+          cx: box.cx, cy: box.cy,
+          sx: (box.cx - box.w / 2) * App.vz + App.vx - pad,
+          sy: (box.cy - box.h / 2) * App.vz + App.vy - pad,
+          sw: box.w * App.vz + pad * 2,
+          sh: box.h * App.vz + pad * 2,
+        });
+      };
+      pushRoadBox(titleBox, 'title');
+      pushRoadBox(widthBox, 'width');
     }
     return;
   }
 
   // 面積
   const sqm = mpp ? shoelace(pts) * mpp * mpp : null;
-  const ts = App.lotTextScale || 1.0;
+  const ts = parseFloat(lot.labelScale) || App.lotTextScale || 1.0;
   const fsNum = pfs(14) * ts;
   const fsSm  = pfs(9)  * ts;
+  const lotLabelFont = canvasFontFamily(lot.labelFontFamily);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
   // 面積表示：区画個別設定 > デフォルト表示
@@ -4480,16 +6744,20 @@ function drawLot(lot) {
   const tsuboText = !showArea ? null
     : lot.customTsuboLabel != null ? lot.customTsuboLabel : (sqm ? (sqm * 0.3025).toFixed(1) + '坪' : null);
   // 色: カスタム色 > 自動（カスタムテキストなら黄色、そうでなければ元色）
-  const areaColor  = lot.customAreaLabelColor  || (lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b');
-  const tsuboColor = lot.customTsuboLabelColor || (lot.customTsuboLabel != null ? '#f59e0b' : '#475569');
+  const labelTextColor = lot.labelTextColor || null;
+  const areaColor  = lot.customAreaLabelColor  || labelTextColor || (lot.customAreaLabel  != null ? '#f59e0b' : '#1e293b');
+  const tsuboColor = lot.customTsuboLabelColor || labelTextColor || (lot.customTsuboLabel != null ? '#f59e0b' : '#475569');
 
+  const topLabelLines = lot.topLabel
+    ? lot.topLabel.split('\n').map(t => ({ text: t, fs: fsSm * 1.05, color: labelTextColor || '#334155', editKey: null }))
+    : [];
   const lines = [
-    ...(App.showLotNumbers && lot.hideNumber !== 'hide' ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: '#1d4ed8', editKey: null }] : []),
-    ...(lot.topLabel ? [{ text: lot.topLabel, fs: fsSm * 1.05, color: '#334155', editKey: null }] : []),
+    ...(App.showLotNumbers && lot.hideNumber !== 'hide' ? [{ text: circleNum(lot.lotNum), fs: fsNum, color: labelTextColor || '#1d4ed8', editKey: null }] : []),
+    ...topLabelLines,
     ...(areaText  ? [{ text: areaText,  fs: fsSm,       color: areaColor,  editKey: 'area'  }] : []),
     ...(tsuboText ? [{ text: tsuboText, fs: fsSm,       color: tsuboColor, editKey: 'tsubo' }] : []),
-    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: '#b45309',  editKey: null }] : []),
-    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85,color: '#64748b',  editKey: null }] : []),
+    ...(lot.price ? [{ text: lot.price, fs: fsSm * 0.9, color: labelTextColor || '#b45309',  editKey: null }] : []),
+    ...(lot.memo  ? [{ text: lot.memo,  fs: fsSm * 0.85,color: labelTextColor || '#64748b',  editKey: null }] : []),
   ];
 
   const lx = cen.x + (lot.labelOffX || 0);
@@ -4498,8 +6766,12 @@ function drawLot(lot) {
   const smH   = fsSm * 1.3;
   let totalH = lineH + (lines.length - 1) * smH;
   let lineY = ly - totalH / 2 + lineH / 2;
+  // ラベルブロックの回転（label-edit中は正立で扱う）
+  const lblRot = (App.mode === 'label-edit') ? 0 : (lot.labelRotation || 0) * Math.PI / 180;
+  ctx.save();
+  if (lblRot) { ctx.translate(lx, ly); ctx.rotate(lblRot); ctx.translate(-lx, -ly); }
   lines.forEach((ln, i) => {
-    ctx.font = `bold ${ln.fs}px 'Segoe UI', sans-serif`;
+    ctx.font = `bold ${ln.fs}px ${lotLabelFont}`;
     // ラベル編集モード中はクリック可能ラベルをハイライト
     if (App.mode === 'label-edit' && ln.editKey) {
       const tw = ctx.measureText(ln.text).width;
@@ -4527,7 +6799,24 @@ function drawLot(lot) {
     ctx.fillText(ln.text, lx, lineY);
     lineY += i === 0 ? lineH : smH;
   });
+  ctx.restore();
 
+  // 区画ラベルブロック全体のヒットボックス（選択・移動で文字を掴む用。label-edit時は個別ラベルを優先するため登録しない）
+  if (lines.length > 0 && App.mode !== 'label-edit') {
+    let maxW = 0;
+    lines.forEach(ln => {
+      ctx.font = `bold ${ln.fs}px ${lotLabelFont}`;
+      maxW = Math.max(maxW, ctx.measureText(ln.text).width);
+    });
+    const scx = (lx - maxW / 2) * App.vz + App.vx;
+    const scy = (ly - totalH / 2) * App.vz + App.vy;
+    App.labelBoxes.push({
+      lotId: lot.id, isLotLabel: true, isText: false,
+      cx: lx, cy: ly,
+      sx: scx - 6, sy: scy - 6,
+      sw: maxW * App.vz + 12, sh: totalH * App.vz + 12,
+    });
+  }
 }
 
 function drawLotEdgeLabels(lot) {
@@ -4535,14 +6824,17 @@ function drawLotEdgeLabels(lot) {
   if (!pts || pts.length < 2 || lot.type === 'road') return;
   const mpp = App.mpp;
   // 区画個別設定 > グローバル設定
-  const showEdges = lot.edgeDisplay === 'show' ? true
+  let showEdges = lot.edgeDisplay === 'show' ? true
                   : lot.edgeDisplay === 'hide' ? false
                   : App.lotShowEdgeLengths;
+  if (App.lotTool === 'edge-hide') showEdges = true; // 寸法消しツール中はクリック対象として全辺表示
   if (!mpp || !showEdges) return;
   const cen = centroid(pts);
-  const scale = App.lotEdgeScale || 1.0;
-  const fsE = pfs(7.5) * scale;
+  const scale = parseFloat(lot.edgeScale) || App.lotEdgeScale || 1.0;
   for (let i = 0; i < pts.length; i++) {
+    const fsE = pfs(7.5) * scale * ((lot.customEdgeScales && lot.customEdgeScales[i]) || 1);
+    const isHidden = lot.edgeHidden && lot.edgeHidden[i];
+    if (isHidden && App.lotTool !== 'edge-hide') continue; // 個別非表示（寸法消しツール中はゴースト表示）
     const j = (i + 1) % pts.length;
     const p1 = pts[i], p2 = pts[j];
     const dx = p2.x - p1.x, dy = p2.y - p1.y;
@@ -4564,6 +6856,7 @@ function drawLotEdgeLabels(lot) {
     const srH = Math.max(16, fsE * 1.2);
     let angle = Math.atan2(uy, ux);
     if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+    if (lot.edgeRotationOffset && lot.edgeRotationOffset[i]) angle += lot.edgeRotationOffset[i] * Math.PI / 180; // 辺寸法の追加回転（全文字回転対応）
     const cosA = Math.abs(Math.cos(angle)), sinA = Math.abs(Math.sin(angle));
     const hitHalfW = Math.max(srH, srW * cosA + srH * sinA);
     const hitHalfH = Math.max(srH, srW * sinA + srH * cosA);
@@ -4581,13 +6874,33 @@ function drawLotEdgeLabels(lot) {
       ctx.strokeRect(-srW, -srH, srW * 2, srH * 2);
       ctx.setLineDash([]);
     }
-    ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
+    // 寸法消しツール中: クリック対象を枠表示（非表示の辺は赤系）
+    if (App.lotTool === 'edge-hide') {
+      ctx.fillStyle = isHidden ? 'rgba(248,113,113,0.12)' : 'rgba(96,165,250,0.12)';
+      ctx.fillRect(-srW, -srH, srW * 2, srH * 2);
+      ctx.strokeStyle = isHidden ? '#f87171' : '#60a5fa';
+      ctx.lineWidth = 1 / App.vz;
+      ctx.setLineDash([3 / App.vz, 3 / App.vz]);
+      ctx.strokeRect(-srW, -srH, srW * 2, srH * 2);
+      ctx.setLineDash([]);
+    }
+    const edgeFont = lot.customEdgeFontFamilies?.[i] || lot.edgeFontFamily;
+    ctx.font = `${fsE}px ${canvasFontFamily(edgeFont)}`;
     const edgeColor2 = (lot.customEdgeLabelColors && lot.customEdgeLabelColors[i])
       || (lot.customEdgeLabels && lot.customEdgeLabels[i] != null ? '#f59e0b' : (lot.edgeLabelColor || '#334155'));
     ctx.fillStyle = edgeColor2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    if (isHidden) ctx.globalAlpha = 0.28; // 非表示の辺はゴースト表示
     ctx.fillText(edgeText, 0, 0);
+    if (isHidden) {
+      ctx.globalAlpha = 0.6;
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 1 / App.vz;
+      const hwl = srW * 0.7;
+      ctx.beginPath(); ctx.moveTo(-hwl, 0); ctx.lineTo(hwl, 0); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
     App.labelBoxes.push({
       itemId: lot.id, labelKey: 'lotedge' + i,
@@ -4625,6 +6938,10 @@ function drawLotInProgress() {
     return;
   }
   const isRoad = App.lotTool === 'road';
+  const defaults = isRoad ? (App.commandDefaults?.road || {}) : (App.commandDefaults?.lot || {});
+  const lineColor = defaults.borderColor || (isRoad ? '#596777' : App.lotBorderColor || '#a46a08');
+  const fillColor = defaults.color || (isRoad ? '#cbd5e1' : App.lotStrokeColor || '#fff0bd');
+  const fillAlpha = Number.isFinite(defaults.fillOpacity) ? defaults.fillOpacity : (isRoad ? 0.48 : App.lotFillOpacity || 0.58);
   const lotSnap = snapPoint(App.mx, App.my);
   const mx = lotSnap.pt.x;
   const my = lotSnap.pt.y;
@@ -4633,7 +6950,7 @@ function drawLotInProgress() {
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.strokeStyle = isRoad ? '#94a3b8' : '#3b82f6';
+  ctx.strokeStyle = lineColor;
   ctx.lineWidth = 2 / App.vz;
   ctx.setLineDash([]);
   ctx.stroke();
@@ -4643,7 +6960,7 @@ function drawLotInProgress() {
   ctx.moveTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
   ctx.lineTo(mx, my);
   ctx.setLineDash([6 / App.vz, 3 / App.vz]);
-  ctx.strokeStyle = isRoad ? '#94a3b8' : '#3b82f6';
+  ctx.strokeStyle = lineColor;
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -4653,8 +6970,10 @@ function drawLotInProgress() {
     ctx.moveTo(mx, my);
     ctx.lineTo(pts[0].x, pts[0].y);
     ctx.setLineDash([3 / App.vz, 4 / App.vz]);
-    ctx.strokeStyle = isRoad ? 'rgba(148,163,184,0.5)' : 'rgba(59,130,246,0.5)';
+    ctx.globalAlpha = 0.52;
+    ctx.strokeStyle = lineColor;
     ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.setLineDash([]);
 
     // ポリゴン内部を半透明塗り
@@ -4663,15 +6982,18 @@ function drawLotInProgress() {
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.lineTo(mx, my);
     ctx.closePath();
-    ctx.fillStyle = isRoad ? 'rgba(148,163,184,0.15)' : 'rgba(59,130,246,0.1)';
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.08, Math.min(0.22, fillAlpha * 0.28));
+    ctx.fillStyle = fillColor;
     ctx.fill();
+    ctx.restore();
   }
 
   // 頂点ドット（線の色に連動）
-  const dotC = isRoad ? '#94a3b8' : (App.lotBorderColor || '#1d4ed8');
-  pts.forEach(p => drawDot(p.x, p.y, 4 / App.vz, dotC));
+  const dotC = lineColor;
+  pts.forEach(p => drawDot(p.x, p.y, 2.4 / App.vz, dotC));
   // マウス位置の点
-  drawDot(mx, my, 3 / App.vz, dotC);
+  drawDot(mx, my, 2 / App.vz, dotC);
   // スナップインジケーター（□）
   if (lotSnap.type === 'vertex') {
     drawSnapBox(mx, my, '#facc15');       // 頂点スナップ：黄色
@@ -4685,8 +7007,8 @@ function drawLotInProgress() {
   if (App.mpp) {
     const allPts = [...pts, { x: mx, y: my }];
     const fsE = 9 / App.vz;
-    ctx.font = `${fsE}px 'Segoe UI', sans-serif`;
-    ctx.fillStyle = isRoad ? '#cbd5e1' : '#93c5fd';
+    ctx.font = `${fsE}px ${canvasFontFamily(defaults.edgeFontFamily)}`;
+    ctx.fillStyle = lineColor;
     for (let i = 0; i < allPts.length - 1; i++) {
       const a = allPts[i], b = allPts[i + 1];
       const d = Math.hypot(b.x - a.x, b.y - a.y) * App.mpp;
@@ -4696,7 +7018,7 @@ function drawLotInProgress() {
       const len = Math.hypot(dx, dy) || 1;
       const nx = -dy / len * 10 / App.vz, ny = dx / len * 10 / App.vz;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(d.toFixed(2) + 'm', midX + nx, midY + ny);
+      ctx.fillText(formatEdgeLot(d, null), midX + nx, midY + ny);
     }
   }
 
@@ -4708,11 +7030,11 @@ function drawLotInProgress() {
       const cen = centroid(preview);
       const label = `${sqm.toFixed(1)}㎡`;
       const fs = 11 / App.vz;
-      ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+      ctx.font = `bold ${fs}px ${canvasFontFamily(defaults.labelFontFamily)}`;
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = 'rgba(15,23,42,0.75)';
       ctx.fillRect(cen.x - tw / 2 - 4 / App.vz, cen.y - fs, tw + 8 / App.vz, fs * 1.8);
-      ctx.fillStyle = '#60a5fa';
+      ctx.fillStyle = lineColor;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(label, cen.x, cen.y);
     }
@@ -4739,10 +7061,10 @@ function drawParallelPreview() {
       ctx.setLineDash([6 / App.vz, 3 / App.vz]);
       ctx.stroke();
       ctx.setLineDash([]);
-      drawDot(App.pts[0].x, App.pts[0].y, 4 / App.vz, '#a78bfa');
+      drawDot(App.pts[0].x, App.pts[0].y, 2.4 / App.vz, '#a78bfa');
     }
     // □インジケーター
-    drawDot(smx, smy, 3 / App.vz, '#a78bfa');
+    drawDot(smx, smy, 2 / App.vz, '#a78bfa');
     if (App.snapType === 'vertex') drawSnapBox(smx, smy, '#f59e0b');
     else if (App.snapType === 'intersection') drawSnapBox(smx, smy, '#22d3ee');
     return;
@@ -4767,8 +7089,8 @@ function drawParallelPreview() {
   ctx.beginPath(); ctx.moveTo(pp1.x, pp1.y); ctx.lineTo(pp2.x, pp2.y);
   ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 2 / App.vz;
   ctx.setLineDash([]); ctx.stroke();
-  drawDot(pp1.x, pp1.y, 3 / App.vz, '#a78bfa');
-  drawDot(pp2.x, pp2.y, 3 / App.vz, '#a78bfa');
+  drawDot(pp1.x, pp1.y, 2.2 / App.vz, '#a78bfa');
+  drawDot(pp2.x, pp2.y, 2.2 / App.vz, '#a78bfa');
 
 }
 
@@ -4914,14 +7236,6 @@ function drawCornerCutHighlight() {
   ctx.setLineDash([6 / App.vz, 4 / App.vz]);
   ctx.stroke();
   ctx.setLineDash([]);
-  // 頂点を丸でハイライト
-  const r = 5 / App.vz;
-  lot.points.forEach(p => {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#f97316';
-    ctx.fill();
-  });
   ctx.restore();
 }
 
@@ -4993,7 +7307,7 @@ function drawSplitPreview() {
   ctx.setLineDash([]);
 
   // 頂点ドット
-  pts.forEach(p => drawDot(p.x, p.y, 4 / App.vz, '#ef4444'));
+  pts.forEach(p => drawDot(p.x, p.y, 2.4 / App.vz, '#ef4444'));
   // スナップインジケーター
   if (App.snapType) {
     const snapColors = { vertex: '#facc15', intersection: '#22d3ee', grid: '#4ade80' };
@@ -5299,7 +7613,7 @@ function mergeAdjacentPolygons(pts1, pts2, eps = 3) {
 function applyCornerCut() {
   const lot = App.lots.find(l => l.id === App.cornerCutLotId);
   if (!lot || !lot.points || App.cornerCutIdx < 0) return;
-  if (!App.mpp) { alert('縮尺を設定してください'); return; }
+  if (!App.mpp) { showToast('先に縮尺を設定してください', 3000); return; }
 
   const hypotM = parseFloat(document.getElementById('cut-hypotenuse').value) || 2;
 
@@ -5464,7 +7778,7 @@ function splitAllLotsByPolyline(polyline, splitAll = false) {
     // 分割結果が自己交差していたらエラーで全件キャンセル
     if (!isSimplePolygon(pts1) || !isSimplePolygon(pts2)) {
       undoLast();
-      alert('分割結果が正しくない形状になります。\n分割線を区画の端から端まで通してください。');
+      showToast('分割線を区画の端から端まで通してください。現在の線では正しい形状に分割できません。', 5000);
       return;
     }
     splitPlan.push({ lot, pts1, pts2 });
@@ -5548,15 +7862,15 @@ function updateLotPanel() {
     const priceNum = lot.price ? parseInt(lot.price.replace(/[^0-9]/g, '')) : NaN;
     if (!isNaN(priceNum)) { priceTotal += priceNum; hasPrice = true; }
     const priceStr = !isNaN(priceNum) ? priceNum.toLocaleString() : '';
-    const memo = lot.memo ? `<div class="lot-memo">${lot.memo}</div>` : '';
+    const memo = lot.memo ? `<div class="lot-memo">${escapeHtmlText(lot.memo)}</div>` : '';
     return `<tr class="lot-data-row" data-id="${lot.id}">
       <td class="lp-num"><span class="lot-num-badge">${circleNum(lot.lotNum)}</span></td>
       <td class="lp-sqm">${sqmStr}</td>
       <td class="lp-tsubo">${tsuboStr}</td>
       <td class="lp-price">${priceStr}</td>
       <td class="lp-actions">
-        <button class="btn-lot-edit" data-id="${lot.id}">✏</button>
-        <button class="btn-lot-delete" data-id="${lot.id}">✕</button>
+        <button class="btn-lot-edit" data-id="${lot.id}" title="区画の詳細を編集" aria-label="区画の詳細を編集">✏</button>
+        <button class="btn-lot-delete" data-id="${lot.id}" title="区画全体を削除" aria-label="区画全体を削除">✕</button>
       </td>
     </tr>${memo ? `<tr><td colspan="5" style="padding:0 4px 4px">${memo}</td></tr>` : ''}`;
   }).join('');
@@ -5579,13 +7893,18 @@ function updateLotPanel() {
         ? shoelace(r.points) * App.mpp * App.mpp : null;
       if (sqm) roadSqmTotal += sqm;
       const tsubo = sqm ? (sqm / 3.30579).toFixed(1) : null;
-      const label = r.lotNum === 0 ? '隅切' : '道路';
-      return `<tr class="lp-road-row">
+      const rawLabel = r.lotNum === 0
+        ? '隅切'
+        : ((r.roadLabel || '道路').split('\n')[0].trim() || '道路');
+      const label = escapeHtmlText(rawLabel);
+      const editButton = r.lotNum === 0 ? ''
+        : `<button class="btn-lot-edit" data-id="${r.id}" title="道路の詳細を編集" aria-label="道路の詳細を編集">✏</button>`;
+      return `<tr class="lp-road-row" data-id="${r.id}">
         <td><span class="lot-num-badge" style="background:#1e293b;color:#64748b;border-color:#334155">${label}</span></td>
         <td>${sqm ? sqm.toFixed(1) : '-'}</td>
         <td>${tsubo || '-'}</td>
         <td></td>
-        <td><button class="btn-lot-delete" data-id="${r.id}">✕</button></td>
+        <td>${editButton}<button class="btn-lot-delete" data-id="${r.id}" title="${label}全体を削除" aria-label="${label}全体を削除">✕</button></td>
       </tr>`;
     }).join('');
 
@@ -5627,6 +7946,7 @@ function updateLotPanel() {
     btn.addEventListener('click', () => {
       saveState();
       App.lots = App.lots.filter(l => l.id !== parseInt(btn.dataset.id));
+      reconcileSelectionState();
       updateLotPanel(); App.dirty = true;
     });
   });
@@ -5634,72 +7954,349 @@ function updateLotPanel() {
 
 // 区画編集モーダル
 let _editingLotId = null;
+let _editingLotKind = 'lot';
+let _lotEditSession = null;
+let _lotEditModalUserMoved = false;
+
+function clampLotEditModalPosition(card, left, top) {
+  const pad = 12;
+  const w = card.offsetWidth || 400;
+  const h = card.offsetHeight || 520;
+  return {
+    left: Math.max(pad, Math.min(left, window.innerWidth - w - pad)),
+    top: Math.max(pad, Math.min(top, window.innerHeight - h - pad)),
+  };
+}
+
+function setLotEditModalPosition(left, top) {
+  const card = document.querySelector('#lot-edit-modal .lot-edit-modal-card');
+  if (!card) return;
+  const pos = clampLotEditModalPosition(card, left, top);
+  card.style.left = pos.left + 'px';
+  card.style.top = pos.top + 'px';
+}
+
+function positionLotEditModalDefault() {
+  const card = document.querySelector('#lot-edit-modal .lot-edit-modal-card');
+  if (!card) return;
+
+  if (_lotEditModalUserMoved && card.style.left && card.style.top) {
+    setLotEditModalPosition(parseFloat(card.style.left), parseFloat(card.style.top));
+    return;
+  }
+
+  const toolbar = document.getElementById('toolbar');
+  const rightPanel = document.getElementById('results');
+  const topBase = toolbar ? toolbar.getBoundingClientRect().bottom + 24 : 72;
+  const rightW = rightPanel && !rightPanel.classList.contains('collapsed')
+    ? rightPanel.getBoundingClientRect().width
+    : 0;
+  const cardW = card.offsetWidth || 400;
+  const left = window.innerWidth - rightW - cardW - 28;
+  setLotEditModalPosition(left, topBase);
+}
+
+function setupLotEditModalDrag() {
+  const card = document.querySelector('#lot-edit-modal .lot-edit-modal-card');
+  const handle = document.getElementById('lot-edit-titlebar') || document.getElementById('lot-edit-title');
+  if (!card || !handle) return;
+
+  let dragging = false;
+  let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  handle.addEventListener('pointerdown', e => {
+    if (e.target.closest('.modal-titlebar-close')) return;
+    dragging = true;
+    _lotEditModalUserMoved = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = parseFloat(card.style.left || card.getBoundingClientRect().left);
+    startTop = parseFloat(card.style.top || card.getBoundingClientRect().top);
+    handle.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    setLotEditModalPosition(startLeft + e.clientX - startX, startTop + e.clientY - startY);
+  });
+
+  const stopDrag = e => {
+    if (!dragging) return;
+    dragging = false;
+    handle.releasePointerCapture?.(e.pointerId);
+  };
+  handle.addEventListener('pointerup', stopDrag);
+  handle.addEventListener('pointercancel', stopDrag);
+  window.addEventListener('resize', () => {
+    if (card.style.left && card.style.top) {
+      setLotEditModalPosition(parseFloat(card.style.left), parseFloat(card.style.top));
+    }
+  });
+}
+
+function syncRoadEditPreview() {
+  const lot = App.lots.find(l => l.id === _editingLotId);
+  if (!lot || _editingLotKind !== 'road') return;
+
+  lot.roadLabel = document.getElementById('lot-edit-road-label')?.value ?? '道路';
+  lot.roadVertical = !!document.getElementById('lot-edit-road-vertical')?.checked;
+  lot.roadWidth = parseFloat(document.getElementById('lot-edit-road-width')?.value) || null;
+  lot.roadLabelSize = parseFloat(document.getElementById('lot-edit-road-title-size')?.value) || 1.0;
+  lot.roadWidthLabelSize = parseFloat(document.getElementById('lot-edit-road-width-size')?.value) || lot.roadLabelSize;
+  lot.roadLabelRotation = Math.max(-180, Math.min(180,
+    parseFloat(document.getElementById('lot-edit-road-rotation')?.value) || 0));
+
+  const selTc = document.querySelector('.road-text-swatch.active-road-text');
+  if (selTc) lot.roadLabelColor = selTc.dataset.tc;
+  const selWtc = document.querySelector('.road-width-text-swatch.active-road-width-text');
+  if (selWtc) {
+    if (selWtc.dataset.wtc) lot.roadWidthLabelColor = selWtc.dataset.wtc;
+    else delete lot.roadWidthLabelColor;
+  }
+  const selFc = document.querySelector('.road-fill-swatch.active-road-fill');
+  if (selFc) {
+    lot.color = selFc.dataset.fc;
+    if (document.getElementById('lot-edit-road-section')?.dataset.styleChanged === '1') {
+      const style = roadVisualStyle(lot.color);
+      lot.borderColor = style.borderColor;
+      lot.fillOpacity = style.fillOpacity;
+    }
+  }
+
+  App.dirty = true;
+}
+
+function syncLotEditPreview() {
+  const lot = App.lots.find(l => l.id === _editingLotId);
+  if (!lot || _editingLotKind === 'road') return;
+
+  const customArea = document.getElementById('lot-edit-area-label')?.value.trim() || '';
+  const customTsubo = document.getElementById('lot-edit-tsubo-label')?.value.trim() || '';
+  lot.customAreaLabel = customArea === '' ? null : customArea;
+  lot.customTsuboLabel = customTsubo === '' ? null : customTsubo;
+
+  const rawPrice = document.getElementById('lot-edit-price')?.value.replace(/[^0-9]/g, '') || '';
+  lot.price = rawPrice ? Number(rawPrice).toLocaleString() + '万円' : '';
+  lot.memo = document.getElementById('lot-edit-memo')?.value.trim() || '';
+  lot.topLabel = document.getElementById('lot-edit-top-label')?.value.trim() || null;
+
+  const sel = document.querySelector('#lot-color-swatches .color-swatch.active-swatch');
+  if (sel) lot.color = sel.dataset.lotcolor;
+  const fillOpacityInput = document.getElementById('lot-edit-fill-opacity');
+  if (fillOpacityInput?.dataset.custom === '1') {
+    lot.fillOpacity = (parseInt(fillOpacityInput.value) || 0) / 100;
+  }
+  const selB = document.querySelector('#lot-border-swatches .border-swatch.active-border');
+  if (selB) lot.borderColor = selB.dataset.bc;
+  const selLtc = document.querySelector('#lot-label-color-swatches .lotlabel-color-swatch.active-lotlabel-color');
+  if (selLtc) lot.labelTextColor = selLtc.dataset.ltc || null;
+  const selElc = document.querySelector('#lot-edgelabel-color-swatches .edgelabel-color-swatch.active-edgelabel-color');
+  if (selElc) lot.edgeLabelColor = selElc.dataset.elc;
+
+  const textScale = parseFloat(document.getElementById('modal-lot-text-scale')?.value) || 1.0;
+  const edgeScale = parseFloat(document.getElementById('modal-lot-edge-scale')?.value) || 1.0;
+  lot.labelScale = textScale;
+  lot.edgeScale = edgeScale;
+  syncLotCenterColorControls(lot);
+  App.dirty = true;
+}
+
+function loadRoadEditFields(lot) {
+  document.getElementById('lot-edit-road-label').value = lot.roadLabel !== undefined ? lot.roadLabel : '道路';
+  document.getElementById('lot-edit-road-vertical').checked = !!lot.roadVertical;
+  document.getElementById('lot-edit-road-width').value = lot.roadWidth || '';
+  const titleSize = parseFloat(lot.roadLabelSize) || 1.0;
+  const widthSize = parseFloat(lot.roadWidthLabelSize) || titleSize;
+  document.getElementById('lot-edit-road-title-size').value = titleSize;
+  document.getElementById('lot-edit-road-title-size-val').textContent = titleSize.toFixed(1) + '×';
+  document.getElementById('lot-edit-road-width-size').value = widthSize;
+  document.getElementById('lot-edit-road-width-size-val').textContent = widthSize.toFixed(1) + '×';
+  const rotation = Math.max(-180, Math.min(180, parseFloat(lot.roadLabelRotation) || 0));
+  document.getElementById('lot-edit-road-rotation').value = rotation;
+  document.getElementById('lot-edit-road-rotation-num').value = rotation;
+  const tc = lot.roadLabelColor || '#475569';
+  document.querySelectorAll('.road-text-swatch').forEach(s => {
+    s.classList.toggle('active-road-text', s.dataset.tc === tc);
+      s.style.border = s.dataset.tc === tc ? '2px solid #60a5fa' : (s.dataset.tc === '#f1f5f9' || s.dataset.tc === '#e2e8f0' ? '2px solid #475569' : '2px solid transparent');
+  });
+  const widthColor = lot.roadWidthLabelColor || '';
+  document.querySelectorAll('.road-width-text-swatch').forEach(s => {
+    s.classList.toggle('active-road-width-text', s.dataset.wtc === widthColor);
+  });
+  const roadColors = [...document.querySelectorAll('.road-fill-swatch')].map(s => s.dataset.fc);
+  const fc = roadColors.includes(lot.color) ? lot.color : null;
+  document.querySelectorAll('.road-fill-swatch').forEach(s => {
+    s.classList.toggle('active-road-fill', s.dataset.fc === fc);
+    const isLight = ['#e2e8f0', '#f8fafc', '#cbd5e1'].includes(s.dataset.fc);
+    s.style.border = s.dataset.fc === fc ? '2px solid #60a5fa' : (isLight ? '2px solid #94a3b8' : '2px solid transparent');
+  });
+}
+
+function syncLotCenterColorControls(lot) {
+  if (!lot) return;
+  const values = {
+    area: lot.customAreaLabelColor || '',
+    tsubo: lot.customTsuboLabelColor || '',
+  };
+  document.querySelectorAll('.lot-center-color-palette').forEach(palette => {
+    const value = values[palette.dataset.centerField] ?? '';
+    palette.querySelectorAll('.lot-center-color-swatch').forEach(button => {
+      button.classList.toggle('is-active', button.dataset.color === value);
+    });
+  });
+}
+
+function loadLotEditFields(lot) {
+  const sqm = (App.mpp && lot.points && lot.points.length >= 3)
+    ? (shoelace(lot.points) * App.mpp * App.mpp).toFixed(1) : null;
+  const tsubo = sqm ? (parseFloat(sqm) * 0.3025).toFixed(1) : null;
+  const areaEl = document.getElementById('lot-edit-area');
+  if (areaEl) areaEl.textContent = sqm ? `計算値: ${sqm}㎡ / ${tsubo}坪` : '縮尺未設定';
+  const areaInput = document.getElementById('lot-edit-area-label');
+  const tsuboInput = document.getElementById('lot-edit-tsubo-label');
+  if (areaInput) {
+    areaInput.value = lot.customAreaLabel != null ? lot.customAreaLabel : '';
+    areaInput.placeholder = sqm ? `${sqm}㎡` : '計算値なし';
+  }
+  if (tsuboInput) {
+    tsuboInput.value = lot.customTsuboLabel != null ? lot.customTsuboLabel : '';
+    tsuboInput.placeholder = tsubo ? `${tsubo}坪` : '計算値なし';
+  }
+  syncLotCenterColorControls(lot);
+  const priceNum = lot.price ? lot.price.replace(/[^0-9]/g, '') : '';
+  document.getElementById('lot-edit-price').value = priceNum ? Number(priceNum).toLocaleString() : '';
+  document.getElementById('lot-edit-memo').value = lot.memo || '';
+  document.getElementById('lot-edit-top-label').value = lot.topLabel || '';
+  const lotColors = [...document.querySelectorAll('#lot-color-swatches .color-swatch')].map(sw => sw.dataset.lotcolor);
+  const lotColor = lotColors.includes(lot.color) ? lot.color : null;
+  document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(sw => {
+    sw.classList.toggle('active-swatch', sw.dataset.lotcolor === lotColor);
+  });
+  const fillOpacity = Math.round((lot.fillOpacity ?? App.lotFillOpacity ?? 0.73) * 100);
+  const fillOpacityInput = document.getElementById('lot-edit-fill-opacity');
+  const fillOpacityVal = document.getElementById('lot-edit-fill-opacity-val');
+  if (fillOpacityInput) {
+    fillOpacityInput.value = fillOpacity;
+    fillOpacityInput.dataset.custom = lot.fillOpacity != null ? '1' : '0';
+  }
+  if (fillOpacityVal) fillOpacityVal.textContent = fillOpacity + '%';
+  const bc = lot.borderColor || App.lotBorderColor || '#1d4ed8';
+  document.querySelectorAll('#lot-border-swatches .border-swatch').forEach(sw => {
+    const isSel = sw.dataset.bc === bc;
+    sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
+    sw.classList.toggle('active-border', isSel);
+  });
+  const ltc = lot.labelTextColor || '';
+  document.querySelectorAll('#lot-label-color-swatches .lotlabel-color-swatch').forEach(sw => {
+    const isSel = sw.dataset.ltc === ltc;
+    sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
+    sw.classList.toggle('active-lotlabel-color', isSel);
+  });
+  const elc = lot.edgeLabelColor || '#334155';
+  document.querySelectorAll('#lot-edgelabel-color-swatches .edgelabel-color-swatch').forEach(sw => {
+    const isSel = sw.dataset.elc === elc;
+    sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
+    sw.classList.toggle('active-edgelabel-color', isSel);
+  });
+  [['lot-num-disp-group', lot.hideNumber || ''],
+   ['lot-edge-disp-group', lot.edgeDisplay || ''],
+   ['lot-area-disp-group', lot.areaDisplay || ''],
+   ['lot-yaku-disp-group', lot.yakuMode || '']].forEach(([groupId, val]) => {
+    document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(btn => {
+      btn.classList.toggle('active-disp', btn.dataset.val === val);
+    });
+  });
+  const lotTextScale = parseFloat(lot.labelScale) || App.lotTextScale || 1.0;
+  const lotEdgeScale = parseFloat(lot.edgeScale) || App.lotEdgeScale || 1.0;
+  const mls = document.getElementById('modal-lot-text-scale');
+  const mes = document.getElementById('modal-lot-edge-scale');
+  if (mls) mls.value = lotTextScale;
+  if (mes) mes.value = lotEdgeScale;
+  const mlv = document.getElementById('modal-lot-text-scale-val');
+  const mev = document.getElementById('modal-lot-edge-scale-val');
+  if (mlv) mlv.textContent = lotTextScale.toFixed(1) + '×';
+  if (mev) mev.textContent = lotEdgeScale.toFixed(1) + '×';
+}
+
+function setLotEditType(type) {
+  if (!_lotEditSession || !['lot', 'road'].includes(type)) return;
+  const lot = App.lots.find(l => l.id === _editingLotId);
+  if (!lot) return;
+  const typeChanged = _editingLotKind !== type;
+  if (_editingLotKind === 'road') syncRoadEditPreview();
+  else syncLotEditPreview();
+  _editingLotKind = type;
+  _lotEditSession.draftType = type;
+  lot.type = type;
+  if (typeChanged && type === 'road') {
+    lot.color = '#cbd5e1';
+    lot.borderColor = '#596777';
+    lot.fillOpacity = 0.48;
+    lot.roadLabel = lot.roadLabel || '道路';
+  } else if (typeChanged && type === 'lot') {
+    lot.color = '#fff0bd';
+    lot.borderColor = '#a46a08';
+    lot.fillOpacity = 0.58;
+  }
+  if (type === 'lot' && (!lot.lotNum || lot.lotNum < 1)) lot.lotNum = App.lotNextNum;
+  document.getElementById('lot-edit-kind-title').textContent = type === 'road' ? '道路' : '区画';
+  document.getElementById('lot-edit-num').textContent = type === 'road' ? '' : circleNum(lot.lotNum);
+  document.getElementById('lot-edit-lot-sections').classList.toggle('hidden', type === 'road');
+  document.getElementById('lot-edit-road-section').classList.toggle('hidden', type !== 'road');
+  document.getElementById('lot-edit-lot-scale-controls')?.classList.toggle('hidden', type === 'road');
+  document.querySelectorAll('#lot-edit-kind-switch .next-editor-kind-button').forEach(btn => {
+    const active = btn.dataset.kind === type;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  if (type === 'road') {
+    if (typeChanged) loadRoadEditFields(lot);
+    syncRoadEditPreview();
+  } else {
+    if (typeChanged) loadLotEditFields(lot);
+    syncLotEditPreview();
+  }
+  App.dirty = true;
+}
+
+function cancelLotEdit() {
+  if (_lotEditSession) {
+    const index = App.lots.findIndex(l => l.id === _lotEditSession.id);
+    if (index >= 0) App.lots[index] = JSON.parse(JSON.stringify(_lotEditSession.original));
+    App.lotNextNum = _lotEditSession.originalLotNextNum;
+  }
+  _editingLotId = null;
+  _lotEditSession = null;
+  document.getElementById('lot-edit-modal')?.classList.add('hidden');
+  reconcileSelectionState();
+  updateLotPanel();
+  App.dirty = true;
+}
 
 function openLotEditor(id) {
   const lot = App.lots.find(l => l.id === id);
   if (!lot) return;
-  _editingLotId = id;
-  const isRoad = lot.type === 'road';
-  // タイトル
-  document.getElementById('lot-edit-num').textContent = isRoad ? '道路' : circleNum(lot.lotNum);
-  // セクション表示切替
-  document.getElementById('lot-edit-lot-sections').classList.toggle('hidden', isRoad);
-  document.getElementById('lot-edit-road-section').classList.toggle('hidden', !isRoad);
-  if (isRoad) {
-    document.getElementById('lot-edit-road-label').value = lot.roadLabel !== undefined ? lot.roadLabel : '道路';
-    document.getElementById('lot-edit-road-vertical').checked = !!lot.roadVertical;
-    document.getElementById('lot-edit-road-setback').checked = !!lot.setback;
-    document.getElementById('lot-edit-road-width').value = lot.roadWidth || '';
-    const ls = lot.roadLabelSize || 1.0;
-    document.getElementById('lot-edit-road-label-size').value = ls;
-    document.getElementById('lot-edit-road-label-size-val').textContent = ls.toFixed(1) + '×';
-    const tc = lot.roadLabelColor || '#475569';
-    document.querySelectorAll('.road-text-swatch').forEach(s => {
-      s.classList.toggle('active-road-text', s.dataset.tc === tc);
-      s.style.border = s.dataset.tc === tc ? '2px solid #60a5fa' : (s.dataset.tc === '#f1f5f9' || s.dataset.tc === '#e2e8f0' ? '2px solid #475569' : '2px solid transparent');
-    });
-    const fc = lot.color || '#94a3b8';
-    document.querySelectorAll('.road-fill-swatch').forEach(s => {
-      s.classList.toggle('active-road-fill', s.dataset.fc === fc);
-      const isLight = s.dataset.fc === '#e2e8f0' || s.dataset.fc === '#f8fafc' || s.dataset.fc === '#cbd5e1';
-      s.style.border = s.dataset.fc === fc ? '2px solid #60a5fa' : (isLight ? '2px solid #94a3b8' : '2px solid transparent');
-    });
-  } else {
-    const sqm = (App.mpp && lot.points && lot.points.length >= 3)
-      ? (shoelace(lot.points) * App.mpp * App.mpp).toFixed(1) : null;
-    const areaEl = document.getElementById('lot-edit-area');
-    if (areaEl) areaEl.textContent = sqm ? `${sqm}㎡ / ${(sqm * 0.3025).toFixed(1)}坪` : '縮尺未設定';
-    const priceNum = lot.price ? lot.price.replace(/[^0-9]/g, '') : '';
-    document.getElementById('lot-edit-price').value = priceNum ? Number(priceNum).toLocaleString() : '';
-    document.getElementById('lot-edit-memo').value = lot.memo || '';
-    document.getElementById('lot-edit-top-label').value = lot.topLabel || '';
-    document.querySelectorAll('#lot-color-swatches .color-swatch').forEach(sw => {
-      sw.classList.toggle('active-swatch', sw.dataset.lotcolor === lot.color);
-    });
-    // 線の色
-    const bc = lot.borderColor || App.lotBorderColor || '#1d4ed8';
-    document.querySelectorAll('#lot-border-swatches .border-swatch').forEach(sw => {
-      const isSel = sw.dataset.bc === bc;
-      sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
-      sw.classList.toggle('active-border', isSel);
-    });
-    // 寸法文字色
-    const elc = lot.edgeLabelColor || '#334155';
-    document.querySelectorAll('#lot-edgelabel-color-swatches .edgelabel-color-swatch').forEach(sw => {
-      const isSel = sw.dataset.elc === elc;
-      sw.style.outline = isSel ? '2px solid #60a5fa' : 'none';
-      sw.classList.toggle('active-edgelabel-color', isSel);
-    });
-    // 表示設定トグル
-    [['lot-num-disp-group',  lot.hideNumber  || ''],
-     ['lot-edge-disp-group', lot.edgeDisplay || ''],
-     ['lot-area-disp-group', lot.areaDisplay || ''],
-     ['lot-yaku-disp-group', lot.yakuMode    || '']].forEach(([groupId, val]) => {
-      document.querySelectorAll(`#${groupId} .lot-disp-btn`).forEach(btn => {
-        btn.classList.toggle('active-disp', btn.dataset.val === val);
-      });
-    });
+  if (lot.type === 'road' && lot.lotNum === 0) {
+    activateUniversalSelectionTool();
+    showToast('隅切りは道路の詳細編集対象ではありません。移動・削除または頂点編集を使ってください。', 3500);
+    return;
   }
+  _editingLotId = id;
+  _editingLotKind = lot.type === 'road' ? 'road' : 'lot';
+  _lotEditSession = {
+    id,
+    original: JSON.parse(JSON.stringify(lot)),
+    originalLotNextNum: App.lotNextNum,
+    historyState: captureHistoryState(),
+    draftType: _editingLotKind,
+  };
+  const roadSection = document.getElementById('lot-edit-road-section');
+  if (roadSection) delete roadSection.dataset.styleChanged;
+  updateLotEditGlobalDisplayControls();
+  loadRoadEditFields(lot);
+  loadLotEditFields(lot);
+  setLotEditType(_editingLotKind);
   document.getElementById('lot-edit-modal').classList.remove('hidden');
 }
 
@@ -5716,7 +8313,7 @@ function renumberLots() {
 // 面積リストをキャンバス左上付近にテーブルとして配置
 function stampLotList() {
   const lots = App.lots.filter(l => l.type === 'lot');
-  if (lots.length === 0) { alert('区画がありません'); return; }
+  if (lots.length === 0) { showToast('面積表にできる区画がありません', 3000); return; }
 
   const cx = (24 - App.vx) / App.vz;
   const cy = (80 - App.vy) / App.vz;
@@ -5756,88 +8353,65 @@ function stampLotList() {
     bgColor: 'rgba(255,255,255,0.95)',
   });
   App.dirty = true;
-  alert('面積リストを図面に配置しました。「移動」ツールで位置を調整できます。');
-}
-
-// ===== 買取積算を図面にスタンプ =====
-function stampKaitori() {
-  const g = id => document.getElementById(id);
-  const sqm  = parseFloat(g('kai-sqm').value) || 0;
-  const tsubo = sqm / 3.30579;
-  const tsuboPrice   = parseFloat(g('kai-tsubo-price').value) || 0;
-  const salePrice    = Math.round(tsubo * tsuboPrice);
-  const koseiPerTsubo = parseFloat(g('kai-kosei').value) || 0;
-  const kosei   = Math.round(tsubo * koseiPerTsubo);
-  const sokuryo = parseFloat(g('kai-sokuryo').value) || 0;
-  const kaitai  = parseFloat(g('kai-kaitai').value) || 0;
-  const chukai  = Math.round(salePrice * 0.03 + 6);
-  const other1  = parseFloat(g('kai-other1').value) || 0;
-  const other2  = parseFloat(g('kai-other2').value) || 0;
-  const marginRate = parseFloat(g('kai-margin').value) || 0;
-  const profit  = Math.round(salePrice * marginRate / 100);
-  const expTotal = kosei + sokuryo + kaitai + chukai + other1 + other2;
-  const kaitori = salePrice - expTotal - profit;
-
-  const rows = [
-    ['土地面積', `${tsubo.toFixed(1)}坪 (${sqm.toFixed(1)}㎡)`],
-    ['販売想定(坪単価)', `${tsuboPrice.toLocaleString()}万円/坪`],
-    ['想定売価', `${salePrice.toLocaleString()}万円`],
-    koseiPerTsubo > 0 ? ['造成費(坪単価)', `${koseiPerTsubo}万/坪→${kosei.toLocaleString()}万円`] : null,
-    sokuryo > 0 ? ['測量費', `${sokuryo.toLocaleString()}万円`] : null,
-    kaitai  > 0 ? ['解体費', `${kaitai.toLocaleString()}万円`]  : null,
-    ['仲介手数料(自動)', `${chukai.toLocaleString()}万円`],
-    other1  > 0 ? ['その他①', `${other1.toLocaleString()}万円`] : null,
-    other2  > 0 ? ['その他②', `${other2.toLocaleString()}万円`] : null,
-    ['経費合計', `${expTotal.toLocaleString()}万円`],
-    [`粗利(${marginRate}%)`, `${profit.toLocaleString()}万円`],
-  ].filter(Boolean);
-
-  const cx = (24 - App.vx) / App.vz;
-  const cy = (80 - App.vy) / App.vz;
-  saveState();
-  App.texts.push({
-    id: App.nextId++,
-    x: cx, y: cy,
-    textType: 'lot-table',
-    title: '買取価格積算',
-    headers: ['項目', '金額'],
-    rows,
-    totalRow: ['買取価格', `${kaitori.toLocaleString()}万円`],
-    totalRowColor: '#dcfce7',
-    totalTextColor: '#15803d',
-    fontSize: 11,
-    color: '#1a1a1a',
-    bgColor: 'rgba(255,255,255,0.97)',
-  });
-  document.getElementById('kaitori-modal').classList.add('hidden');
-  App.dirty = true;
+  showToast('面積表を図面に配置しました。選択・移動で位置を調整できます。', 4000);
 }
 
 function commitLotEdit() {
   const lot = App.lots.find(l => l.id === _editingLotId);
-  if (!lot) { document.getElementById('lot-edit-modal').classList.add('hidden'); return; }
-  saveState();
-  if (lot.type === 'road') {
-    lot.roadLabel    = document.getElementById('lot-edit-road-label').value;
-    lot.roadVertical = document.getElementById('lot-edit-road-vertical').checked;
-    lot.setback      = document.getElementById('lot-edit-road-setback').checked;
-    lot.roadWidth    = parseFloat(document.getElementById('lot-edit-road-width').value) || null;
-    lot.roadLabelSize = parseFloat(document.getElementById('lot-edit-road-label-size').value) || 1.0;
+  const session = _lotEditSession;
+  if (!lot || !session) { document.getElementById('lot-edit-modal').classList.add('hidden'); return; }
+  const typeChanged = session.original.type !== _editingLotKind;
+  lot.type = _editingLotKind;
+  if (_editingLotKind === 'lot' && session.original.type === 'road') {
+    lot.lotNum = App.lotNextNum++;
+  }
+  if (_editingLotKind === 'road') {
+    lot.roadLabel       = document.getElementById('lot-edit-road-label').value;
+    lot.roadVertical    = document.getElementById('lot-edit-road-vertical').checked;
+    lot.roadWidth       = parseFloat(document.getElementById('lot-edit-road-width').value) || null;
+    lot.roadLabelSize = parseFloat(document.getElementById('lot-edit-road-title-size').value) || 1.0;
+    lot.roadWidthLabelSize = parseFloat(document.getElementById('lot-edit-road-width-size').value) || lot.roadLabelSize;
+    lot.roadLabelRotation = Math.max(-180, Math.min(180,
+      parseFloat(document.getElementById('lot-edit-road-rotation')?.value) || 0));
     const selTc = document.querySelector('.road-text-swatch.active-road-text');
-    lot.roadLabelColor = selTc ? selTc.dataset.tc : '#475569';
+    if (selTc) lot.roadLabelColor = selTc.dataset.tc;
+    const selWtc = document.querySelector('.road-width-text-swatch.active-road-width-text');
+    if (selWtc) {
+      if (selWtc.dataset.wtc) lot.roadWidthLabelColor = selWtc.dataset.wtc;
+      else delete lot.roadWidthLabelColor;
+    }
     const selFc = document.querySelector('.road-fill-swatch.active-road-fill');
-    lot.color = selFc ? selFc.dataset.fc : '#94a3b8';
+    if (selFc) {
+      lot.color = selFc.dataset.fc;
+      if (document.getElementById('lot-edit-road-section')?.dataset.styleChanged === '1') {
+        const style = roadVisualStyle(lot.color);
+        lot.borderColor = style.borderColor;
+        lot.fillOpacity = style.fillOpacity;
+      }
+    }
   } else {
+    const customArea = document.getElementById('lot-edit-area-label')?.value.trim() || '';
+    const customTsubo = document.getElementById('lot-edit-tsubo-label')?.value.trim() || '';
+    lot.customAreaLabel = customArea === '' ? null : customArea;
+    lot.customTsuboLabel = customTsubo === '' ? null : customTsubo;
     const rawPrice = document.getElementById('lot-edit-price').value.replace(/[^0-9]/g, '');
     lot.price    = rawPrice ? Number(rawPrice).toLocaleString() + '万円' : '';
     lot.memo     = document.getElementById('lot-edit-memo').value.trim();
     lot.topLabel = document.getElementById('lot-edit-top-label').value.trim() || null;
     const sel = document.querySelector('#lot-color-swatches .color-swatch.active-swatch');
     if (sel) lot.color = sel.dataset.lotcolor;
+    const fillOpacityInput = document.getElementById('lot-edit-fill-opacity');
+    if (fillOpacityInput?.dataset.custom === '1') {
+      lot.fillOpacity = (parseInt(fillOpacityInput.value) || 0) / 100;
+    }
     const selB = document.querySelector('#lot-border-swatches .border-swatch.active-border');
     if (selB) lot.borderColor = selB.dataset.bc;
+    const selLtc = document.querySelector('#lot-label-color-swatches .lotlabel-color-swatch.active-lotlabel-color');
+    if (selLtc) lot.labelTextColor = selLtc.dataset.ltc || null;
     const selElc = document.querySelector('#lot-edgelabel-color-swatches .edgelabel-color-swatch.active-edgelabel-color');
-    lot.edgeLabelColor = selElc ? selElc.dataset.elc : '#334155';
+    if (selElc) lot.edgeLabelColor = selElc.dataset.elc;
+    lot.labelScale = parseFloat(document.getElementById('modal-lot-text-scale')?.value) || 1.0;
+    lot.edgeScale = parseFloat(document.getElementById('modal-lot-edge-scale')?.value) || 1.0;
     // 表示設定
     [['lot-num-disp-group',  'hideNumber'],
      ['lot-edge-disp-group', 'edgeDisplay'],
@@ -5848,55 +8422,53 @@ function commitLotEdit() {
       lot[prop] = val || null;
     });
   }
+  const changed = JSON.stringify(lot) !== JSON.stringify(session.original)
+    || App.lotNextNum !== session.originalLotNextNum;
+  if (changed) pushHistoryState(session.historyState);
   document.getElementById('lot-edit-modal').classList.add('hidden');
-  updateLotPanel(); App.dirty = true;
+  _editingLotId = null;
+  _lotEditSession = null;
+  if (typeChanged) App.selectedFormat = null;
+  reconcileSelectionState();
+  updateLotPanel();
+  notifyAppState('lot-edit-commit');
+  App.dirty = true;
 }
 
-// ===== 買取価格積算 =====
-function openKaitoriModal() {
-  // 総面積を自動セット
-  const lots = App.lots.filter(l => l.type === 'lot');
-  let totalSqm = 0;
-  if (App.mpp) {
-    lots.forEach(l => {
-      if (l.points && l.points.length >= 3) totalSqm += shoelace(l.points) * App.mpp * App.mpp;
+// ===== Electron: アプリ内の終了確認 =====
+if (typeof window !== 'undefined' && window.electronAPI) {
+  window.electronAPI.onCloseRequested?.(() => {
+    const modal = document.getElementById('exit-confirm-modal');
+    document.getElementById('exit-confirm-title').textContent = '作業を終了しますか？';
+    document.getElementById('exit-confirm-note').textContent = '必要なら作業データを保存してから閉じられます。';
+    ['exit-cancel', 'exit-without-save', 'exit-save'].forEach(id => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = false;
     });
-  }
-  if (totalSqm > 0) {
-    document.getElementById('kai-sqm').value = totalSqm.toFixed(2);
-  }
-  calcKaitori();
-  document.getElementById('kaitori-modal').classList.remove('hidden');
+    modal?.classList.remove('hidden');
+  });
+  window.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('exit-confirm-modal');
+    const respond = action => {
+      if (action === 'save') {
+        document.getElementById('exit-confirm-title').textContent = '作業データを保存しています';
+        document.getElementById('exit-confirm-note').textContent = '書き込みが完了すると自動で終了します。画面はそのままお待ちください。';
+        ['exit-cancel', 'exit-without-save', 'exit-save'].forEach(id => {
+          const button = document.getElementById(id);
+          if (button) button.disabled = true;
+        });
+      } else {
+        modal?.classList.add('hidden');
+      }
+      window.electronAPI.respondToClose?.(action);
+    };
+    document.getElementById('exit-cancel')?.addEventListener('click', () => respond('cancel'));
+    document.getElementById('exit-without-save')?.addEventListener('click', () => respond('discard'));
+    document.getElementById('exit-save')?.addEventListener('click', () => respond('save'));
+  });
+  window.electronAPI.onSaveAndClose(async () => {
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    const success = await saveProjectJSON({ closeAfter: true });
+    window.electronAPI.saveComplete(success);
+  });
 }
-
-function calcKaitori() {
-  const sqm = parseFloat(document.getElementById('kai-sqm').value) || 0;
-  const tsubo = sqm / 3.30579;
-  document.getElementById('kai-tsubo').textContent = tsubo.toFixed(2) + '坪';
-
-  const tsuboPrice = parseFloat(document.getElementById('kai-tsubo-price').value) || 0;
-  const salePrice = Math.round(tsubo * tsuboPrice);
-  document.getElementById('kai-sale-price').textContent = salePrice.toLocaleString() + '万円';
-
-  const koseiPerTsubo = parseFloat(document.getElementById('kai-kosei').value) || 0;
-  const kosei = Math.round(tsubo * koseiPerTsubo);
-  document.getElementById('kai-kosei-total').textContent = kosei.toLocaleString() + '万円';
-  const sokuryo = parseFloat(document.getElementById('kai-sokuryo').value) || 0;
-  const kaitai  = parseFloat(document.getElementById('kai-kaitai').value) || 0;
-  const chukaiRaw = salePrice * 0.03 + 6;
-  const chukai = Math.round(chukaiRaw);
-  document.getElementById('kai-chukai').textContent = chukai.toLocaleString() + '万円';
-  const other1 = parseFloat(document.getElementById('kai-other1').value) || 0;
-  const other2 = parseFloat(document.getElementById('kai-other2').value) || 0;
-  const expTotal = kosei + sokuryo + kaitai + chukai + other1 + other2;
-  document.getElementById('kai-exp-total').textContent = expTotal.toLocaleString() + '万円';
-
-  const marginRate = parseFloat(document.getElementById('kai-margin').value) || 0;
-  const profit = Math.round(salePrice * marginRate / 100);
-  document.getElementById('kai-profit').textContent = profit.toLocaleString() + '万円';
-
-  const kaitori = salePrice - expTotal - profit;
-  document.getElementById('kai-result').textContent = kaitori.toLocaleString() + '万円';
-}
-
-// 自動生成フォームの値を同期
