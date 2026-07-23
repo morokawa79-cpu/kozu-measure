@@ -748,13 +748,22 @@
           ? asArray(overlay?.replacements).map((value) => value?.object || value?.entity || value?.shape || value).filter(Boolean)
           : [];
         const replacementIds = new Set(replacements.map((value) => String(value?.id || '')).filter(Boolean));
-        for (const shape of Array.isArray(pageModel?.shapes) ? pageModel.shapes : []) {
-          if (replacementIds.has(String(shape?.id))) continue;
-          this._drawShape(context, shape, documentModel, { preview: false });
+        const shapes = (Array.isArray(pageModel?.shapes) ? pageModel.shapes : [])
+          .filter((shape) => !replacementIds.has(String(shape?.id)));
+        for (const shape of shapes) {
+          this._drawShape(context, shape, documentModel, { preview: false, pass: 'geometry' });
         }
         for (const entity of Array.isArray(pageModel?.entities) ? pageModel.entities : []) {
           if (replacementIds.has(String(entity?.id))) continue;
           this._drawEntity(context, entity, documentModel, pageModel, { preview: false });
+        }
+        for (const shape of shapes) {
+          this._drawShape(context, shape, documentModel, { preview: false, pass: 'annotations' });
+        }
+        if (this._renderOptions.showVertices) {
+          for (const shape of shapes) {
+            this._drawShape(context, shape, documentModel, { preview: false, pass: 'vertices' });
+          }
         }
         if (options.includeSelection || options.includePreview) {
           this._drawOverlay(context, overlay || {}, documentModel, pageModel, options);
@@ -879,39 +888,47 @@
       });
       const opacity = clamp(finite(style.opacity, base.opacity), 0, 1);
       const isArea = points.length >= 3;
+      const pass = String(state.pass || 'all');
+      const drawGeometry = pass === 'all' || pass === 'geometry';
+      const drawAnnotations = pass === 'all' || pass === 'annotations';
+      const drawVertices = pass === 'all' || pass === 'vertices';
       context.save();
-      context.beginPath();
-      context.moveTo(points[0].x, points[0].y);
-      for (let index = 1; index < points.length; index += 1) context.lineTo(points[index].x, points[index].y);
-      if (isArea) context.closePath();
-      if (isArea) {
-        context.globalAlpha = state.preview ? opacity * 0.58 : opacity;
-        context.fillStyle = style.fill || base.fill;
-        context.fill();
+      if (drawGeometry) {
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        for (let index = 1; index < points.length; index += 1) context.lineTo(points[index].x, points[index].y);
+        if (isArea) context.closePath();
+        if (isArea) {
+          context.globalAlpha = state.preview ? opacity * 0.58 : opacity;
+          context.fillStyle = style.fill || base.fill;
+          context.fill();
+        }
+        context.globalAlpha = state.preview ? 0.72 : 1;
+        context.strokeStyle = style.stroke || base.stroke;
+        context.lineWidth = this._screenWorld(Math.max(0.45, finite(style.lineWidth, base.lineWidth)));
+        context.setLineDash(lineDash(style.lineStyle, this._screenWorld(1)));
+        if (!isArea && (shape.kind === 'road' || shape.kind === 'water')) {
+          const mpp = Math.max(0, finite(documentModel?.calibration?.mpp, 0));
+          const widthMeters = finite(shape.road?.widthM ?? shape.road?.width ?? shape.width, 0);
+          const worldWidth = mpp > 0 && widthMeters > 0 ? widthMeters / mpp : finite(style.worldWidth, 10);
+          context.lineWidth = Math.max(context.lineWidth, worldWidth);
+          context.globalAlpha = opacity;
+        }
+        context.stroke();
+        context.setLineDash([]);
+        context.globalAlpha = 1;
+        if (shape.kind === 'cutout' && isArea) this._drawCutoutHatch(context, points, style, zoom);
       }
-      context.globalAlpha = state.preview ? 0.72 : 1;
-      context.strokeStyle = style.stroke || base.stroke;
-      context.lineWidth = this._screenWorld(Math.max(0.45, finite(style.lineWidth, base.lineWidth)));
-      context.setLineDash(lineDash(style.lineStyle, this._screenWorld(1)));
-      if (!isArea && (shape.kind === 'road' || shape.kind === 'water')) {
-        const mpp = Math.max(0, finite(documentModel?.calibration?.mpp, 0));
-        const widthMeters = finite(shape.road?.widthM ?? shape.road?.width ?? shape.width, 0);
-        const worldWidth = mpp > 0 && widthMeters > 0 ? widthMeters / mpp : finite(style.worldWidth, 10);
-        context.lineWidth = Math.max(context.lineWidth, worldWidth);
-        context.globalAlpha = opacity;
+      if (drawAnnotations) {
+        if (!state.preview) {
+          this._drawShapeLabel(context, shape, documentModel);
+          if (this._shapeShowsDimensions(shape)) this._drawShapeDimensions(context, shape, documentModel);
+        } else if (state.showLabel !== false) {
+          this._drawShapeLabel(context, shape, documentModel, { preview: true });
+          if (this._shapeShowsDimensions(shape)) this._drawShapeDimensions(context, shape, documentModel, { preview: true });
+        }
       }
-      context.stroke();
-      context.setLineDash([]);
-      context.globalAlpha = 1;
-      if (shape.kind === 'cutout' && isArea) this._drawCutoutHatch(context, points, style, zoom);
-      if (!state.preview) {
-        this._drawShapeLabel(context, shape, documentModel);
-        if (this._shapeShowsDimensions(shape)) this._drawShapeDimensions(context, shape, documentModel);
-      } else if (state.showLabel !== false) {
-        this._drawShapeLabel(context, shape, documentModel, { preview: true });
-        if (this._shapeShowsDimensions(shape)) this._drawShapeDimensions(context, shape, documentModel, { preview: true });
-      }
-      if (this._renderOptions.showVertices && !state.preview) this._drawQuietVertices(context, points);
+      if (drawVertices && this._renderOptions.showVertices && !state.preview) this._drawQuietVertices(context, points);
       context.restore();
     }
 

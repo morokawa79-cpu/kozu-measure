@@ -1338,6 +1338,39 @@ async function rendererSuite() {
     return { pass: first === second && nonWhite > 1000, details: { equal: first === second, nonWhite, bytes: first.length } }
   })
 
+  await run('renderer-draws-all-parcel-geometry-before-text-and-dimensions', () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.paper.enabled = false
+    K.addShape(doc, 'lot', [{ x: 20, y: 20 }, { x: 170, y: 20 }, { x: 170, y: 140 }, { x: 20, y: 140 }], {
+      label: 'FIRST', visibility: { label: true, number: false, area: false, tsubo: false, dimensions: true }
+    })
+    K.addShape(doc, 'lot', [{ x: 100, y: 50 }, { x: 250, y: 50 }, { x: 250, y: 170 }, { x: 100, y: 170 }], {
+      label: 'SECOND', visibility: { label: true, number: false, area: false, tsubo: false, dimensions: true }
+    })
+    K.addEntity(doc, 'text', { position: { x: 135, y: 95 }, text: 'USER TEXT', style: { fontSize: 16 } })
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    const events = []
+    const originalFill = context.fill.bind(context)
+    const originalFillText = context.fillText.bind(context)
+    context.fill = (...args) => { events.push({ type: 'geometry-fill' }); return originalFill(...args) }
+    context.fillText = (value, ...args) => { events.push({ type: 'text', value: String(value) }); return originalFillText(value, ...args) }
+    const renderer = new K.Renderer(canvas)
+    renderer.resize(300, 210, 1)
+    renderer.render(doc, { x: 0, y: 0, zoom: 1 }, {}, {
+      transparent: true, recordLabels: true, includeSelection: false, includePreview: false, showVertices: false
+    })
+    const lastGeometry = events.map(event => event.type).lastIndexOf('geometry-fill')
+    const firstText = events.findIndex(event => event.type === 'text')
+    const textValues = events.filter(event => event.type === 'text').map(event => event.value)
+    return {
+      pass: lastGeometry >= 1 && firstText > lastGeometry &&
+        textValues.some(value => value.includes('FIRST')) &&
+        textValues.some(value => value.includes('SECOND')) &&
+        textValues.includes('USER TEXT'),
+      details: { lastGeometry, firstText, textValues, events }
+    }
+  })
+
   await run('renderer-honors-visibility-and-per-edge-dimension-edits', () => {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     const lot = K.addShape(doc, 'lot', [{ x: 30, y: 30 }, { x: 200, y: 30 }, { x: 200, y: 140 }, { x: 30, y: 140 }], { label: 'A' })
