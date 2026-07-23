@@ -8,6 +8,11 @@
   const SCHEMA_VERSION = 7
   const TSUBO_M2 = 3.3057851239669422
   const EPS = 1e-7
+  // Geometry coordinates are source-image/world pixels. Keep comparisons well
+  // below one pixel, while rejecting edges that are too small to render or edit.
+  const GEOMETRY_EPSILON = 1e-5
+  const MIN_EDGE_LENGTH = 1e-2
+  const MIN_PARCEL_AREA = MIN_EDGE_LENGTH * MIN_EDGE_LENGTH
   const HISTORY_LIMIT = 120
 
   const SHAPE_KINDS = new Set(['lot', 'road', 'water', 'cutout'])
@@ -225,6 +230,14 @@
     const p = cleanPoints(points)
     return p.length >= 3 && polygonArea(p) > minArea && !polygonSelfIntersects(p)
   }
+  function validOperationPolygon(points, options = {}) {
+    const tolerance = Math.max(EPS, finite(options.tolerance, GEOMETRY_EPSILON))
+    const minEdgeLength = Math.max(tolerance, finite(options.minEdgeLength, MIN_EDGE_LENGTH))
+    const minArea = Math.max(tolerance * tolerance, finite(options.minArea, MIN_PARCEL_AREA))
+    const polygon = cleanPoints(points, false, tolerance)
+    if (!validPolygon(polygon, minArea)) return false
+    return polygon.every((value, index) => distance(value, polygon[(index + 1) % polygon.length]) >= minEdgeLength)
+  }
   function clipHalfPlane(points, lineA, lineB, keepPositive) {
     const polygon = cleanPoints(points)
     const direction = subtract(lineB, lineA)
@@ -250,14 +263,14 @@
   function splitPolygonByLine(points, lineA, lineB) {
     const positive = clipHalfPlane(points, lineA, lineB, true)
     const negative = clipHalfPlane(points, lineA, lineB, false)
-    if (!validPolygon(positive) || !validPolygon(negative)) return null
+    if (!validOperationPolygon(positive) || !validOperationPolygon(negative)) return null
     const originalArea = polygonArea(points)
     const splitArea = polygonArea(positive) + polygonArea(negative)
     if (Math.abs(originalArea - splitArea) > Math.max(1, originalArea) * 1e-5) return null
     return [positive, negative]
   }
 
-  function cleanOpenPolyline(points, tolerance = 1e-5) {
+  function cleanOpenPolyline(points, tolerance = GEOMETRY_EPSILON) {
     const result = []
     for (const raw of Array.isArray(points) ? points : []) {
       if (!isPoint(raw)) continue
@@ -267,7 +280,7 @@
     return result
   }
 
-  function simpleOpenPolyline(points, tolerance = 1e-5) {
+  function simpleOpenPolyline(points, tolerance = GEOMETRY_EPSILON) {
     const line = cleanOpenPolyline(points, tolerance)
     if (line.length < 2 || samePoint(line[0], line[line.length - 1], tolerance)) return false
     for (let index = 1; index < line.length - 1; index += 1) {
@@ -284,7 +297,7 @@
     return true
   }
 
-  function pointOnPolygonBoundary(value, polygon, tolerance = 1e-5) {
+  function pointOnPolygonBoundary(value, polygon, tolerance = GEOMETRY_EPSILON) {
     const vertices = cleanPoints(polygon)
     for (let index = 0; index < vertices.length; index += 1) {
       if (nearestPointOnSegment(value, vertices[index], vertices[(index + 1) % vertices.length]).distance <= tolerance) return true
@@ -292,7 +305,7 @@
     return false
   }
 
-  function rayPolygonBoundaryHit(origin, direction, polygon, tolerance = 1e-5) {
+  function rayPolygonBoundaryHit(origin, direction, polygon, tolerance = GEOMETRY_EPSILON) {
     const vertices = cleanPoints(polygon)
     const ray = unit(direction)
     if (length(ray) <= EPS) return null
@@ -312,7 +325,7 @@
     return nearest?.point || null
   }
 
-  function preparePolylineCut(polygon, cutPoints, tolerance = 1e-5) {
+  function preparePolylineCut(polygon, cutPoints, tolerance = GEOMETRY_EPSILON) {
     const cut = cleanOpenPolyline(cutPoints, tolerance)
     if (!simpleOpenPolyline(cut, tolerance)) return null
     const first = cut[0]
@@ -330,7 +343,7 @@
     return simpleOpenPolyline(cut, tolerance) ? cut : null
   }
 
-  function canonicalBoundaryHit(rawHit, polygon, tolerance = 1e-5) {
+  function canonicalBoundaryHit(rawHit, polygon, tolerance = GEOMETRY_EPSILON) {
     const count = polygon.length
     let edgeIndex = rawHit.edgeIndex
     let edgePosition = clamp(finite(rawHit.edgePosition), 0, 1)
@@ -352,7 +365,7 @@
     }
   }
 
-  function polylinePolygonBoundaryHits(polygon, cut, tolerance = 1e-5) {
+  function polylinePolygonBoundaryHits(polygon, cut, tolerance = GEOMETRY_EPSILON) {
     const rawHits = []
     let overlapping = false
     for (let cutSegment = 0; cutSegment < cut.length - 1; cutSegment += 1) {
@@ -373,7 +386,7 @@
     return { hits, overlapping }
   }
 
-  function polygonBoundaryPath(polygon, start, end, tolerance = 1e-5) {
+  function polygonBoundaryPath(polygon, start, end, tolerance = GEOMETRY_EPSILON) {
     const count = polygon.length
     const path = [point(start.point)]
     let target = end.boundaryPosition
@@ -385,7 +398,7 @@
     return path
   }
 
-  function polylinePathBetween(cut, entry, exit, tolerance = 1e-5) {
+  function polylinePathBetween(cut, entry, exit, tolerance = GEOMETRY_EPSILON) {
     const path = [point(entry.point)]
     for (let vertex = entry.cutSegment + 1; vertex <= exit.cutSegment; vertex += 1) {
       const pathPosition = vertex
@@ -396,7 +409,7 @@
   }
 
   function analyzePolygonSplitByPolyline(points, cutPoints, options = {}) {
-    const tolerance = Math.max(EPS * 10, finite(options.tolerance, 1e-5))
+    const tolerance = Math.max(EPS * 10, finite(options.tolerance, GEOMETRY_EPSILON))
     const polygon = cleanPoints(points, false, tolerance)
     if (!validPolygon(polygon)) return { status: 'invalid', reason: 'invalid-polygon' }
     const cut = preparePolylineCut(polygon, cutPoints, tolerance)
@@ -417,7 +430,9 @@
     const secondBoundary = polygonBoundaryPath(polygon, exit, entry, tolerance)
     const first = simplifyPolygon(firstBoundary.concat(cutPath.slice(1, -1).reverse()), tolerance)
     const second = simplifyPolygon(secondBoundary.concat(cutPath.slice(1, -1)), tolerance)
-    if (!validPolygon(first) || !validPolygon(second)) return { status: 'invalid', reason: 'invalid-result' }
+    if (!validOperationPolygon(first, { tolerance }) || !validOperationPolygon(second, { tolerance })) {
+      return { status: 'invalid', reason: 'invalid-result' }
+    }
     const originalArea = polygonArea(polygon)
     const resultArea = polygonArea(first) + polygonArea(second)
     if (Math.abs(originalArea - resultArea) > Math.max(1, originalArea) * 1e-5) return { status: 'invalid', reason: 'area-mismatch' }
@@ -432,28 +447,155 @@
     const p = cleanPoints(points)
     return polygonSignedArea(p) < 0 ? p.reverse() : p
   }
-  function pathWithoutEdge(points, edgeIndex) {
-    const path = []
-    for (let step = 1; step <= points.length; step += 1) path.push(points[(edgeIndex + step) % points.length])
-    return path
-  }
-  function mergeAdjacentPolygons(first, second, tolerance = 1e-4) {
-    const a = ensureCounterClockwise(first)
-    const b = ensureCounterClockwise(second)
-    for (let i = 0; i < a.length; i += 1) {
-      const a0 = a[i]
-      const a1 = a[(i + 1) % a.length]
-      for (let j = 0; j < b.length; j += 1) {
-        const b0 = b[j]
-        const b1 = b[(j + 1) % b.length]
-        if (!samePoint(a0, b1, tolerance) || !samePoint(a1, b0, tolerance)) continue
-        const pathA = pathWithoutEdge(a, i)
-        const pathB = pathWithoutEdge(b, j)
-        const merged = simplifyPolygon(pathA.concat(pathB.slice(1, -1)), tolerance)
-        if (validPolygon(merged) && nearly(polygonArea(merged), polygonArea(a) + polygonArea(b), Math.max(1, polygonArea(merged)) * 1e-5)) return merged
+  function polygonPairRelation(first, second, tolerance = GEOMETRY_EPSILON) {
+    const resolvedTolerance = Math.max(EPS * 10, finite(tolerance, GEOMETRY_EPSILON))
+    const a = cleanPoints(first, false, resolvedTolerance)
+    const b = cleanPoints(second, false, resolvedTolerance)
+    if (!validPolygon(a) || !validPolygon(b)) return { type: 'invalid', sharedLength: 0 }
+    let sharedLength = 0
+    let touches = false
+    let properCrossing = false
+    for (let firstIndex = 0; firstIndex < a.length; firstIndex += 1) {
+      const a0 = a[firstIndex]
+      const a1 = a[(firstIndex + 1) % a.length]
+      for (let secondIndex = 0; secondIndex < b.length; secondIndex += 1) {
+        const b0 = b[secondIndex]
+        const b1 = b[(secondIndex + 1) % b.length]
+        const overlap = edgeCollinearOverlap({ from: a0, to: a1 }, b0, b1, resolvedTolerance)
+        if (overlap > resolvedTolerance) {
+          sharedLength += overlap
+          touches = true
+          continue
+        }
+        const hit = segmentIntersection(a0, a1, b0, b1, resolvedTolerance)
+        if (!hit) continue
+        touches = true
+        const insideFirstEdge = distance(hit.point, a0) > resolvedTolerance && distance(hit.point, a1) > resolvedTolerance
+        const insideSecondEdge = distance(hit.point, b0) > resolvedTolerance && distance(hit.point, b1) > resolvedTolerance
+        if (!hit.collinear && insideFirstEdge && insideSecondEdge) properCrossing = true
       }
     }
-    return null
+    if (properCrossing) return { type: 'overlap', sharedLength }
+    const samples = polygon => polygon.flatMap((value, index) => [
+      value,
+      interpolate(value, polygon[(index + 1) % polygon.length], 0.5)
+    ]).concat([polygonCentroid(polygon)])
+    const firstInsideSecond = samples(a).some(value => pointInPolygon(value, b, false))
+    const secondInsideFirst = samples(b).some(value => pointInPolygon(value, a, false))
+    if (firstInsideSecond || secondInsideFirst) {
+      const firstContained = a.every(value => pointInPolygon(value, b, true))
+      const secondContained = b.every(value => pointInPolygon(value, a, true))
+      return { type: firstContained || secondContained ? 'containment' : 'overlap', sharedLength }
+    }
+    if (sharedLength >= MIN_EDGE_LENGTH) return { type: 'shared-edge', sharedLength }
+    if (touches) return { type: 'point-contact', sharedLength }
+    return { type: 'disconnected', sharedLength: 0 }
+  }
+  function mergeConnectedPolygons(polygons, tolerance = GEOMETRY_EPSILON) {
+    const resolvedTolerance = Math.max(EPS * 10, finite(tolerance, GEOMETRY_EPSILON))
+    const sources = (Array.isArray(polygons) ? polygons : [])
+      .map(points => ensureCounterClockwise(cleanPoints(points, false, resolvedTolerance)))
+    if (sources.length < 2 || sources.some(points => !validPolygon(points))) return null
+
+    const vertices = []
+    const canonicalVertex = value => {
+      let existing = vertices.find(vertex => samePoint(vertex, value, resolvedTolerance))
+      if (existing) return existing
+      existing = { id: vertices.length, x: finite(value.x), y: finite(value.y) }
+      vertices.push(existing)
+      return existing
+    }
+    sources.flat().forEach(canonicalVertex)
+
+    const directedSegments = []
+    for (const polygon of sources) {
+      for (let edgeIndex = 0; edgeIndex < polygon.length; edgeIndex += 1) {
+        const from = canonicalVertex(polygon[edgeIndex])
+        const to = canonicalVertex(polygon[(edgeIndex + 1) % polygon.length])
+        const splitters = [{ vertex: from, t: 0 }, { vertex: to, t: 1 }]
+        for (const candidate of vertices) {
+          const projected = nearestPointOnSegment(candidate, from, to)
+          if (projected.distance > resolvedTolerance || projected.t <= resolvedTolerance || projected.t >= 1 - resolvedTolerance) continue
+          splitters.push({ vertex: canonicalVertex(projected.point), t: projected.t })
+        }
+        splitters.sort((left, right) => left.t - right.t)
+        const ordered = []
+        for (const splitter of splitters) {
+          const previous = ordered[ordered.length - 1]
+          if (previous && (previous.vertex.id === splitter.vertex.id || Math.abs(previous.t - splitter.t) <= EPS)) continue
+          ordered.push(splitter)
+        }
+        for (let index = 1; index < ordered.length; index += 1) {
+          const segmentFrom = ordered[index - 1].vertex
+          const segmentTo = ordered[index].vertex
+          if (distance(segmentFrom, segmentTo) >= resolvedTolerance) directedSegments.push({ from: segmentFrom, to: segmentTo })
+        }
+      }
+    }
+
+    const boundaryByDirection = new Map()
+    const pushSegment = segment => {
+      const key = `${segment.from.id}>${segment.to.id}`
+      const reverseKey = `${segment.to.id}>${segment.from.id}`
+      const reverse = boundaryByDirection.get(reverseKey)
+      if (reverse?.length) {
+        reverse.pop()
+        if (!reverse.length) boundaryByDirection.delete(reverseKey)
+        return
+      }
+      const entries = boundaryByDirection.get(key) || []
+      entries.push(segment)
+      boundaryByDirection.set(key, entries)
+    }
+    directedSegments.forEach(pushSegment)
+    const boundary = [...boundaryByDirection.values()].flat()
+    if (!boundary.length) return null
+
+    const outgoing = new Map()
+    const incoming = new Map()
+    boundary.forEach((segment, index) => {
+      const fromEntries = outgoing.get(segment.from.id) || []
+      fromEntries.push(index)
+      outgoing.set(segment.from.id, fromEntries)
+      const toEntries = incoming.get(segment.to.id) || []
+      toEntries.push(index)
+      incoming.set(segment.to.id, toEntries)
+    })
+    for (const segment of boundary) {
+      if (outgoing.get(segment.from.id)?.length !== 1 || incoming.get(segment.from.id)?.length !== 1) return null
+      if (outgoing.get(segment.to.id)?.length !== 1 || incoming.get(segment.to.id)?.length !== 1) return null
+    }
+
+    const unused = new Set(boundary.map((_, index) => index))
+    const cycles = []
+    while (unused.size) {
+      const firstIndex = unused.values().next().value
+      const start = boundary[firstIndex].from.id
+      const cycle = []
+      let currentIndex = firstIndex
+      let guard = boundary.length + 1
+      while (guard-- > 0) {
+        const segment = boundary[currentIndex]
+        if (!unused.delete(currentIndex)) return null
+        cycle.push(point(segment.from))
+        if (segment.to.id === start) break
+        const next = (outgoing.get(segment.to.id) || []).find(index => unused.has(index))
+        if (next == null) return null
+        currentIndex = next
+      }
+      if (guard <= 0) return null
+      cycles.push(simplifyPolygon(cycle, resolvedTolerance))
+    }
+    if (cycles.length !== 1) return null
+    const merged = ensureCounterClockwise(cycles[0])
+    if (!validOperationPolygon(merged, { tolerance: resolvedTolerance })) return null
+    const expectedArea = sources.reduce((sum, polygon) => sum + polygonArea(polygon), 0)
+    if (!nearly(polygonArea(merged), expectedArea, Math.max(1, expectedArea) * 1e-6)) return null
+    return merged
+  }
+  function mergeAdjacentPolygons(first, second, tolerance = GEOMETRY_EPSILON) {
+    const relation = polygonPairRelation(first, second, tolerance)
+    return relation.type === 'shared-edge' ? mergeConnectedPolygons([first, second], tolerance) : null
   }
   function cornerCut(points, vertexIndex, distanceAlongEdges) {
     const p = cleanPoints(points)
@@ -1578,17 +1720,27 @@
   function splitAllLotsByPolyline(document, cutPoints, options = {}) {
     const pageValue = activePage(document)
     if (!pageValue) return null
-    const cut = cleanOpenPolyline(cutPoints, Math.max(EPS * 10, finite(options.tolerance, 1e-5)))
-    if (!simpleOpenPolyline(cut, Math.max(EPS * 10, finite(options.tolerance, 1e-5)))) return null
+    const tolerance = Math.max(EPS * 10, finite(options.tolerance, GEOMETRY_EPSILON))
+    const cut = cleanOpenPolyline(cutPoints, tolerance)
+    if (!simpleOpenPolyline(cut, tolerance)) return null
     const requestedKinds = Array.isArray(options.kinds) && options.kinds.length ? options.kinds : ['lot']
     const allowedKinds = new Set(requestedKinds.filter(kind => ['lot', 'road', 'water'].includes(kind)))
     const plans = []
-    for (const shape of pageValue.shapes.filter(value => allowedKinds.has(value.kind))) {
-      const analysis = analyzePolygonSplitByPolyline(shape.points, cut, options)
-      if (analysis.status === 'invalid') return null
-      if (analysis.status === 'split') plans.push({ id: shape.id, polygons: analysis.polygons })
+    const failures = []
+    const candidates = pageValue.shapes
+      .filter(value => allowedKinds.has(value.kind))
+      .map(shape => ({ id: shape.id, points: clone(shape.points) }))
+    for (const candidate of candidates) {
+      const analysis = analyzePolygonSplitByPolyline(candidate.points, cut, { ...options, tolerance })
+      if (analysis.status === 'split') plans.push({ id: candidate.id, polygons: analysis.polygons.map(clone) })
+      else if (analysis.status === 'invalid') failures.push({ id: candidate.id, reason: analysis.reason || 'invalid-split' })
     }
-    if (!plans.length) return []
+    if (!plans.length) {
+      if (failures.length) return null
+      const empty = []
+      empty.targetIds = candidates.map(candidate => candidate.id)
+      return empty
+    }
 
     // Build every replacement on a detached document first. The caller's
     // document is changed only after all shapes and IDs were created safely.
@@ -1615,7 +1767,10 @@
     }
     document.pages = draft.pages
     document.nextId = draft.nextId
-    return replacements.flat()
+    const result = replacements.flat()
+    result.failures = failures
+    result.targetIds = candidates.map(candidate => candidate.id)
+    return result
   }
   function convertShapeKind(document, id, targetKind) {
     if (!CONVERTIBLE_SHAPE_KINDS.includes(targetKind)) return null
@@ -1675,43 +1830,95 @@
     found.collection.splice(index, 1, converted)
     return converted
   }
+  function analyzeShapeMerge(document, ids, options = {}) {
+    const uniqueIds = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))]
+    if (uniqueIds.length < 2) return { ok: false, reason: 'insufficient-selection' }
+    const found = uniqueIds.map(id => objectById(document, id))
+    if (found.some(value => !value || value.type !== 'shape')) return { ok: false, reason: 'missing-shape' }
+    const pageId = found[0].page.id
+    if (found.some(value => value.page.id !== pageId)) return { ok: false, reason: 'different-pages' }
+    const shapes = found.map(value => value.object)
+    const kinds = new Set(shapes.map(shape => shape.kind))
+    if (kinds.size !== 1 || !['lot', 'road', 'water'].includes(shapes[0].kind)) return { ok: false, reason: 'different-kinds' }
+    const tolerance = Math.max(EPS * 10, finite(options.tolerance, GEOMETRY_EPSILON))
+    const adjacency = shapes.map(() => new Set())
+    const relations = []
+    for (let firstIndex = 0; firstIndex < shapes.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < shapes.length; secondIndex += 1) {
+        const relation = polygonPairRelation(shapes[firstIndex].points, shapes[secondIndex].points, tolerance)
+        relations.push({ firstId: shapes[firstIndex].id, secondId: shapes[secondIndex].id, ...relation })
+        if (relation.type === 'overlap' || relation.type === 'containment') {
+          return { ok: false, reason: 'overlap', relations }
+        }
+        if (relation.type === 'invalid') return { ok: false, reason: 'invalid-polygon', relations }
+        if (relation.type === 'shared-edge') {
+          adjacency[firstIndex].add(secondIndex)
+          adjacency[secondIndex].add(firstIndex)
+        }
+      }
+    }
+    const visited = new Set([0])
+    const queue = [0]
+    while (queue.length) {
+      const current = queue.shift()
+      for (const neighbor of adjacency[current]) {
+        if (visited.has(neighbor)) continue
+        visited.add(neighbor)
+        queue.push(neighbor)
+      }
+    }
+    if (visited.size !== shapes.length) {
+      const disconnectedIds = shapes.filter((_, index) => !visited.has(index)).map(shape => shape.id)
+      const pointOnly = shapes.length === 2 && relations[0]?.type === 'point-contact'
+      return { ok: false, reason: pointOnly ? 'point-contact' : 'disconnected', disconnectedIds, relations }
+    }
+    const points = mergeConnectedPolygons(shapes.map(shape => shape.points), tolerance)
+    if (!points) return { ok: false, reason: 'unsupported-union', relations }
+    return { ok: true, points, shapes, page: found[0].page, relations, tolerance }
+  }
+  function mergeShapeGroup(document, ids, options = {}) {
+    const analysis = analyzeShapeMerge(document, ids, options)
+    if (!analysis.ok) return analysis
+    const requestedPrimaryId = String(options.primaryId || ids[0])
+    const primary = analysis.shapes.find(shape => String(shape.id) === requestedPrimaryId) || analysis.shapes[0]
+    const selectedIds = new Set(analysis.shapes.map(shape => String(shape.id)))
+    const selectedIndexes = analysis.page.shapes
+      .map((shape, index) => selectedIds.has(String(shape.id)) ? index : -1)
+      .filter(index => index >= 0)
+    const memo = analysis.shapes.map(shape => String(shape.memo || '').trim()).filter(Boolean)
+    const merged = createShape(document, primary.kind, analysis.points, {
+      ...primary,
+      number: primary.kind === 'lot'
+        ? Math.min(...analysis.shapes.map(shape => finite(shape.number, 1)))
+        : undefined,
+      price: primary.kind === 'lot'
+        ? (options.price === 'sum' ? analysis.shapes.reduce((sum, shape) => sum + finite(shape.price), 0) : null)
+        : null,
+      memo: [...new Set(memo)].join(' / ')
+    })
+    resetShapeLabelLayout(merged)
+    merged.id = primary.id
+    analysis.page.shapes = analysis.page.shapes.filter(shape => !selectedIds.has(String(shape.id)))
+    analysis.page.shapes.splice(Math.min(...selectedIndexes), 0, merged)
+    if (primary.kind === 'lot') renumberLots(document)
+    return { ok: true, shape: merged, sourceIds: analysis.shapes.map(shape => shape.id), relations: analysis.relations }
+  }
   function mergeLotShapes(document, firstId, secondId, options = {}) {
     const first = objectById(document, firstId)
     const second = objectById(document, secondId)
     if (!first || !second || first.page.id !== second.page.id || first.type !== 'shape' || second.type !== 'shape') return null
     const mergeKinds = new Set([first.object.kind, second.object.kind])
-    const sameKind = mergeKinds.size === 1 && ['lot', 'road', 'water'].includes(first.object.kind)
     const lotCutout = mergeKinds.size === 2 && mergeKinds.has('lot') && mergeKinds.has('cutout')
-    if (!sameKind && !lotCutout) return null
     if (lotCutout) {
       const cutout = first.object.kind === 'cutout' ? first.object : second.object
       const lot = first.object.kind === 'lot' ? first.object : second.object
       if (cutout.parentShapeId === lot.id && Array.isArray(cutout.parentOriginalPoints) && cutout.parentOriginalPoints.length >= 3) {
         return restoreCutout(document, cutout.id)
       }
+      return null
     }
-    const points = mergeAdjacentPolygons(first.object.points, second.object.points, finite(options.tolerance, 1e-3))
-    if (!points) return null
-    const primary = lotCutout
-      ? (first.object.kind === 'lot' ? first.object : second.object)
-      : (options.primaryId === second.object.id ? second.object : first.object)
-    const secondary = primary === first.object ? second.object : first.object
-    const merged = createShape(document, primary.kind, points, {
-      ...primary,
-      number: primary.kind === 'lot' && secondary.kind === 'lot'
-        ? Math.min(finite(primary.number, 1), finite(secondary.number, 1))
-        : (primary.kind === 'lot' ? finite(primary.number, 1) : undefined),
-      price: primary.kind === 'lot' && secondary.kind === 'lot'
-        ? (options.price === 'sum' ? finite(primary.price) + finite(secondary.price) : null)
-        : (primary.kind === 'lot' ? (primary.price ?? null) : null),
-      memo: secondary.kind === primary.kind ? [primary.memo, secondary.memo].filter(Boolean).join(' / ') : primary.memo
-    })
-    resetShapeLabelLayout(merged)
-    merged.id = primary.id
-    first.page.shapes = first.page.shapes.filter(shape => shape.id !== firstId && shape.id !== secondId)
-    first.page.shapes.push(merged)
-    if (primary.kind === 'lot') renumberLots(document)
-    return merged
+    const result = mergeShapeGroup(document, [firstId, secondId], options)
+    return result.ok ? result.shape : null
   }
   function cutShapeCorner(document, id, vertexIndex, distanceWorld) {
     const found = objectById(document, id)
@@ -2062,11 +2269,12 @@
   }
 
   Object.assign(K, {
-    APP_VERSION, SCHEMA_VERSION, TSUBO_M2, EPS, DEFAULTS, COMMANDS, SHAPE_KINDS, ENTITY_KINDS,
+    APP_VERSION, SCHEMA_VERSION, TSUBO_M2, EPS, GEOMETRY_EPSILON, MIN_EDGE_LENGTH, MIN_PARCEL_AREA, DEFAULTS, COMMANDS, SHAPE_KINDS, ENTITY_KINDS,
     clone, finite, clamp, isPoint, point, nearly, samePoint, add, subtract, multiply, dot, cross, length, distance, unit,
     interpolate, normalizeAngle, rotatePoint, cleanPoints, polygonSignedArea, polygonArea, polygonCentroid, polylineLength,
     pointOnSegment, pointInPolygon, nearestPointOnSegment, segmentIntersection, polygonSelfIntersects, simplifyPolygon,
-    validPolygon, splitPolygonByLine, splitPolygonByPolyline, analyzePolygonSplitByPolyline, mergeAdjacentPolygons, cornerCut, parallelLine, boundsOfPoints, unionBounds,
+    validPolygon, validOperationPolygon, splitPolygonByLine, splitPolygonByPolyline, analyzePolygonSplitByPolyline,
+    polygonPairRelation, mergeAdjacentPolygons, analyzeShapeMerge, mergeShapeGroup, cornerCut, parallelLine, boundsOfPoints, unionBounds,
     createCalibration, createOutputLayout, createPage, createDocument, normalizeDocument, normalizeFontToken, activePage, ensurePage, setActivePage, allocId, edgeMetadata, createShape, createEntity, segmentMetadata, objectById,
     addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, duplicateObjects, nextLotNumber, lotNumbersNeedRenumber, renumberLots,
     splitShape, splitAllLots, splitShapeByPolyline, splitAllLotsByPolyline, convertShapeKind, mergeLotShapes, cutShapeCorner, restoreCutout, objectSegments, snapPoint, hitTestDocument,

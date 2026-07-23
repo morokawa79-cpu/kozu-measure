@@ -123,7 +123,7 @@
 
     split: { category: 'process', name: '選択分割', icon: 'i-split', template: 'controls-process', hint: '区画・道路・水路を選び、分割線を左クリック。ダブルクリック/Enterで確定' },
     'split-all': { category: 'process', name: '一括分割', icon: 'i-split-all', template: 'controls-process', hint: '対象種類を選び、横切る線を左クリック。ダブルクリック/Enterで確定' },
-    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '同じ種類の隣接図形、または区画と隅切りを2つ選択' },
+    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '同じ種類で辺を共有する図形を2つ以上選び、Enterで確定。区画と隅切りは2つ選択' },
     'corner-cut': { category: 'process', name: '隅切り', icon: 'i-corner', template: 'controls-process', hint: '区画の頂点を選択して確定' },
     'division-guide': { category: 'process', name: '均等ガイド', icon: 'i-guide', template: 'controls-process', hint: '任意の2点間を指定数で等分' },
     'lot-division-guide': { category: 'process', name: '区画等分線', icon: 'i-guide', template: 'controls-process', hint: '区画を選び、基準方向を2点で指定' },
@@ -1004,7 +1004,7 @@
     if (requestedTargets.length) {
       let targets = requestedTargets
       if (command === 'split') targets = targets.length === 1 && ['lot', 'road', 'water'].includes(targets[0].kind) ? targets : []
-      else if (command === 'merge') targets = targets.length <= 2 && targets.every(object => ['lot', 'road', 'water', 'cutout'].includes(object.kind)) ? targets : []
+      else if (command === 'merge') targets = targets.length && targets.every(object => ['lot', 'road', 'water', 'cutout'].includes(object.kind)) ? targets : []
       else if (command === 'corner-cut') targets = targets.length === 1 && targets[0].kind === 'lot' ? targets : []
       else if (command === 'lot-division-guide') targets = targets.length === 1 && targets[0].kind === 'lot' ? targets : []
       else if (command === 'vertex-edit') targets = targets.length === 1 ? targets : []
@@ -1023,11 +1023,6 @@
     }
     renderCommandSurface()
     render()
-    if (command === 'merge' && session.targetIds.length === 2) {
-      queueMicrotask(() => {
-        if (session.command === 'merge' && session.targetIds.length === 2) finishCommand()
-      })
-    }
     if (options.focusCanvas !== false) dom.canvas.focus({ preventScroll: true })
     return true
   }
@@ -1159,9 +1154,9 @@
     if (command === 'line') return { small: '作図点', strong: String(points) }
     if (command === 'split') return { small: targets ? (points < 2 ? '分割線' : 'Enterで確定') : '区画選択', strong: targets ? `${points}点` : '1/2' }
     if (command === 'split-all') return { small: points < 2 ? '分割線' : 'Enterで確定', strong: `${points}点` }
-    if (command === 'merge') return targets
-      ? { small: '2つ目の区画', strong: '2/2' }
-      : { small: '1つ目の区画', strong: '1/2' }
+    if (command === 'merge') return targets >= 2
+      ? { small: 'Enterで確定', strong: `${targets}件` }
+      : { small: targets ? '2つ目の図形' : '1つ目の図形', strong: `${targets}/2` }
     if (command === 'corner-cut') {
       if (!targets) return { small: '区画選択', strong: '1/3' }
       if (session.vertexIndex == null) return { small: '頂点選択', strong: '2/3' }
@@ -1806,7 +1801,7 @@
     if (command === 'underlay-transform') return true
     if (command === 'split') return session.targetIds.length === 1 && count >= 2
     if (command === 'split-all') return count >= 2
-    if (command === 'merge') return session.targetIds.length === 2
+    if (command === 'merge') return session.targetIds.length >= 2
     if (command === 'corner-cut') return Boolean(store.document.calibration.mpp) && session.targetIds.length === 1 && Number.isInteger(session.vertexIndex)
     if (command === 'division-guide') return count === 2
     if (command === 'lot-division-guide') return session.targetIds.length === 1 && count === 2
@@ -2025,7 +2020,7 @@
 
   function processStatusText() {
     const command = session.command
-    if (command === 'merge') return session.targetIds.length ? `区画 ${session.targetIds.length}/2` : '1つ目の区画'
+    if (command === 'merge') return session.targetIds.length >= 2 ? `${session.targetIds.length}件選択・Enterで確定` : session.targetIds.length ? '2つ目の図形を選択' : '1つ目の図形を選択'
     if (command === 'corner-cut') return !store.document.calibration.mpp ? '先に縮尺を設定' : !session.targetIds.length ? '区画を選択' : session.vertexIndex == null ? '頂点を選択' : '確定できます'
     if (command === 'split') return !session.targetIds.length ? '区画・道路・水路を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
     if (command === 'split-all') return session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
@@ -3444,10 +3439,10 @@
     if (command === 'merge') {
       if (!hit || !['lot', 'road', 'water', 'cutout'].includes(hit.object?.kind)) { setStatus('合筆する区画・道路・水路・隅切りを選んでください', 1600); return }
       if (session.targetIds.includes(hit.id)) session.targetIds = session.targetIds.filter(id => id !== hit.id)
-      else if (session.targetIds.length < 2) session.targetIds.push(hit.id)
+      else session.targetIds.push(hit.id)
       ui.selectedIds = [...session.targetIds]
-      if (session.targetIds.length === 2) finishCommand()
-      else { renderCommandSurface(); render() }
+      renderCommandSurface()
+      render()
       return
     }
     if (command === 'corner-cut') {
@@ -3752,27 +3747,51 @@
         if (!kinds.length) throw new Error('一括分割する対象を1種類以上選んでください')
         let result = []
         store.commit('一括分割', documentModel => { result = K.splitAllLotsByPolyline(documentModel, points, { kinds }) })
-        if (!Array.isArray(result) || !result.length) throw new Error('分割線が対象図形を横切っていないか、折れ線が不正です')
-        restartCommand(command, `交差する図形を一括分割しました（${result.length / 2}件）`)
+        if (!Array.isArray(result) || !result.length) {
+          const reason = result?.failures?.[0]?.reason
+          const detail = reason === 'boundary-overlap' ? '対象図形の境界と分割線が重なっています' : '分割線が対象図形を横切っていないか、折れ線が不正です'
+          throw new Error(detail)
+        }
+        const skipped = Array.isArray(result.failures) ? result.failures.length : 0
+        restartCommand(command, skipped
+          ? `交差する図形を一括分割しました（成功${result.length / 2}件・対象外/失敗${skipped}件）`
+          : `交差する図形を一括分割しました（${result.length / 2}件）`)
         return true
       }
       if (command === 'merge') {
-        const firstObject = K.objectById(store.document, session.targetIds[0])?.object
-        const secondObject = K.objectById(store.document, session.targetIds[1])?.object
+        const selectedObjects = session.targetIds.map(id => K.objectById(store.document, id)?.object).filter(Boolean)
+        const firstObject = selectedObjects[0]
         let adoptedDifferentAttributes = false
-        if (firstObject?.kind === secondObject?.kind && ['road', 'water'].includes(firstObject?.kind)) {
+        if (['road', 'water'].includes(firstObject?.kind) && selectedObjects.every(object => object.kind === firstObject.kind)) {
           const firstAttributes = JSON.stringify({ label: firstObject.label, road: firstObject.road, style: firstObject.style })
-          const secondAttributes = JSON.stringify({ label: secondObject.label, road: secondObject.road, style: secondObject.style })
-          adoptedDifferentAttributes = firstAttributes !== secondAttributes
+          adoptedDifferentAttributes = selectedObjects.slice(1).some(object => firstAttributes !== JSON.stringify({ label: object.label, road: object.road, style: object.style }))
         }
         let result = null
-        store.commit('合筆', documentModel => { result = K.mergeLotShapes(documentModel, session.targetIds[0], session.targetIds[1], { primaryId: session.targetIds[0] }) })
-        if (!result) throw new Error('同じ種類で共有辺のある図形、または区画と隅切りを選択してください')
-        const resultName = result.kind === 'road' ? '道路' : result.kind === 'water' ? '水路' : '区画'
+        const selectedIds = [...session.targetIds]
+        const hasCutout = selectedObjects.some(object => object.kind === 'cutout')
+        if (hasCutout && selectedIds.length === 2) {
+          let restored = null
+          store.commit('合筆', documentModel => { restored = K.mergeLotShapes(documentModel, selectedIds[0], selectedIds[1], { primaryId: selectedIds[0] }) })
+          result = restored ? { ok: true, shape: restored } : { ok: false, reason: 'different-kinds' }
+        } else {
+          store.commit('合筆', documentModel => { result = K.mergeShapeGroup(documentModel, selectedIds, { primaryId: selectedIds[0] }) })
+        }
+        if (!result?.ok) {
+          const messages = {
+            'point-contact': '点で接するだけの図形は合筆できません。一定長の辺を共有する図形を選んでください',
+            disconnected: `辺でつながっていない図形があります${result?.disconnectedIds?.length ? `（${result.disconnectedIds.join(', ')}）` : ''}`,
+            overlap: '重なりまたは包含のある図形は合筆できません',
+            'different-kinds': '同じ種類の図形、または対応する区画と隅切りを選んでください',
+            'unsupported-union': '穴または複数図形になる組み合わせは合筆できません'
+          }
+          throw new Error(messages[result?.reason] || '共有辺のある有効な図形を選んでください')
+        }
+        const mergedShape = result.shape
+        const resultName = mergedShape.kind === 'road' ? '道路' : mergedShape.kind === 'water' ? '水路' : '区画'
         const sourceName = firstObject?.label || resultName
         restartCommand(command, adoptedDifferentAttributes
           ? `${resultName}を合筆しました。名称・幅・色は先に選んだ「${sourceName}」を採用しました（Ctrl+Zで戻せます）`
-          : `${resultName}を合筆しました`)
+          : `${selectedIds.length}件の${resultName}を合筆しました`)
         return true
       }
       if (command === 'corner-cut') {
