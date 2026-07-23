@@ -21,7 +21,8 @@
   ])
   const DOUBLE_CLICK_FINISH_COMMANDS = new Set(['lot-draw', 'road-draw', 'polyline', 'area', 'line', 'split', 'split-all'])
   const TWO_POINT_AUTO_FINISH_COMMANDS = new Set(['distance', 'arrow', 'callout'])
-  const AUTO_COMPLETE_COMMANDS = new Set(['distance', 'arrow', 'callout', 'text', 'north', 'house', 'parking', 'lot-table', 'merge', 'division-guide'])
+  const AUTO_COMPLETE_COMMANDS = new Set(['distance', 'arrow', 'callout', 'text', 'north', 'house', 'parking', 'lot-table', 'division-guide'])
+  const MANUAL_FINISH_COMMANDS = new Set([...DOUBLE_CLICK_FINISH_COMMANDS, 'merge'])
   const SCALE_REQUIRED_COMMANDS = new Set(['lot-draw', 'road-draw', 'distance', 'polyline', 'area', 'corner-cut', 'parallel-guide', 'house', 'parking'])
   const SELECTION_TARGET_COMMANDS = new Set(['move', 'copy', 'vertex-edit', 'split', 'merge', 'corner-cut', 'lot-division-guide'])
   const DRAWING_SCALE_PRESETS = new Set([5, 10, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 1000])
@@ -118,12 +119,12 @@
     copy: { category: 'select', name: '複写', icon: 'i-copy', hint: '対象を選び、複写位置を指定' },
     delete: { category: 'select', name: '削除', icon: 'i-delete', hint: '削除する図形を選択' },
 
-    'lot-draw': { category: 'parcel', name: '区画', icon: 'i-parcel', template: 'controls-parcel', hint: '頂点クリック　ダブルクリック確定　右クリックで1点戻す' },
-    'road-draw': { category: 'road', name: '道路・水路', icon: 'i-road', template: 'controls-road', hint: '外周クリック　ダブルクリック確定' },
+    'lot-draw': { category: 'parcel', name: '区画', icon: 'i-parcel', template: 'controls-parcel', hint: '頂点クリック　画面の確定ボタン／ダブルクリック／Enterで確定　右クリックで1点戻す' },
+    'road-draw': { category: 'road', name: '道路・水路', icon: 'i-road', template: 'controls-road', hint: '外周クリック　画面の確定ボタン／ダブルクリック／Enterで確定' },
 
-    split: { category: 'process', name: '選択分割', icon: 'i-split', template: 'controls-process', hint: '区画・道路・水路を選び、分割線を左クリック。ダブルクリック/Enterで確定' },
-    'split-all': { category: 'process', name: '一括分割', icon: 'i-split-all', template: 'controls-process', hint: '対象種類を選び、横切る線を左クリック。ダブルクリック/Enterで確定' },
-    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '同じ種類で辺を共有する図形を2つ以上選び、Enterで確定。区画と隅切りは2つ選択' },
+    split: { category: 'process', name: '選択分割', icon: 'i-split', template: 'controls-process', hint: '区画・道路・水路を選び、分割線を左クリック。画面の確定ボタン／ダブルクリック／Enterで確定' },
+    'split-all': { category: 'process', name: '一括分割', icon: 'i-split-all', template: 'controls-process', hint: '対象種類を選び、横切る線を左クリック。画面の確定ボタン／ダブルクリック／Enterで確定' },
+    merge: { category: 'process', name: '合筆', icon: 'i-merge', template: 'controls-process', hint: '同じ種類で辺を共有する図形を2つ以上選び、画面の「合筆」ボタンまたはEnterで確定。区画と隅切りは2つ選択' },
     'corner-cut': { category: 'process', name: '隅切り', icon: 'i-corner', template: 'controls-process', hint: '区画の頂点を選択して確定' },
     'division-guide': { category: 'process', name: '均等ガイド', icon: 'i-guide', template: 'controls-process', hint: '任意の2点間を指定数で等分' },
     'lot-division-guide': { category: 'process', name: '区画等分線', icon: 'i-guide', template: 'controls-process', hint: '区画を選び、基準方向を2点で指定' },
@@ -1152,10 +1153,10 @@
     if (command === 'callout') return { small: points === 0 ? '先端' : points === 1 ? '文字位置' : '確定', strong: `${Math.min(points + 1, 2)}/2` }
     if (['distance', 'arrow'].includes(command)) return { small: points === 0 ? '始点' : '終点', strong: points === 0 ? '1/2' : '2/2' }
     if (command === 'line') return { small: '作図点', strong: String(points) }
-    if (command === 'split') return { small: targets ? (points < 2 ? '分割線' : 'Enterで確定') : '区画選択', strong: targets ? `${points}点` : '1/2' }
-    if (command === 'split-all') return { small: points < 2 ? '分割線' : 'Enterで確定', strong: `${points}点` }
+    if (command === 'split') return { small: targets ? (points < 2 ? '分割線' : '確定できます') : '区画選択', strong: targets ? `${points}点` : '1/2' }
+    if (command === 'split-all') return { small: points < 2 ? '分割線' : '確定できます', strong: `${points}点` }
     if (command === 'merge') return targets >= 2
-      ? { small: 'Enterで確定', strong: `${targets}件` }
+      ? { small: '確定できます', strong: `${targets}件` }
       : { small: targets ? '2つ目の図形' : '1つ目の図形', strong: `${targets}/2` }
     if (command === 'corner-cut') {
       if (!targets) return { small: '区画選択', strong: '1/3' }
@@ -1709,6 +1710,7 @@
       addDynamicCommandControls(session.command)
       configureCreateCommandPages(session.command)
     } else makeInstructionControls(meta)
+    appendManualFinishControls(session.command)
 
     $$('[data-for-command]', dom.commandControls).forEach(element => {
       const required = String(element.dataset.forCommand || '').split(',').map(value => value.trim()).filter(Boolean).map(value => UI_COMMAND_ALIASES[value] || value)
@@ -1810,6 +1812,57 @@
     return false
   }
 
+  function finishButtonLabel(command = session.command) {
+    if (command === 'lot-draw') return '区画を確定'
+    if (command === 'road-draw') return '道路・水路を確定'
+    if (command === 'polyline') return '折れ線を確定'
+    if (command === 'area') return '面積を確定'
+    if (command === 'line') return '線を確定'
+    if (command === 'split') return '分割を確定'
+    if (command === 'split-all') return '一括分割を確定'
+    if (command === 'merge') return session.targetIds.length >= 2 ? `${session.targetIds.length}件を合筆` : '合筆を確定'
+    return '確定'
+  }
+
+  function finishCommandHint(command = session.command) {
+    if (canFinishCommand()) {
+      const alternatives = DOUBLE_CLICK_FINISH_COMMANDS.has(command)
+        ? 'Enterキーまたはダブルクリック'
+        : 'Enterキー'
+      return `「${finishButtonLabel(command)}」ボタン、${alternatives}で確定します`
+    }
+    if (command === 'lot-draw' || command === 'road-draw' || command === 'area') return '3点以上を指定すると確定できます'
+    if (command === 'polyline' || command === 'line') return '2点以上を指定すると確定できます'
+    if (command === 'split') return session.targetIds.length ? '分割線を2点以上指定してください' : '分割する図形を選択してください'
+    if (command === 'split-all') return '分割線を2点以上指定してください'
+    if (command === 'merge') return '同じ種類で辺を共有する図形を2件以上選択してください'
+    return '必要な点または対象を指定してください'
+  }
+
+  function appendManualFinishControls(command) {
+    if (!MANUAL_FINISH_COMMANDS.has(command)) return
+    const existingCancel = $('[data-action="cancel-command"]', dom.commandControls)
+    const existingStrip = existingCancel?.closest('.action-strip')
+    existingCancel?.remove()
+    if (existingStrip && !existingStrip.children.length) existingStrip.remove()
+
+    const strip = document.createElement('div')
+    strip.className = 'control-group action-strip manual-finish-strip'
+    const finish = document.createElement('button')
+    finish.className = 'ctrl-btn primary'
+    finish.type = 'button'
+    finish.dataset.action = 'finish-command'
+    const cancel = existingCancel || document.createElement('button')
+    cancel.className = 'ctrl-btn'
+    cancel.type = 'button'
+    cancel.dataset.action = 'cancel-command'
+    const hint = document.createElement('span')
+    hint.className = 'control-label manual-finish-hint'
+    hint.dataset.output = 'finish-hint'
+    strip.append(finish, cancel, hint)
+    dom.commandControls.append(strip)
+  }
+
   function legacyApproxIsActive(scope = 'global') {
     const part = scope === 'part'
     return part
@@ -1872,6 +1925,15 @@
     })
     const hasPendingOperation = count > 0 || session.targetIds.length > 0 || session.vertexIndex != null
     $$('[data-action="cancel-command"]', dom.commandControls).forEach(button => { button.textContent = hasPendingOperation ? '作図取消' : '選択へ戻る' })
+    $$('[data-action="finish-command"]', dom.commandControls).forEach(button => {
+      const ready = canFinishCommand()
+      const label = finishButtonLabel()
+      button.textContent = label
+      button.disabled = !ready
+      button.title = ready ? `${label}します（Enterキーでも確定できます）` : finishCommandHint()
+      button.setAttribute('aria-label', button.title)
+    })
+    setOutput('finish-hint', finishCommandHint())
     $$('[data-action="apply-legacy-approx"]', dom.commandControls).forEach(button => {
       const active = legacyApproxIsActive(button.dataset.approxScope === 'part' ? 'part' : 'global')
       button.classList.toggle('active', active)
@@ -2020,10 +2082,10 @@
 
   function processStatusText() {
     const command = session.command
-    if (command === 'merge') return session.targetIds.length >= 2 ? `${session.targetIds.length}件選択・Enterで確定` : session.targetIds.length ? '2つ目の図形を選択' : '1つ目の図形を選択'
+    if (command === 'merge') return session.targetIds.length >= 2 ? `${session.targetIds.length}件選択・確定できます` : session.targetIds.length ? '2つ目の図形を選択' : '1つ目の図形を選択'
     if (command === 'corner-cut') return !store.document.calibration.mpp ? '先に縮尺を設定' : !session.targetIds.length ? '区画を選択' : session.vertexIndex == null ? '頂点を選択' : '確定できます'
-    if (command === 'split') return !session.targetIds.length ? '区画・道路・水路を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
-    if (command === 'split-all') return session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・Enterで確定`
+    if (command === 'split') return !session.targetIds.length ? '区画・道路・水路を選択' : session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・確定できます`
+    if (command === 'split-all') return session.points.length < 2 ? `分割線 ${session.points.length}/2` : `折れ線 ${session.points.length}点・確定できます`
     if (command === 'division-guide') return session.points.length ? '終点を指定すると作成' : '始点を指定'
     if (command === 'lot-division-guide') return !session.targetIds.length ? '区画を選択' : session.points.length < 2 ? `基準方向 ${session.points.length}/2（2点目で自動作成）` : '自動作成します'
     if (command === 'edge-hide') return '寸法を切り替える辺を選択'
@@ -5634,6 +5696,7 @@
   async function handleAction(action, source) {
     switch (action) {
       case 'show-category-launcher': showLauncher(source?.closest('[data-category]')?.dataset.category || ui.category); break
+      case 'finish-command': finishCommand(); break
       case 'cancel-command':
         if (!session.points.length && !session.targetIds.length && session.vertexIndex == null) {
           activateCommand('select', { focusCanvas: false })

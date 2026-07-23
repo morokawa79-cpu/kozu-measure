@@ -1596,18 +1596,39 @@ async function rendererSuite() {
     }
   })
 
-  await run('app-variable-point-commands-use-enter-or-double-click-without-finish-button', () => {
+  await run('app-manual-finish-commands-show-a-disabled-then-enabled-visible-button', () => {
     if (!api?.activateCommand || !api?.renderCommandSurface) return { pass: false, details: 'command UI API unavailable' }
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    const lot = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }])
     api.store.replace(doc, { clean: true })
     const inspect = () => {
       const finish = document.querySelector('#command-controls [data-action="finish-command"]')
       const pop = document.querySelector('#command-controls [data-action="pop-point"]')
-      return { finishHidden: !finish || finish.hidden, finishDisabled: !finish || finish.disabled, popHidden: !pop || pop.hidden }
+      const cancel = document.querySelector('#command-controls .manual-finish-strip [data-action="cancel-command"]')
+      const hint = document.querySelector('#command-controls [data-output="finish-hint"]')
+      return {
+        finishPresent: Boolean(finish),
+        finishHidden: !finish || finish.hidden,
+        finishDisabled: !finish || finish.disabled,
+        finishText: finish?.textContent?.trim() || '',
+        finishTitle: finish?.title || '',
+        cancelPresent: Boolean(cancel),
+        hint: hint?.textContent?.trim() || '',
+        popHidden: !pop || pop.hidden
+      }
     }
     const rows = []
-    for (const definition of [{ command: 'parcel', minimum: 3 }, { command: 'line', minimum: 2 }, { command: 'polyline', minimum: 2 }]) {
+    for (const definition of [
+      { command: 'parcel', minimum: 3, label: '区画を確定' },
+      { command: 'road', minimum: 3, label: '道路・水路を確定' },
+      { command: 'line', minimum: 2, label: '線を確定' },
+      { command: 'polyline', minimum: 2, label: '折れ線を確定' },
+      { command: 'area', minimum: 3, label: '面積を確定' },
+      { command: 'split', minimum: 2, label: '分割を確定', target: lot.id },
+      { command: 'split-all', minimum: 2, label: '一括分割を確定' }
+    ]) {
       api.activateCommand(definition.command, { focusCanvas: false })
+      if (definition.target) api.session.targetIds = [definition.target]
       const states = [inspect()]
       for (let count = 1; count <= definition.minimum; count += 1) {
         api.session.points = Array.from({ length: count }, (_, index) => ({ x: 20 + index * 30, y: 20 + (index % 2) * 25 }))
@@ -1617,10 +1638,62 @@ async function rendererSuite() {
       }
       rows.push({ ...definition, states })
     }
+    api.activateCommand('merge', { focusCanvas: false })
+    const mergeInitial = inspect()
+    api.session.targetIds = [lot.id, 'second-lot']; api.renderCommandSurface()
+    const mergeReady = inspect()
     return {
-      pass: rows.every(row => row.states.every(state => state.finishHidden && state.finishDisabled) && row.states[0].popHidden) &&
-        rows.filter(row => row.command !== 'line').every(row => row.states[1]?.popHidden === false),
-      details: rows
+      pass: rows.every(row =>
+        row.states.every(state => state.finishPresent && !state.finishHidden && state.cancelPresent) &&
+        row.states.slice(0, row.minimum).every(state => state.finishDisabled) &&
+        row.states[row.minimum].finishDisabled === false &&
+        row.states[row.minimum].finishText === row.label &&
+        row.states[row.minimum].finishTitle.includes('Enterキー')
+      ) &&
+        mergeInitial.finishPresent && mergeInitial.finishDisabled && mergeReady.finishDisabled === false &&
+        mergeReady.finishText === '2件を合筆' && mergeReady.hint.includes('Enterキー'),
+      details: { rows, mergeInitial, mergeReady }
+    }
+  })
+
+  await run('app-manual-finish-button-commits-merge-and-split-while-enter-still-commits', async () => {
+    if (!api?.activateCommand || !api?.renderCommandSurface) return { pass: false, details: 'command UI API unavailable' }
+
+    const mergeDoc = K.createDocument(); mergeDoc.calibration.mpp = 0.1; mergeDoc.calibration.mapScale = 500
+    const left = K.addShape(mergeDoc, 'lot', [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }, { x: 0, y: 50 }])
+    const right = K.addShape(mergeDoc, 'lot', [{ x: 50, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 50, y: 50 }])
+    api.store.replace(mergeDoc, { clean: true })
+    api.activateCommand('merge', { focusCanvas: false })
+    api.session.targetIds = [left.id, right.id]
+    api.renderCommandSurface()
+    const mergeButton = document.querySelector('#command-controls [data-action="finish-command"]')
+    mergeButton?.click(); await sleep(35)
+    const mergedLots = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot')
+
+    const splitDoc = K.createDocument(); splitDoc.calibration.mpp = 0.1; splitDoc.calibration.mapScale = 500
+    const target = K.addShape(splitDoc, 'lot', [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }])
+    api.store.replace(splitDoc, { clean: true })
+    api.activateCommand('split', { focusCanvas: false })
+    api.session.targetIds = [target.id]
+    api.session.points = [{ x: 50, y: -20 }, { x: 50, y: 120 }]
+    api.session.step = 2
+    api.renderCommandSurface()
+    const splitButton = document.querySelector('#command-controls [data-action="finish-command"]')
+    splitButton?.click(); await sleep(35)
+    const splitLots = pageOf(api.store.document).shapes.filter(shape => shape.kind === 'lot')
+
+    const enterDoc = K.createDocument(); enterDoc.calibration.mpp = 0.1; enterDoc.calibration.mapScale = 500
+    api.store.replace(enterDoc, { clean: true })
+    api.activateCommand('line', { focusCanvas: false })
+    api.session.points = [{ x: 10, y: 10 }, { x: 80, y: 50 }]
+    api.session.step = 2
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' }))
+    await sleep(35)
+    const enteredLines = pageOf(api.store.document).entities.filter(entity => entity.kind === 'line')
+
+    return {
+      pass: Boolean(mergeButton) && mergedLots.length === 1 && Boolean(splitButton) && splitLots.length === 2 && enteredLines.length === 1,
+      details: { mergeButton: Boolean(mergeButton), mergedLots: mergedLots.length, splitButton: Boolean(splitButton), splitLots: splitLots.length, enteredLines: enteredLines.length }
     }
   })
 

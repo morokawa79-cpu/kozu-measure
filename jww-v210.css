@@ -778,6 +778,19 @@ textarea:focus-visible {
   gap: 3px;
 }
 
+.manual-finish-strip {
+  order: 1000;
+  padding-right: 7px;
+  background: #e9edf1;
+}
+
+.manual-finish-hint {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .process-guide { gap: 3px; }
 .process-guide .control-label { color: #66717c; font-size: 9px; }
 
