@@ -614,12 +614,32 @@
     setTimeout(focusInput, 30)
   }
 
-  function captureLotTableRows(documentModel = store.document) {
+  function lotShapes(documentModel = store.document) {
+    return (page(documentModel)?.shapes || []).filter(shape => shape.kind === 'lot')
+  }
+
+  function normalizeLotTableIds(value, documentModel = store.document, options = {}) {
+    const available = lotShapes(documentModel).map(shape => String(shape.id))
+    if (!Array.isArray(value)) return options.defaultAll === false ? [] : available
+    const valid = new Set(available)
+    return [...new Set(value.filter(id => id != null).map(String))].filter(id => valid.has(id))
+  }
+
+  function initialLotTableIds(documentModel = store.document) {
+    const registryLots = normalizeLotTableIds([...ui.registryIds], documentModel, { defaultAll: false })
+    return registryLots.length ? registryLots : normalizeLotTableIds(null, documentModel)
+  }
+
+  function captureLotTableRows(documentModel = store.document, lotIds = null) {
     const active = page(documentModel)
     const mpp = Math.max(0, finite(documentModel.calibration?.mpp))
-    return (active?.shapes || []).filter(shape => shape.kind === 'lot' && shape.visible !== false).map(shape => {
+    const included = Array.isArray(lotIds) ? new Set(normalizeLotTableIds(lotIds, documentModel)) : null
+    return (active?.shapes || []).filter(shape =>
+      shape.kind === 'lot' && shape.visible !== false && (!included || included.has(String(shape.id)))
+    ).map(shape => {
       const area = Number.isFinite(Number(shape.area)) ? Number(shape.area) : (mpp > 0 ? K.polygonArea(shape.points) * mpp * mpp : null)
       return {
+        lotId: String(shape.id),
         number: shape.number ?? '', label: shape.label || '',
         area, tsubo: area == null ? null : area / K.TSUBO_M2,
         price: shape.price ?? null, memo: shape.memo || ''
@@ -953,7 +973,8 @@
       case 'lot-table': return {
         'table-title': '区画一覧', 'table-show-price': true,
         'font-family': fontToken(text.fontFamily), 'text-size': fontScale(text, TEXT_BASE_SIZE),
-        'table-line-width': 0.75, 'table-scale': 1, 'table-angle': 0, 'table-mode': 'dynamic'
+        'table-line-width': 0.75, 'table-scale': 1, 'table-angle': 0, 'table-mode': 'dynamic',
+        'table-lot-ids': initialLotTableIds(documentModel)
       }
       case 'display-settings': {
         const lots = (page(documentModel)?.shapes || []).filter(shape => shape.kind === 'lot')
@@ -1246,6 +1267,9 @@
         $$('.stamp-metric-only, .stamp-dimension-only', dom.commandControls).forEach(element => { element.hidden = true })
       }
     }
+    if (command === 'lot-table') {
+      dom.commandControls.insertAdjacentHTML('beforeend', lotTableLotPickerMarkup())
+    }
   }
 
   function configureCreateCommandPages(command) {
@@ -1384,8 +1408,23 @@
     dom.commandControls.insertAdjacentHTML('beforeend', `<div class="text-value-row text-value-content-row">${targetControl}${content}</div><div class="text-value-row text-value-style-row"><span class="control-section-title">書式・位置</span>${style}</div>`)
   }
 
-  function lotTableControlsMarkup() {
-    return `<label class="field-inline"><span>題名</span><input class="ctrl-input wide" data-field="table-title" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="check-control"><input data-field="table-show-price" type="checkbox">価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25"></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label>`
+  function escapeMarkup(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+  }
+
+  function lotTableLotPickerMarkup() {
+    const lots = lotShapes()
+    const selected = new Set(normalizeLotTableIds(session.form['table-lot-ids']))
+    const choices = lots.map((shape, index) => {
+      const id = String(shape.id)
+      const name = [shape.number ?? index + 1, shape.label || ''].filter(value => String(value).trim()).join(' ')
+      return `<label class="lot-table-lot-choice" title="区画 ${escapeMarkup(name)}"><input type="checkbox" data-lot-table-id="${escapeMarkup(id)}" ${selected.has(id) ? 'checked' : ''}><span>${escapeMarkup(name || id)}</span></label>`
+    }).join('')
+    return `<div class="control-group lot-table-lot-picker" role="group" aria-label="面積表に含める区画"><strong>対象区画</strong><div class="lot-table-lot-choices">${choices || '<span class="control-label">区画なし</span>'}</div><output>${selected.size}/${lots.length}</output></div>`
+  }
+
+  function lotTableControlsMarkup({ includeLots = true } = {}) {
+    return `<label class="field-inline"><span>題名</span><input class="ctrl-input wide" data-field="table-title" type="text"></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="table-scale" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="check-control"><input data-field="table-show-price" type="checkbox">価格列</label><label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>文字倍率</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>罫線</span><input class="ctrl-input number-small" data-field="table-line-width" type="number" min="0.5" max="5" step="0.25"></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="table-angle" type="number" step="1"><em>°</em></label><label class="field-inline"><span>更新</span><select class="ctrl-select" data-field="table-mode"><option value="dynamic">区画変更に追従</option><option value="snapshot">現在値で固定</option></select></label>${includeLots ? lotTableLotPickerMarkup() : ''}`
   }
 
   function appendGuideEditControls(object, { batch = false } = {}) {
@@ -1468,7 +1507,7 @@
         const metricControls = kind === 'north' ? '' : '<label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label>'
         dom.commandControls.insertAdjacentHTML('beforeend', `${metricControls}<label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label>${kind === 'north' ? '' : '<label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法表示</label>'}`)
       } else if (kind === 'lot-table') {
-        dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup())
+        dom.commandControls.insertAdjacentHTML('beforeend', lotTableControlsMarkup({ includeLots: false }))
       } else if (hasLineStyle) {
         appendGuideEditControls(object, { batch: true })
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>線種</span><select class="ctrl-select compact-select" data-field="object-line-style"><option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option></select></label><label class="field-inline"><span>太さ</span><input class="ctrl-input number-small" data-field="object-line-width" type="number" min="0.5" max="10" step="0.5"></label>${colorSelectMarkup('object-line-color', '線色', 'line')}`)
@@ -2203,11 +2242,13 @@
     if (command === 'lot-table') {
       const textScale = K.clamp(finite(session.form['text-size'], 1), 0.3, 5)
       const fontSize = TEXT_BASE_SIZE * textScale
+      const lotIds = normalizeLotTableIds(session.form['table-lot-ids'])
       return {
       id: '__preview__', kind: 'lot-table', position, title: String(session.form['table-title'] || '区画一覧'), scale: finite(session.form['table-scale'], 1),
       rotation: finite(session.form['table-angle']), style: { ...style, fontFamily: fontToken(session.form['font-family']), fontSize, size: fontSize, lineWidth: K.clamp(finite(session.form['table-line-width'], 0.75), 0.5, 5) }, showPrice: Boolean(session.form['table-show-price']),
       dynamic: session.form['table-mode'] !== 'snapshot', snapshot: session.form['table-mode'] === 'snapshot',
-      rows: session.form['table-mode'] === 'snapshot' ? captureLotTableRows() : [],
+      lotIds,
+      rows: session.form['table-mode'] === 'snapshot' ? captureLotTableRows(store.document, lotIds) : [],
       options: { scale: finite(session.form['table-scale'], 1), mode: session.form['table-mode'] || 'dynamic' }
     }
     }
@@ -2608,6 +2649,7 @@
       'table-scale': finite(object.scale ?? object.options?.scale, 1),
       'table-angle': finite(object.rotation ?? object.angle),
       'table-mode': object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot' ? 'snapshot' : 'dynamic',
+      'table-lot-ids': normalizeLotTableIds(object.lotIds, store.document),
       'edge-visible': edge?.hidden !== true && !legacyEdgeHidden,
       'edge-custom-text': edge?.customText ?? '',
       'edge-rotation-offset': finite(edge?.rotationOffset),
@@ -2894,7 +2936,8 @@
         }
         object.dynamic = nextMode === 'dynamic'
         object.snapshot = nextMode === 'snapshot'
-        if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows()
+        object.lotIds = normalizeLotTableIds(session.form['table-lot-ids'])
+        if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows(store.document, object.lotIds)
         object.options = { ...(object.options || {}), scale: object.scale, mode: nextMode }
       }
     }
@@ -3122,7 +3165,7 @@
           if (touched('stamp-line-width')) object.style = { ...(object.style || {}), lineWidth: K.clamp(finite(session.form['stamp-line-width'], object.style?.lineWidth || 1.4), 0.5, 10) }
           if (touched('textColor')) object.textStyle = { ...(object.textStyle || {}), color: session.form.textColor || '#172033' }
         }
-        if (object.kind === 'lot-table' && anyTouched('table-title', 'table-show-price', 'font-family', 'text-size', 'table-line-width', 'table-scale', 'table-angle', 'table-mode')) {
+        if (object.kind === 'lot-table' && anyTouched('table-title', 'table-show-price', 'font-family', 'text-size', 'table-line-width', 'table-scale', 'table-angle', 'table-mode', 'table-lot-ids')) {
           const wasSnapshot = object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot'
           if (touched('table-title')) object.title = String(session.form['table-title'] || '').trim() || false
           if (touched('table-show-price')) object.showPrice = Boolean(session.form['table-show-price'])
@@ -3135,12 +3178,16 @@
           if (touched('table-line-width')) object.style.lineWidth = K.clamp(finite(session.form['table-line-width'], object.style.lineWidth || 0.75), 0.5, 5)
           if (touched('table-scale')) object.scale = K.clamp(finite(session.form['table-scale'], 1), 0.3, 5)
           if (touched('table-angle')) object.rotation = object.angle = finite(session.form['table-angle'])
+          if (touched('table-lot-ids')) object.lotIds = normalizeLotTableIds(session.form['table-lot-ids'])
           if (touched('table-mode')) {
             const nextMode = session.form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
             object.dynamic = nextMode === 'dynamic'
             object.snapshot = nextMode === 'snapshot'
-            if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows()
+            if (nextMode === 'snapshot' && (!wasSnapshot || !Array.isArray(object.rows) || !object.rows.length)) object.rows = captureLotTableRows(store.document, object.lotIds)
             object.options = { ...(object.options || {}), mode: nextMode }
+          }
+          if (touched('table-lot-ids') && (object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot')) {
+            object.rows = captureLotTableRows(store.document, object.lotIds)
           }
           object.options = { ...(object.options || {}), scale: finite(object.scale, 1) }
         }
@@ -3783,11 +3830,13 @@
             const tableMode = form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
             const textScale = K.clamp(finite(form['text-size'], 1), 0.3, 5)
             const fontSize = TEXT_BASE_SIZE * textScale
+            const lotIds = normalizeLotTableIds(form['table-lot-ids'], documentModel)
             K.addEntity(documentModel, 'lot-table', {
               position, title: String(form['table-title'] || '').trim() || false, scale: finite(form['table-scale'], 1), rotation: finite(form['table-angle']),
               showPrice: Boolean(form['table-show-price']), style: { color: '#253858', fontFamily: fontToken(form['font-family']), scale: textScale, size: fontSize, fontSize, lineWidth: K.clamp(finite(form['table-line-width'], 0.75), 0.5, 5) },
               dynamic: tableMode === 'dynamic', snapshot: tableMode === 'snapshot',
-              rows: tableMode === 'snapshot' ? captureLotTableRows(documentModel) : [],
+              lotIds,
+              rows: tableMode === 'snapshot' ? captureLotTableRows(documentModel, lotIds) : [],
               options: { scale: finite(form['table-scale'], 1), mode: tableMode }
             })
           }
@@ -4711,9 +4760,15 @@
         : '作業ファイルを開きました', loaded.warnings?.length ? 5200 : 2600)
       return true
     } catch (error) {
-      setStatus(error?.message || '作業ファイルを開けませんでした', 3200)
+      setStatus(projectOpenErrorMessage(error), 4200)
       return false
     }
+  }
+
+  function projectOpenErrorMessage(error) {
+    return error?.name === 'ProjectValidationError'
+      ? 'このファイルは現在のバージョンでは読み込めない形式です。元のファイルと現在の作業内容は変更されていません。'
+      : '作業ファイルを読み込めませんでした。元のファイルと現在の作業内容は変更されていません。'
   }
 
   async function openProjectFromDialog() {
@@ -4732,7 +4787,7 @@
       const file = { name: result.fileName || 'kozu-project.kozu.json', text: async () => result.contents }
       return openProjectFile(file, { skipConfirm: true, projectPath: result.path })
     } catch (error) {
-      setStatus(error?.message || '作業ファイルを開けませんでした', 3200)
+      setStatus(projectOpenErrorMessage(error), 4200)
       return false
     }
   }
@@ -6428,6 +6483,24 @@
     if (dimensionTarget) { selectDimensionTarget(dimensionTarget.value); return }
     const field = event.target.closest('#command-controls [data-field]')
     if (field) { handleCommandFieldInput(field, true); return }
+    const lotTableChoice = event.target.closest('#command-controls [data-lot-table-id]')
+    if (lotTableChoice) {
+      const id = String(lotTableChoice.dataset.lotTableId || '')
+      const selected = new Set(normalizeLotTableIds(session.form['table-lot-ids']))
+      if (lotTableChoice.checked) selected.add(id)
+      else selected.delete(id)
+      session.form['table-lot-ids'] = normalizeLotTableIds([...selected])
+      if (ui.editDraft || ui.batchDrafts.length) {
+        ui.batchTouched.add('table-lot-ids')
+        if (ui.batchDrafts.length) applyBatchFormToDrafts()
+        else applyBatchFormToDrafts([ui.editDraft])
+        commitPendingEdit()
+      }
+      renderCommandSurface()
+      render()
+      setStatus(`面積表の対象区画を${session.form['table-lot-ids'].length}件にしました`, 1400)
+      return
+    }
     if (event.target.matches('#registry-search,#registry-filter')) { ui.registryIds.clear(); renderRegistry({ preserveScroll: false }); return }
     if (event.target.matches('#registry-sort')) { renderRegistry({ preserveScroll: false }); return }
     const registrySelect = event.target.closest('[data-registry-select]')

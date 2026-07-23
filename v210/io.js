@@ -994,6 +994,12 @@
         if (entity.position !== undefined) validatePoint(entity.position, `${entityPath}.position`, errors);
         if (entity.tip !== undefined) validatePoint(entity.tip, `${entityPath}.tip`, errors);
         if (entity.labelPosition !== null && entity.labelPosition !== undefined) validatePoint(entity.labelPosition, `${entityPath}.labelPosition`, errors);
+        if (entity.kind === 'lot-table' && entity.lotIds !== undefined) {
+          if (!Array.isArray(entity.lotIds)) errors.push(`${entityPath}.lotIds: 配列ではありません`);
+          else entity.lotIds.forEach((id, idIndex) => {
+            if (!safeIdentifier(id)) errors.push(`${entityPath}.lotIds[${idIndex}]: IDが不正です`);
+          });
+        }
         validateStyleObject(entity.style, `${entityPath}.style`, errors);
         if (Array.isArray(entity.segments)) entity.segments.forEach((segment, segmentIndex) => {
           const segmentPath = `${entityPath}.segments[${segmentIndex}]`;

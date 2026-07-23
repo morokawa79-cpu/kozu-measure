@@ -791,6 +791,42 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+.lot-table-lot-picker {
+  max-width: 440px;
+  background: #eef5fc;
+}
+
+.lot-table-lot-picker > strong,
+.lot-table-lot-picker > output {
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.lot-table-lot-choices {
+  min-width: 0;
+  max-width: 330px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.lot-table-lot-choice {
+  height: 23px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 1px solid #aeb9c4;
+  background: #fff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.lot-table-lot-choice input { margin: 0; }
+
 .process-guide { gap: 3px; }
 .process-guide .control-label { color: #66717c; font-size: 9px; }
 

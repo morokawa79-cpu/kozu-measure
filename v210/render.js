@@ -1734,9 +1734,14 @@
     }
 
     _drawLotTableEntity(context, entity, documentModel, pageModel, state) {
-      const liveLots = (Array.isArray(pageModel?.shapes) ? pageModel.shapes : []).filter((shape) => shape?.kind === 'lot' && shape.visible !== false);
+      const selectedLotIds = Array.isArray(entity.lotIds) ? new Set(entity.lotIds.map(String)) : null;
+      const liveLots = (Array.isArray(pageModel?.shapes) ? pageModel.shapes : []).filter((shape) =>
+        shape?.kind === 'lot' && shape.visible !== false && (!selectedLotIds || selectedLotIds.has(String(shape.id)))
+      );
       const fixed = entity.dynamic === false || entity.snapshot === true || entity.options?.mode === 'snapshot';
-      const snapshotRows = Array.isArray(entity.rows) ? entity.rows : [];
+      const snapshotRows = (Array.isArray(entity.rows) ? entity.rows : []).filter((row) =>
+        !selectedLotIds || row?.lotId == null || selectedLotIds.has(String(row.lotId))
+      );
       const lots = fixed ? snapshotRows : liveLots;
       const anchor = this._entityAnchor(entity);
       const zoom = this._renderView.zoom;

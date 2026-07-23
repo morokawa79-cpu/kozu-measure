@@ -325,13 +325,17 @@ async function runElectronSuite() {
         { openedPage, createChoice, road, state })
     })
 
-    await runCase(win, 'deprecated-confirm-and-apply-buttons-are-absent', async () => {
+    await runCase(win, 'deprecated-apply-buttons-are-absent-and-manual-finish-is-disabled-until-ready', async () => {
       await activateByShortcut(win, 'P', 'lot-draw', 'parcel')
-      const deprecated = await win.webContents.executeJavaScript(`(()=>{
-        const actions=['apply-manual-scale','save-edit','cancel-edit','finish-command','apply-edit','confirm-command','save-attributes'];
-        return actions.map(action=>({action,count:document.querySelectorAll('[data-action="'+action+'"]').length})).filter(item=>item.count>0);
+      const result = await win.webContents.executeJavaScript(`(()=>{
+        const actions=['apply-manual-scale','save-edit','cancel-edit','apply-edit','confirm-command','save-attributes'];
+        const deprecated=actions.map(action=>({action,count:document.querySelectorAll('[data-action="'+action+'"]').length})).filter(item=>item.count>0);
+        const finish=document.querySelector('[data-action="finish-command"]');
+        return {deprecated,finish:{present:Boolean(finish),disabled:Boolean(finish?.disabled),text:finish?.textContent?.trim()||''}};
       })()`, true)
-      add('deprecated-confirm-and-apply-buttons-are-absent', deprecated.length === 0, { deprecated })
+      add('deprecated-apply-buttons-are-absent-and-manual-finish-is-disabled-until-ready',
+        result.deprecated.length === 0 && result.finish.present && result.finish.disabled && result.finish.text === '区画を確定',
+        result)
     })
 
     await runCase(win, 'blank-canvas-click-clears-selection-without-history', async () => {

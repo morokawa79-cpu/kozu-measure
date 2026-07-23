@@ -1313,7 +1313,7 @@
       'vertical', 'visible', 'closed', 'doubleHead', 'showDimensions', 'showDims',
       'showPrice', 'approximate', 'yaku', 'dynamic', 'snapshot'
     ]
-    const structuredFields = ['dimensionStyle', 'textStyle', 'dimensions', 'columns', 'rows', 'anchor', 'segmentLabels', 'segmentLabelPositions', 'measurementVisibility']
+    const structuredFields = ['dimensionStyle', 'textStyle', 'dimensions', 'columns', 'rows', 'lotIds', 'anchor', 'segmentLabels', 'segmentLabelPositions', 'measurementVisibility']
     numericFields.forEach(key => { if (Number.isFinite(Number(attributes[key]))) entity[key] = Number(attributes[key]) })
     stringFields.forEach(key => {
       if (typeof attributes[key] !== 'string') return
@@ -1472,6 +1472,11 @@
         claimUniqueId(entity, entity.kind || 'entity')
         ;(entity.segments || []).forEach(segment => claimUniqueId(segment, 'segment'))
       })
+      const lotIds = new Set(pageValue.shapes.filter(shape => shape.kind === 'lot').map(shape => String(shape.id)))
+      pageValue.entities.forEach(entity => {
+        if (entity.kind !== 'lot-table' || !Array.isArray(entity.lotIds)) return
+        entity.lotIds = [...new Set(entity.lotIds.map(String))].filter(id => lotIds.has(id))
+      })
     })
     fresh.activePageId = requestedActivePage?.id || fresh.pages[0].id
     // document.calibration is the live value for activePageId. Synchronizing it
@@ -1512,6 +1517,12 @@
       const beforeEntities = pageValue.entities.length
       pageValue.shapes = pageValue.shapes.filter(value => !idSet.has(value.id))
       pageValue.entities = pageValue.entities.filter(value => !idSet.has(value.id))
+      const lotIds = new Set(pageValue.shapes.filter(value => value.kind === 'lot').map(value => String(value.id)))
+      pageValue.entities.forEach(entity => {
+        if (entity.kind === 'lot-table' && Array.isArray(entity.lotIds)) {
+          entity.lotIds = [...new Set(entity.lotIds.map(String))].filter(id => lotIds.has(id))
+        }
+      })
       removed += beforeShapes - pageValue.shapes.length + beforeEntities - pageValue.entities.length
     })
     return removed

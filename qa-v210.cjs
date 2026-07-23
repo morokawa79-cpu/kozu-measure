@@ -4289,6 +4289,122 @@ async function rendererSuite() {
     }
   })
 
+  await run('lot-table-lot-id-selection-survives-rerender-selection-view-tools-edit-save-geometry-and-delete', async () => {
+    const doc = K.createDocument(); doc.calibration.mpp = 0.1; doc.calibration.mapScale = 500
+    const lotA = K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 80 }, { x: 0, y: 80 }], { label: 'A' })
+    const lotB = K.addShape(doc, 'lot', [{ x: 100, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 80 }, { x: 100, y: 80 }], { label: 'B' })
+    const lotC = K.addShape(doc, 'lot', [{ x: 200, y: 0 }, { x: 280, y: 0 }, { x: 280, y: 80 }, { x: 200, y: 80 }], { label: 'EXCLUDED_C' })
+    lotC.visibility = { ...(lotC.visibility || {}), label: false, topLabel: false, number: false, area: false, tsubo: false, price: false, memo: false, dimensions: false }
+    api.store.replace(doc, { clean: true })
+
+    api.activateCommand('lot-table', { focusCanvas: false })
+    const initialChoices = [...document.querySelectorAll('[data-lot-table-id]')]
+    const excludedChoice = initialChoices.find(input => input.dataset.lotTableId === lotC.id)
+    if (excludedChoice) {
+      excludedChoice.checked = false
+      excludedChoice.dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(25)
+    }
+    const selectedBeforePlacement = [...api.session.form['table-lot-ids']]
+    api.renderCommandSurface(); await sleep(20)
+    const afterRerenderChecks = [...document.querySelectorAll('[data-lot-table-id]:checked')].map(input => input.dataset.lotTableId)
+    api.runtime.pointerWorld = { x: 320, y: 20 }
+    const created = api.finishCommand()
+    let table = pageOf(api.store.document).entities.find(entity => entity.kind === 'lot-table')
+    const expected = [lotA.id, lotB.id]
+    const idsEqual = value => JSON.stringify(value) === JSON.stringify(expected)
+    const afterPlacement = table?.lotIds ? [...table.lotIds] : null
+
+    api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(lotC.id, { openEditor: true })
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterCanvasSelection = [...table.lotIds]
+
+    Object.assign(api.runtime.view, { x: 127, y: -43, zoom: 1.85 })
+    api.render(); api.renderCommandSurface(); await sleep(20)
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterViewChange = [...table.lotIds]
+
+    api.activateCommand('line', { focusCanvas: false })
+    api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(table.id, { openEditor: true })
+    api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    const afterToolSwitchChecks = [...document.querySelectorAll('[data-lot-table-id]:checked')].map(input => input.dataset.lotTableId)
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterToolSwitch = [...table.lotIds]
+
+    api.store.commit('rename selected lot', model => { K.objectById(model, lotA.id).object.label = 'A-renamed' })
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterRename = [...table.lotIds]
+
+    const serialized = IO.serializeProject(api.store.document, { name: 'lot-table-selection' })
+    const restored = IO.deserializeProject(serialized)
+    api.store.replace(restored.document, { clean: true })
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterReload = [...table.lotIds]
+
+    let splitIds = []
+    api.store.commit('split unrelated lot', model => {
+      const result = K.splitShapeByPolyline(model, lotC.id, [{ x: 240, y: -20 }, { x: 240, y: 100 }])
+      splitIds = Array.isArray(result) ? result.map(shape => shape.id) : []
+    })
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterSplit = [...table.lotIds]
+    api.store.commit('merge unrelated lot pieces', model => { if (splitIds.length === 2) K.mergeShapeGroup(model, splitIds) })
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterMerge = [...table.lotIds]
+
+    const renderCanvas = document.createElement('canvas')
+    const renderContext = renderCanvas.getContext('2d')
+    const renderedTexts = []
+    const originalFillText = renderContext.fillText.bind(renderContext)
+    renderContext.fillText = (value, ...args) => { renderedTexts.push(String(value)); return originalFillText(value, ...args) }
+    const selectionRenderer = new K.Renderer(renderCanvas)
+    selectionRenderer.resize(1000, 600, 1)
+    selectionRenderer.render(api.store.document, { x: 20, y: 20, zoom: 1 }, {}, { recordLabels: true })
+
+    api.store.commit('delete selected lot', model => K.removeObjects(model, [lotA.id]))
+    table = K.objectById(api.store.document, table.id)?.object
+    const afterDelete = [...table.lotIds]
+    api.activateCommand('select', { focusCanvas: false })
+    api.selectObject(table.id, { openEditor: true })
+    api.ui.contextPage = 'object-special'; api.renderCommandSurface(); await sleep(20)
+    const finalChecked = [...document.querySelectorAll('[data-lot-table-id]:checked')].map(input => input.dataset.lotTableId)
+
+    return {
+      pass: initialChoices.length === 3 && Boolean(excludedChoice) && created &&
+        idsEqual(selectedBeforePlacement) && idsEqual(afterRerenderChecks) && idsEqual(afterPlacement) &&
+        idsEqual(afterCanvasSelection) && idsEqual(afterViewChange) && idsEqual(afterToolSwitchChecks) &&
+        idsEqual(afterToolSwitch) && idsEqual(afterRename) && idsEqual(afterReload) &&
+        idsEqual(afterSplit) && idsEqual(afterMerge) && splitIds.length === 2 &&
+        renderedTexts.includes('A-renamed') && renderedTexts.includes('B') && !renderedTexts.includes('EXCLUDED_C') &&
+        JSON.stringify(afterDelete) === JSON.stringify([lotB.id]) && JSON.stringify(finalChecked) === JSON.stringify([lotB.id]),
+      details: {
+        initialChoices: initialChoices.length, selectedBeforePlacement, afterRerenderChecks, afterPlacement,
+        afterCanvasSelection, afterViewChange, afterToolSwitchChecks, afterToolSwitch, afterRename,
+        afterReload, afterSplit, afterMerge, splitIds, renderedTexts, afterDelete, finalChecked
+      }
+    }
+  })
+
+  await run('app-invalid-old-project-load-is-read-only-and-shows-safe-guidance', async () => {
+    const doc = K.createDocument()
+    K.addShape(doc, 'lot', [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }], { label: '作業中' })
+    api.store.replace(doc, { clean: true })
+    const before = JSON.stringify(api.store.document)
+    const originalContents = '{"version":2,"unsupported":"unchanged"}'
+    const file = { name: 'old-unsupported.json', text: async () => originalContents }
+    const opened = await api.importProject(file, { skipConfirm: true })
+    const after = JSON.stringify(api.store.document)
+    const message = document.querySelector('#status-message')?.textContent?.trim() || ''
+    return {
+      pass: opened === false && before === after && originalContents === '{"version":2,"unsupported":"unchanged"}' &&
+        message.includes('読み込めない形式') && message.includes('元のファイル') && message.includes('変更されていません') &&
+        !message.includes('unsupported'),
+      details: { opened, documentUnchanged: before === after, sourceUnchanged: originalContents, message }
+    }
+  })
+
   await run('stamp-and-arrow-creation-settings-remain-editable-and-roundtrip', async () => {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1; api.store.replace(doc, { clean: true })
     api.activateCommand('house', { focusCanvas: false }); Object.assign(api.session.form, { 'stamp-label': '母屋', 'stamp-font': 'even', 'stamp-text-scale': 1.4, 'stamp-line-width': 3, 'stamp-hatch': true, 'stamp-hatch-spacing': 13, 'stamp-hatch-angle': 30 }); api.runtime.pointerWorld = { x: 100, y: 100 }
