@@ -232,7 +232,8 @@
             <div class="registry-controls">
               <label class="workspace-field search-field"><span>検索</span><input id="registry-search" type="search" placeholder="番号・名称・メモを検索"></label>
               <details id="registry-options">
-                <summary>絞り込み・集計 <span id="registry-filter-state"></span></summary>
+                <summary>絞り込み・表示列・集計 <span id="registry-filter-state"></span></summary>
+              <fieldset class="registry-column-options"><legend>表示列（名称・面積は常に表示）</legend><label><input type="checkbox" data-registry-column="tsubo" checked>坪</label><label><input type="checkbox" data-registry-column="price" checked>価格</label><label><input type="checkbox" data-registry-column="memo" checked>備考</label></fieldset>
             <div id="registry-area-summary" class="registry-area-summary" aria-label="区画・道路・水路の面積集計">
               <button type="button" class="active" data-registry-area-filter="all" aria-pressed="true"><strong>合計 <span data-registry-total-count="all">0</span>件</strong><span data-registry-total-area="all">0.00㎡</span><small data-registry-total-tsubo="all">0.00坪</small></button>
               <button type="button" data-registry-area-filter="lot" aria-pressed="false"><strong>区画 <span data-registry-total-count="lot">0</span>件</strong><span data-registry-total-area="lot">0.00㎡</span><small data-registry-total-tsubo="lot">0.00坪</small></button>

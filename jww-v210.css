@@ -2776,3 +2776,17 @@ kbd {
 
   .text-editor-content-info { margin-left: 53px; }
 }
+/* 編集対象と表示値の由来を、入力中も見える位置に置く。 */
+.text-role-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; }
+.text-role-buttons strong { margin-right: 6px; font-size: 12px; }
+.text-role-buttons .text-role-button[aria-pressed="true"] { color: #fff; background: #185d9d; border-color: #124a80; }
+.text-role-buttons .text-role-button { min-height: 30px; }
+.value-source-state { color: #245d47; font-size: 12px; line-height: 1.6; font-style: normal; white-space: normal; }
+.value-source-state.is-manual { color: #87510d; }
+.table-source-state { flex-basis: 100%; margin: 2px 0; color: #43566a; font-size: 12px; }
+.orphan-row { color: #87510d; }
+.registry-column-options { display: flex; flex-wrap: wrap; gap: 10px; border: 0; padding: 4px 0; margin: 0; grid-column: 1 / -1; }
+.registry-column-options legend { color: #53606c; font-size: 12px; }
+.registry-column-options label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.registry-dock .registry-column-options input { width: 16px; min-height: 16px; height: 16px; padding: 0; }
+.registry-dock #registry-table td.column-hidden { display: none !important; }

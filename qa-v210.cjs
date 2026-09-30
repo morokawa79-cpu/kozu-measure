@@ -324,7 +324,7 @@ async function runElectronSuite() {
     const report = {
       generatedAt: new Date().toISOString(),
       target: {
-        version: '2.1.0-alpha.12',
+        version: '2.1.0-alpha.13',
         entry: 'index-v210.html',
         installerBuilt: false
       },
@@ -481,7 +481,7 @@ function staticChecks(add) {
   ].sort()
   const allowedScripts = ['vendor/pdf.min.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js']
 
-  add('package-version-v210-alpha12', packageJson.version === '2.1.0-alpha.12', packageJson.version)
+  add('package-version-v210-alpha13', packageJson.version === '2.1.0-alpha.13', packageJson.version)
   add('package-main-v210-only', packageJson.main === 'main-v210.js', packageJson.main)
   add('main-loads-v210-entry', /loadFile\(['"]index-v210\.html['"]\)/.test(main) && !/loadFile\(['"]index\.html['"]\)/.test(main))
   add('main-title-uses-package-version', /const VERSION = app\.getVersion\(\)/.test(main) && /TITLE = `土地区画作成工房 v\$\{VERSION\}`/.test(main))
@@ -821,7 +821,7 @@ async function rendererSuite() {
   window.addEventListener('error', event => runtimeErrors.push(event.error?.stack || event.message))
   window.addEventListener('unhandledrejection', event => runtimeErrors.push(event.reason?.stack || String(event.reason)))
 
-  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.12', document.title)
+  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.13', document.title)
   add('core-api-loaded', Boolean(K?.createDocument && K?.DocumentStore && K?.CommandSession && K?.Renderer), Object.keys(K || {}))
   add('io-api-loaded', Boolean(IO?.serializeProject && IO?.deserializeProject && IO?.migrateLegacyV3 && IO?.loadUnderlayFile), Object.keys(IO || {}))
   add('application-debug-api-loaded', Boolean(api?.store && api?.session && api?.runtime && api?.renderer && api?.activateCommand && api?.setWorkspace), api ? Object.keys(api) : null)
@@ -1863,8 +1863,8 @@ async function rendererSuite() {
     const waterSelectedApproxButton = readApproxButton()
     const waterSelectedTextPage = await clickObjectPage('object-text')
     const waterSelectedText = readFields(['font-family', 'text-size'])
-    const textRole = document.querySelector('#command-controls [data-text-role]')
-    if (textRole) { textRole.value = 'width'; textRole.dispatchEvent(new Event('change', { bubbles: true })); await sleep(25) }
+    const textRole = document.querySelector('#command-controls [data-text-role="width"]')
+    if (textRole) { textRole.click(); await sleep(25) }
     const waterSelectedWidthText = readFields(['road-width-font', 'road-width-size'])
 
     const restoredDocument = IO.deserializeProject(IO.serializeProject(api.store.document)).document
@@ -3334,7 +3334,7 @@ async function rendererSuite() {
       object.visibility?.number === true && object.visibility.label === true && object.visibility.area === true && object.visibility.tsubo === true && object.visibility.dimensions === true &&
       object.areaLabel?.visible === true && object.areaLabel.text === '123.45㎡' && near(object.areaLabel.style?.fontSize, 15) && object.areaLabel.style?.color === '#b4232d' && object.areaLabel.style?.vertical === false &&
       object.tsuboLabel?.visible === true && !String(object.tsuboLabel.text || '').trim() && near(object.tsuboLabel.style?.fontSize, 13.2) && object.tsuboLabel.style?.color === '#1d4ed8' && object.tsuboLabel.style?.vertical === true &&
-      near(object.labelStyle?.fontSize, 22.4) && object.labelStyle?.fontFamily === 'mincho' && object.labelStyle?.color === '#08735c' && object.labelStyle?.vertical === true && near(object.labelStyle?.rotation, 15) &&
+      near(object.labelStyle?.fontSize, 22.4) && object.labelStyle?.fontFamily === 'mincho' && object.labelStyle?.attributeColors?.name === '#08735c' && object.labelStyle?.vertical === true && near(object.labelStyle?.rotation, 15) &&
       object.dimensionStyle?.visible === true && object.dimensionStyle.approximate === true && object.dimensionStyle.decimals === 1 && object.dimensionStyle.rounding === 'floor' && near(object.dimensionStyle.adjustment, -0.1) && near(object.dimensionStyle.fontSize, 14) && near(object.dimensionStyle.offset, 18) && object.dimensionStyle.color === '#7c3aed'
     const autoSaved = editedValues(saved)
     const noDoubleRender = initialDuplicateLabels.length === 0 && draftDuplicateLabels.length === 0 && savedDuplicateLabels.length === 0
@@ -3476,10 +3476,9 @@ async function rendererSuite() {
     const normalizedAreaText = field?.value
     const manualState = document.querySelector('[data-metric-manual-state]')
     const tsuboAfterArea = K.objectById(api.store.document, lot.id)?.object?.tsuboLabel?.text ?? null
-    const roleSelector = document.querySelector('[data-text-role]')
+    const roleSelector = document.querySelector('[data-text-role="tsubo"]')
     if (roleSelector) {
-      roleSelector.value = 'tsubo'
-      roleSelector.dispatchEvent(new Event('change', { bubbles: true }))
+      roleSelector.click()
       await sleep(20)
     }
     const tsuboField = document.querySelector('[data-field="tsubo-label-text"]')

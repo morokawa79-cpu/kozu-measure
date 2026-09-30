@@ -214,6 +214,7 @@
     selectedIds: [],
     registryIds: new Set(),
     registryTab: 'lots',
+    registryHiddenColumns: new Set(),
     outputTab: 'paper',
     editDraft: null,
     editOriginal: null,
@@ -625,7 +626,25 @@
     const available = lotShapes(documentModel).map(shape => String(shape.id))
     if (!Array.isArray(value)) return options.defaultAll === false ? [] : available
     const valid = new Set(available)
+    for (const row of options.fixedRows || []) if (row.lotId != null) valid.add(String(row.lotId))
     return [...new Set(value.filter(id => id != null).map(String))].filter(id => valid.has(id))
+  }
+
+  function tableSelectionIds(value, object = ui.editDraft, documentModel = store.document) {
+    const fixed = object?.dynamic === false || object?.snapshot === true || object?.options?.mode === 'snapshot'
+    if (fixed && !Array.isArray(value)) value = [...lotShapes(documentModel).map(shape => shape.id), ...(object.rows || []).map(row => row.lotId)]
+    return normalizeLotTableIds(value, documentModel, { fixedRows: fixed ? object.rows : [] })
+  }
+
+  function applyTextDecoration(style, prefix, touched) {
+    // 混在した書式でも、操作した属性だけを変える。旧形式の装飾は先に解決する。
+    const legacy = String(style.boxStyle || '').toLowerCase()
+    const frame = style.frame === true || ['box', 'frame', 'border'].includes(legacy)
+    const underline = style.underline === true || legacy === 'underline'
+    style.frame = touched(`${prefix}-frame`) ? Boolean(session.form[`${prefix}-frame`]) : frame
+    style.underline = touched(`${prefix}-underline`) ? Boolean(session.form[`${prefix}-underline`]) : underline
+    style.boxStyle = style.frame ? 'box' : style.underline ? 'underline' : 'none'
+    style.background = 'transparent'
   }
 
   function initialLotTableIds(documentModel = store.document) {
@@ -1344,7 +1363,7 @@
       ? object.visibility?.label !== false
       : role === 'width'
         ? object.visibility?.width !== false
-        : metricLabelVisible(object, role)
+        : ['price', 'memo', 'topLabel'].includes(role) ? (role === 'topLabel' ? object.visibility?.topLabel !== false : object.visibility?.[role] === true) : metricLabelVisible(object, role)
     const values = objects.map(visible)
     return values.every(Boolean) ? '' : values.some(Boolean) ? '（一部非表示）' : '（非表示）'
   }
@@ -1377,15 +1396,66 @@
       Math.abs(finite(style.adjustment)) > 0.000001 || style.approximate === true
   }
 
+  function syncValueSourceStates() {
+    const objects = ui.batchDrafts.length ? ui.batchDrafts : ui.editDraft ? [ui.editDraft] : []
+    if (!objects.length) return
+    const mpp = Math.max(0, finite(store.document.calibration?.mpp))
+    const keys = ['area-label-text', 'tsubo-label-text', 'road-width-text', 'edge-custom-text', 'segment-custom-text']
+    if (['distance', 'polyline', 'dimension'].includes(objects[0].kind)) keys.push('object-label')
+    for (const key of keys) {
+      const field = $(`[data-field="${key}"]`, dom.commandControls)
+      if (!field) continue
+      let state = field.parentElement.querySelector('[data-value-source]') || field.parentElement.querySelector('[data-metric-manual-state]')
+      if (!state) { state = document.createElement('output'); field.parentElement.append(state) }
+      state.dataset.valueSource = key
+      const mixed = ui.mixedFields.has(key)
+      const manual = Boolean(String(session.form[key] ?? '').trim())
+      state.hidden = false
+      state.className = `value-source-state ${manual || mixed ? 'is-manual' : ''}`
+      let calculation = ''
+      if (key === 'area-label-text' || key === 'tsubo-label-text') calculation = automaticMetricSummary(objects, key.startsWith('tsubo') ? 'tsubo' : 'area')
+      else {
+        const values = objects.map(object => {
+          if (key === 'road-width-text') return finite(object.road?.widthM ?? object.road?.width)
+          if (!(mpp > 0)) return null
+          if (key === 'object-label') return K.entityMetrics(object, mpp).meters
+          const index = key === 'edge-custom-text' ? ui.editEdgeIndex : ui.editSegmentIndex
+          const part = key === 'edge-custom-text' ? object.edges?.[index] : object.segments?.[index]
+          const from = part?.from || object.points?.[index]
+          const to = part?.to || object.points?.[(index + 1) % (object.points?.length || 1)]
+          return K.isPoint(from) && K.isPoint(to) ? K.distance(from, to) * mpp : null
+        })
+        calculation = values.some(value => !Number.isFinite(value)) ? '計算値：縮尺未設定' :
+          values.some(value => Math.abs(value - values[0]) > 0.000001) ? '計算値：複数の値' : `計算値（補正前）：${values[0].toFixed(2)}m`
+      }
+      state.textContent = `${mixed ? '複数の表示設定' : manual ? '手入力表示' : '自動表示'} ｜ ${calculation}`
+    }
+  }
+
+  function editHistoryLabel(batch = false) {
+    const names = {
+      'object-label': '文字・名称', 'lot-price': '価格', 'object-memo': '備考', 'lot-top-label': '上部表示',
+      'lot-number': '区画番号', 'font-family': '書体', 'text-size': '文字サイズ', 'text-angle': '文字角度',
+      'text-frame': '文字の枠', 'text-underline': '下線', 'text-vertical': '縦書き',
+      textColor: '文字色', dimensionColor: '文字色', 'table-title': '表の題名',
+      'table-lot-ids': '表の対象区画', 'table-mode': '表の更新方法', 'table-scale': '表の倍率',
+      'dimension-size': '文字サイズ', 'area-label-text': '面積の表示文字', 'tsubo-label-text': '坪の表示文字',
+      'road-width-text': '幅員の表示文字', 'edge-custom-text': '辺寸法の表示文字', 'segment-custom-text': '区間寸法の表示文字',
+    }
+    const labels = [...new Set([...ui.batchTouched].map(key => names[key] || (key.endsWith('-color') ? '色' : '設定')))]
+    return `${labels.length === 1 ? labels[0] : '複数項目'}の${batch ? '一括' : ''}変更`
+  }
+
   function appendTextRoleControls(object, objects = [object]) {
     if (!['lot', 'road', 'water'].includes(object.kind)) return
     const targets = objects.length ? objects : [object]
     const roles = [['name', object.kind === 'lot' ? '区画名・番号' : object.kind === 'water' ? '水路名' : '道路名']]
     if (object.kind === 'road' || object.kind === 'water') roles.push(['width', object.kind === 'water' ? '水路幅' : '幅員'])
+    if (object.kind === 'lot') roles.push(['price', '価格'], ['memo', '備考'], ['topLabel', '上部表示'])
     roles.push(['area', '面積'], ['tsubo', '坪'])
     if (!roles.some(([value]) => value === ui.textRole)) ui.textRole = 'name'
-    const options = roles.map(([value, label]) => `<option value="${value}" ${value === ui.textRole ? 'selected' : ''}>${label}${textRoleVisibility(targets, value)}</option>`).join('')
-    const targetControl = `<label class="field-inline"><span>編集対象</span><select class="ctrl-select text-role-select" data-text-role>${options}</select></label>`
+    const options = roles.map(([value, label]) => `<button type="button" class="ctrl-btn text-role-button" data-text-role="${value}" aria-pressed="${value === ui.textRole}">${label}${textRoleVisibility(targets, value)}</button>`).join('')
+    const targetControl = `<div class="text-role-buttons" role="group" aria-label="文字の編集対象"><strong>編集対象</strong>${options}</div>`
     let content = ''
     let style = ''
     dom.commandControls.replaceChildren()
@@ -1395,6 +1465,10 @@
         ? '<span class="control-label text-value-note">名称・番号は各図形で個別に編集します。書式はまとめて変更できます。</span>'
         : `${object.kind === 'lot' ? '<label class="field-inline"><span>番号</span><input class="ctrl-input number-small" data-field="lot-number" type="number" min="1" step="1"></label>' : ''}<label class="field-inline text-name-field"><span>${object.kind === 'lot' ? '区画名' : label}</span><textarea class="ctrl-input" data-field="object-label" rows="2" spellcheck="false"></textarea></label>`
       style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="text-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('textColor', '文字色', 'ink')}<label class="check-control"><input data-field="text-frame" type="checkbox">枠</label><label class="check-control"><input data-field="text-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="name">${label}を自動位置へ戻す</button>`
+    } else if (['price', 'memo', 'topLabel'].includes(ui.textRole)) {
+      const [label, field] = { price: ['価格', 'lot-price'], memo: ['備考', 'object-memo'], topLabel: ['上部表示', 'lot-top-label'] }[ui.textRole]
+      content = targets.length > 1 ? '<span class="control-label">内容は各図形で個別に編集します。</span>' : `<label class="field-inline"><span>${label}</span><input class="ctrl-input wide" data-field="${field}" type="text"></label>`
+      style = colorSelectMarkup(`${ui.textRole}-text-color`, `${label}の文字色`, 'ink')
     } else if (ui.textRole === 'width') {
       const widthName = object.kind === 'water' ? '水路幅' : '幅員'
       const widths = targets.map(value => finite(value.road?.widthM ?? value.road?.width)).filter(Number.isFinite)
@@ -1407,11 +1481,11 @@
       // 面積・坪は図面内の主要数値であり、回転・縦書き・枠・下線や
       // 個別の丸め補正を並べるより「表示値・書体・大きさ・色・位置」へ
       // 絞る。旧版の詳細書式が残る場合だけ標準化ボタンを表示する。
-      content = `<span class="control-label text-value-note">${automaticMetricSummary(targets, ui.textRole)}</span><label class="field-inline value-text-field"><span>手入力値</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄＝自動"><em class="field-warning" data-metric-manual-state hidden>手入力中</em></label>`
+      content = `<label class="field-inline value-text-field"><span>手入力値</span><input class="ctrl-input wide" data-field="${prefix}-text" type="text" placeholder="空欄＝自動"><em class="field-warning" data-metric-manual-state hidden>手入力中</em></label>`
       style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup(`${prefix}-color`, '文字色', 'ink')}<button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="${ui.textRole}">${label}を自動位置へ戻す</button><button class="ctrl-btn metric-standard-reset" type="button" data-action="reset-metric-hidden-style" data-metric-role="${ui.textRole}" hidden>標準表示へ戻す</button>`
     }
-    dom.commandControls.insertAdjacentHTML('beforeend', `<div class="text-value-row text-value-content-row">${targetControl}${content}</div><div class="text-value-row text-value-style-row"><span class="control-section-title">書式・位置</span>${style}</div>`)
-    if (ui.textRole !== 'name') {
+    dom.commandControls.insertAdjacentHTML('beforeend', `${targetControl}<div class="text-value-row text-value-content-row">${content}</div><div class="text-value-row text-value-style-row"><span class="control-section-title">書式・位置</span>${style}</div>`)
+    if (['width', 'area', 'tsubo'].includes(ui.textRole)) {
       $('.text-value-content-row', dom.commandControls)?.insertAdjacentHTML('beforeend', '<button class="ctrl-btn" type="button" data-action="reset-text-role-value">自動表示に戻す</button>')
     }
   }
@@ -1422,13 +1496,20 @@
 
   function lotTableLotPickerMarkup() {
     const lots = lotShapes()
-    const selected = new Set(normalizeLotTableIds(session.form['table-lot-ids']))
+    const selected = new Set(tableSelectionIds(session.form['table-lot-ids']))
     const choices = lots.map((shape, index) => {
       const id = String(shape.id)
       const name = [shape.number ?? index + 1, shape.label || ''].filter(value => String(value).trim()).join(' ')
       return `<label class="lot-table-lot-choice" title="区画 ${escapeMarkup(name)}"><input type="checkbox" data-lot-table-id="${escapeMarkup(id)}" ${selected.has(id) ? 'checked' : ''}><span>${escapeMarkup(name || id)}</span></label>`
     }).join('')
-    return `<div class="control-group lot-table-lot-picker" role="group" aria-label="面積表に含める区画"><strong>対象区画</strong><div class="lot-table-lot-choices">${choices || '<span class="control-label">区画なし</span>'}</div><output>${selected.size}/${lots.length}</output></div>`
+    const available = new Set(lots.map(shape => String(shape.id)))
+    const orphans = (ui.editDraft?.rows || []).filter(row => row.lotId != null && !available.has(String(row.lotId)))
+    const orphanChoices = session.form['table-mode'] === 'snapshot' ? orphans.map(row => {
+      const id = String(row.lotId)
+      return `<label class="lot-table-lot-choice orphan-row"><input type="checkbox" data-lot-table-id="${escapeMarkup(id)}" ${selected.has(id) ? 'checked' : ''}><span>${escapeMarkup(row.label || `区画 ${row.number ?? ''}`)}（元の区画は削除済み）</span></label>`
+    }).join('') : ''
+    const state = session.form['table-mode'] === 'snapshot' ? `現在値で固定：区画の変更には追従しません。${orphans.length ? ` 元の区画が削除された${orphans.length}行も保持しています。` : ''}` : '自動更新：区画の変更に追従します。'
+    return `<p class="table-source-state" data-table-source-state>${state}</p><div class="control-group lot-table-lot-picker" role="group" aria-label="面積表に含める区画"><strong>対象区画</strong><div class="lot-table-lot-choices">${choices}${orphanChoices}${!choices && !orphanChoices ? '<span class="control-label">区画なし</span>' : ''}</div><output>${selected.size}件選択</output></div>`
   }
 
   function lotTableControlsMarkup({ includeLots = true } = {}) {
@@ -1668,6 +1749,9 @@
       }
     }
     if (ui.contextPage === 'object-text' && isShape) appendTextRoleControls(object)
+    if (ui.contextPage === 'object-text' && ['distance', 'polyline', 'dimension'].includes(object.kind)) {
+      dom.commandControls.insertAdjacentHTML('afterbegin', '<div class="text-value-row"><label class="field-inline"><span>表示文字</span><input class="ctrl-input wide" data-field="object-label" type="text" placeholder="空欄で自動寸法"></label></div>')
+    }
     if (ui.contextPage === 'object-special') {
       if (object.kind === 'house' || object.kind === 'parking') {
         dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>種類</span><select class="ctrl-select compact-select" data-field="stamp-kind"><option value="house">家屋</option><option value="parking">駐車場</option></select></label><label class="field-inline"><span>幅</span><input class="ctrl-input number-small" data-field="stamp-width" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>奥行</span><input class="ctrl-input number-small" data-field="stamp-depth" type="number" min="0.1" step="0.1"><em>m</em></label><label class="field-inline"><span>全体倍率</span><input class="ctrl-input number-small" data-field="stamp-scale" type="number" min="0.2" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="stamp-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="stamp-dimensions" type="checkbox">寸法表示</label>`)
@@ -1786,7 +1870,7 @@
       const required = String(element.dataset.forCommand || '').split(',').map(value => value.trim()).filter(Boolean).map(value => UI_COMMAND_ALIASES[value] || value)
       element.hidden = !required.includes(session.command)
     })
-    const textEditing = Boolean($('.text-editor, .text-value-row, .dimension-editor-row, textarea[data-field="note-text"]:not([hidden])', dom.commandControls)) && session.command !== 'line'
+    const textEditing = Boolean($('.text-editor, .text-value-row, .dimension-editor-row, .lot-table-lot-picker, textarea[data-field="note-text"]:not([hidden])', dom.commandControls)) && session.command !== 'line'
     dom.controlBar?.classList.toggle('text-editing-active', textEditing)
     if (textEditing && ui.selectedIds.length && session.command === 'select' && !$('[data-edit-context]', dom.commandControls)) {
       dom.commandControls.insertAdjacentHTML('afterbegin', '<div class="edit-context-banner" data-edit-context></div>')
@@ -1891,8 +1975,18 @@
 
   function syncRail() {
     $$('[data-category]', byId('category-rail')).forEach(button => button.classList.toggle('active', button.dataset.category === ui.category))
-    $$('[data-action="undo"]').forEach(button => { button.disabled = !store.canUndo })
-    $$('[data-action="redo"]').forEach(button => { button.disabled = !store.canRedo })
+    for (const [action, stack, available, verb, key] of [['undo', store.undoStack, store.canUndo, '戻す', 'Ctrl+Z'], ['redo', store.redoStack, store.canRedo, 'やり直す', 'Ctrl+Y']]) {
+      const label = stack.at(-1)?.label
+      const text = available && label ? `${label}を${verb}` : action === 'undo' ? '元に戻す' : 'やり直す'
+      $$(`[data-action="${action}"]`).forEach(button => {
+        button.disabled = !available
+        button.title = `${text} (${key})`
+        button.setAttribute('aria-label', text)
+        const caption = $('.tool-label', button)
+        if (caption) caption.textContent = action === 'undo' ? '戻る' : '進む'
+        else if (button.firstChild?.nodeType === Node.TEXT_NODE) button.firstChild.textContent = `${text} `
+      })
+    }
   }
 
   function canFinishCommand() {
@@ -2169,14 +2263,7 @@
       })
     }
     $$('[data-action="paste"]', dom.commandActions).forEach(button => { button.disabled = ui.clipboard.length === 0 })
-    const manualMetricState = $('[data-metric-manual-state]', dom.commandControls)
-    if (manualMetricState) {
-      const prefix = ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'
-      const manualText = String(session.form[`${prefix}-text`] ?? '').trim()
-      manualMetricState.hidden = !manualText
-      manualMetricState.textContent = '手入力表示'
-      manualMetricState.classList.remove('error')
-    }
+    syncValueSourceStates()
     syncColorSelects()
     const context = $('[data-edit-context]', dom.commandControls)
     if (context) {
@@ -2500,6 +2587,7 @@
       : null
     return {
       selectedIds: ui.selectedIds.length ? ui.selectedIds : session.targetIds,
+      textRole: command === 'select' && ui.contextPage === 'object-text' ? ui.textRole : null,
       hoverId: runtime.hover?.id,
       command: command === 'vertex-edit' ? 'vertex' : command,
       mode: command === 'vertex-edit' ? 'vertex' : command,
@@ -2654,7 +2742,7 @@
     const partSizeStyle = ['scale', 'size', 'fontSize'].some(key => Number.isFinite(Number(partStyle[key]))) ? partStyle : (object.dimensionStyle || {})
     const textStyle = shape
       ? (object.labelStyle || {})
-      : { ...(object.style || {}), ...(measurement ? (object.dimensionStyle || {}) : {}), ...(object.textStyle || {}) }
+      : { ...(object.style || {}), ...(object.textStyle || {}), ...(measurement ? (object.dimensionStyle || {}) : {}) }
     const measurementVisibility = object.measurementVisibility || {}
     const areaLabel = object.areaLabel && typeof object.areaLabel === 'object' ? object.areaLabel : {}
     const tsuboLabel = object.tsuboLabel && typeof object.tsuboLabel === 'object' ? object.tsuboLabel : {}
@@ -2681,7 +2769,8 @@
       'text-size': fontScale(textStyle, shape ? LABEL_BASE_SIZE : TEXT_BASE_SIZE),
       'text-angle': finite(textStyle.rotation ?? textStyle.angle ?? object.rotation),
       'text-vertical': Boolean(textStyle.vertical ?? object.vertical ?? object.options?.vertical),
-      textColor: textStyle.color || '#172033',
+      textColor: textStyle.attributeColors?.name || textStyle.color || '#172033',
+      ...Object.fromEntries(['price', 'memo', 'topLabel'].map(role => [`${role}-text-color`, textStyle.attributeColors?.[role] || textStyle.color || '#172033'])),
       'text-background': textStyle.background || 'transparent',
       'text-frame': textStyle.frame === true || ['box', 'frame', 'border'].includes(String(textStyle.boxStyle || '').toLowerCase()),
       'text-underline': textStyle.underline === true || String(textStyle.boxStyle || '').toLowerCase() === 'underline',
@@ -2728,7 +2817,7 @@
       'table-scale': finite(object.scale ?? object.options?.scale, 1),
       'table-angle': finite(object.rotation ?? object.angle),
       'table-mode': object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot' ? 'snapshot' : 'dynamic',
-      'table-lot-ids': normalizeLotTableIds(object.lotIds, store.document),
+      'table-lot-ids': tableSelectionIds(object.lotIds, object),
       'edge-visible': edge?.hidden !== true && !legacyEdgeHidden,
       'edge-custom-text': edge?.customText ?? '',
       'edge-rotation-offset': finite(edge?.rotationOffset),
@@ -2870,7 +2959,8 @@
       object.labelStyle = {
         ...(object.labelStyle || {}), fontFamily: fontToken(session.form['font-family']),
         scale: finite(session.form['text-size'], 1), size: LABEL_BASE_SIZE * finite(session.form['text-size'], 1), fontSize: LABEL_BASE_SIZE * finite(session.form['text-size'], 1),
-        rotation: finite(session.form['text-angle']), angle: finite(session.form['text-angle']), vertical: Boolean(session.form['text-vertical']), color: session.form.textColor || '#172033',
+        rotation: finite(session.form['text-angle']), angle: finite(session.form['text-angle']), vertical: Boolean(session.form['text-vertical']),
+        attributeColors: { ...object.labelStyle?.attributeColors, name: session.form.textColor || '#172033', ...Object.fromEntries(['price', 'memo', 'topLabel'].map(role => [role, session.form[`${role}-text-color`] || object.labelStyle?.color || '#172033'])) },
         background: 'transparent', boxStyle: session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none'),
         frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline'])
       }
@@ -3066,10 +3156,7 @@
             if (touched(`${prefix}-vertical`)) label.style.vertical = Boolean(session.form[`${prefix}-vertical`])
             if (touched(`${prefix}-color`)) label.style.color = session.form[`${prefix}-color`] || '#172033'
             if (touched(`${prefix}-frame`) || touched(`${prefix}-underline`)) {
-              label.style.background = 'transparent'
-              label.style.boxStyle = session.form[`${prefix}-frame`] ? 'box' : (session.form[`${prefix}-underline`] ? 'underline' : 'none')
-              label.style.frame = Boolean(session.form[`${prefix}-frame`])
-              label.style.underline = Boolean(session.form[`${prefix}-underline`])
+              applyTextDecoration(label.style, prefix, touched)
             }
             if (touched(`${prefix}-decimals`)) label.style.decimals = label.style.digits = K.clamp(Math.round(finite(session.form[`${prefix}-decimals`], 2)), 0, 3)
             if (touched(`${prefix}-rounding`)) label.style.rounding = session.form[`${prefix}-rounding`] || 'round'
@@ -3081,6 +3168,9 @@
             else object.customTsuboLabel = label.text
           }
         }
+        for (const role of ['price', 'memo', 'topLabel']) {
+          if (touched(`${role}-text-color`)) object.labelStyle = { ...object.labelStyle, attributeColors: { ...object.labelStyle?.attributeColors, [role]: session.form[`${role}-text-color`] || '#172033' } }
+        }
         if (anyTouched('font-family', 'text-size', 'text-angle', 'text-vertical', 'textColor', 'text-frame', 'text-underline')) {
           const labelStyle = { ...(object.labelStyle || {}) }
           if (touched('font-family')) labelStyle.fontFamily = fontToken(session.form['font-family'])
@@ -3090,12 +3180,9 @@
           }
           if (touched('text-angle')) Object.assign(labelStyle, { rotation: finite(session.form['text-angle']), angle: finite(session.form['text-angle']) })
           if (touched('text-vertical')) labelStyle.vertical = Boolean(session.form['text-vertical'])
-          if (touched('textColor')) labelStyle.color = session.form.textColor || '#172033'
+          if (touched('textColor')) labelStyle.attributeColors = { ...labelStyle.attributeColors, name: session.form.textColor || '#172033' }
           if (touched('text-frame') || touched('text-underline')) {
-            labelStyle.background = 'transparent'
-            labelStyle.boxStyle = session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none')
-            labelStyle.frame = Boolean(session.form['text-frame'])
-            labelStyle.underline = Boolean(session.form['text-underline'])
+            applyTextDecoration(labelStyle, 'text', touched)
           }
           object.labelStyle = labelStyle
           if (object.kind === 'road' || object.kind === 'water') {
@@ -3147,10 +3234,7 @@
           if (touched('road-width-vertical')) object.road.widthLabelStyle.vertical = Boolean(session.form['road-width-vertical'])
           if (touched('road-width-color')) object.road.widthLabelStyle.color = session.form['road-width-color'] || '#475569'
           if (touched('road-width-frame') || touched('road-width-underline')) {
-            object.road.widthLabelStyle.background = 'transparent'
-            object.road.widthLabelStyle.boxStyle = session.form['road-width-frame'] ? 'box' : (session.form['road-width-underline'] ? 'underline' : 'none')
-            object.road.widthLabelStyle.frame = Boolean(session.form['road-width-frame'])
-            object.road.widthLabelStyle.underline = Boolean(session.form['road-width-underline'])
+            applyTextDecoration(object.road.widthLabelStyle, 'road-width', touched)
           }
         }
       } else {
@@ -3174,13 +3258,30 @@
           }
           if (touched('text-angle')) object.rotation = object.textStyle.rotation = object.textStyle.angle = finite(session.form['text-angle'])
           if (touched('text-vertical')) object.vertical = object.textStyle.vertical = Boolean(session.form['text-vertical'])
-          if (touched('textColor')) object.style.color = object.textStyle.color = session.form.textColor || '#172033'
-          if (touched('text-frame') || touched('text-underline')) {
-            const boxStyle = session.form['text-frame'] ? 'box' : (session.form['text-underline'] ? 'underline' : 'none')
-            Object.assign(object.style, { background: 'transparent', boxStyle, frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline']) })
-            Object.assign(object.textStyle, { background: 'transparent', boxStyle, frame: Boolean(session.form['text-frame']), underline: Boolean(session.form['text-underline']) })
+          if (touched('textColor')) {
+            object.textStyle.color = session.form.textColor || '#172033'
+            if (!measurement) object.style.color = object.textStyle.color
           }
-          if (measurement) object.dimensionStyle = { ...(object.dimensionStyle || {}), ...object.textStyle }
+          if (touched('text-frame') || touched('text-underline')) {
+            const decoration = { ...object.style, ...object.textStyle, ...(measurement ? object.dimensionStyle : {}) }
+            applyTextDecoration(decoration, 'text', touched)
+            for (const key of ['background', 'boxStyle', 'frame', 'underline']) {
+              object.style[key] = object.textStyle[key] = decoration[key]
+            }
+          }
+          if (measurement) {
+            const dimensionStyle = { ...(object.dimensionStyle || {}) }
+            const fields = {
+              'font-family': ['fontFamily'], 'text-size': ['scale', 'size', 'fontSize'],
+              'text-angle': ['rotation', 'angle'], 'text-vertical': ['vertical'], textColor: ['color'],
+              'text-frame': ['background', 'boxStyle', 'frame', 'underline'],
+              'text-underline': ['background', 'boxStyle', 'frame', 'underline']
+            }
+            for (const [field, keys] of Object.entries(fields)) if (touched(field)) {
+              for (const key of keys) dimensionStyle[key] = object.textStyle[key]
+            }
+            object.dimensionStyle = dimensionStyle
+          }
         }
         if (LINE_STYLE_KINDS.has(object.kind)) {
           object.style = { ...(object.style || {}) }
@@ -3257,7 +3358,7 @@
           if (touched('table-line-width')) object.style.lineWidth = K.clamp(finite(session.form['table-line-width'], object.style.lineWidth || 0.75), 0.5, 5)
           if (touched('table-scale')) object.scale = K.clamp(finite(session.form['table-scale'], 1), 0.3, 5)
           if (touched('table-angle')) object.rotation = object.angle = finite(session.form['table-angle'])
-          if (touched('table-lot-ids')) object.lotIds = normalizeLotTableIds(session.form['table-lot-ids'])
+          if (touched('table-lot-ids')) object.lotIds = tableSelectionIds(session.form['table-lot-ids'], object)
           if (touched('table-mode')) {
             const nextMode = session.form['table-mode'] === 'snapshot' ? 'snapshot' : 'dynamic'
             object.dynamic = nextMode === 'dynamic'
@@ -3266,7 +3367,10 @@
             object.options = { ...(object.options || {}), mode: nextMode }
           }
           if (touched('table-lot-ids') && (object.dynamic === false || object.snapshot === true || object.options?.mode === 'snapshot')) {
-            object.rows = captureLotTableRows(store.document, object.lotIds)
+            const fixedRows = new Map((object.rows || []).map(row => [String(row.lotId), row]))
+            const currentRows = new Map(captureLotTableRows(store.document, object.lotIds).map(row => [String(row.lotId), row]))
+            const unlinkedRows = (object.rows || []).filter(row => row.lotId == null)
+            object.rows = [...unlinkedRows, ...object.lotIds.map(id => fixedRows.get(String(id)) || currentRows.get(String(id))).filter(Boolean)]
           }
           object.options = { ...(object.options || {}), scale: finite(object.scale, 1) }
         }
@@ -3328,7 +3432,7 @@
       original: deepClone(ui.batchOriginals[index] || object),
       draft: deepClone(object)
     }]))
-    store.commit('一括書式編集', documentModel => {
+    store.commit(editHistoryLabel(true), documentModel => {
       for (const [id, change] of changes) {
         const found = K.objectById(documentModel, id)
         if (!found) continue
@@ -3355,7 +3459,7 @@
     const id = ui.selectedIds[0]
     const original = deepClone(ui.editOriginal || ui.editDraft)
     const draft = deepClone(ui.editDraft)
-    store.commit('図形編集', documentModel => {
+    store.commit(editHistoryLabel(), documentModel => {
       const found = K.objectById(documentModel, id)
       if (!found) return
       applyDraftDelta(found.object, original, draft)
@@ -3508,7 +3612,7 @@
         ui.textRole = labelHit.kind === 'shape-tsubo-label' ? 'tsubo' : 'area'
       }
       else if (labelHit?.kind === 'shape-road-width') { ui.contextPage = 'object-text'; ui.textRole = 'width' }
-      else if (labelHit?.kind === 'shape-road-name' || labelHit?.kind === 'shape-label') { ui.contextPage = 'object-text'; ui.textRole = 'name' }
+      else if (labelHit?.kind === 'shape-road-name' || labelHit?.kind === 'shape-label') { ui.contextPage = 'object-text'; ui.textRole = labelHit.textRole || 'name' }
       else ui.contextPage = 'object-basic'
       if (!keepGroup) selectObject(id, { openEditor: true, preserveSubselection: true })
       if (labelHit) {
@@ -4233,7 +4337,7 @@
       } else {
         if (ui.contextPage !== 'object-text') ui.textRole = 'name'
         ui.contextPage = 'object-text'
-        key = { width: 'road-width-text', area: 'area-label-text', tsubo: 'tsubo-label-text' }[ui.textRole] || key
+        key = { width: 'road-width-text', area: 'area-label-text', tsubo: 'tsubo-label-text', price: 'lot-price', memo: 'object-memo', topLabel: 'lot-top-label' }[ui.textRole] || key
       }
     } else if (['text', 'callout', 'arrow'].includes(object.kind)) ui.contextPage = 'object-basic'
     else return false
@@ -4960,6 +5064,7 @@
 
   function renderRegistry(options = {}) {
     if (!dom.registryRows) return
+    $$('[data-registry-column]').forEach(input => { input.checked = !ui.registryHiddenColumns.has(input.dataset.registryColumn) })
     const scrollContainer = dom.registryRows.closest('.registry-table-wrap')
     const preserveScroll = options.preserveScroll !== false
     const scrollPosition = scrollContainer
@@ -4983,6 +5088,7 @@
         if (price) price.textContent = Number.isFinite(object.price) ? `${object.price.toLocaleString('ja-JP')}万円` : '未入力'
         if (memo) { memo.textContent = object.memo || '未入力'; memo.title = object.memo || '' }
         row.classList.toggle('has-memo', Boolean(object.memo))
+        layoutRegistryColumns(row, object)
       }
     } else if (!objects.length) {
       const row = document.createElement('tr')
@@ -5156,6 +5262,7 @@
     visible.title = '図面への表示・非表示'
     visibleCell.append(visible); cells.push(visibleCell)
     row.append(...cells)
+    layoutRegistryColumns(row, object)
     return row
   }
 
@@ -5163,7 +5270,7 @@
     runtime.preserveRegistryInputs = true
     runtime.registryRowsPending = true
     try {
-      store.commit('台帳編集', documentModel => {
+      store.commit(`${{ price: '価格', memo: '備考', visible: '表示状態' }[field] || '台帳'}の変更`, documentModel => {
         const found = K.objectById(documentModel, id)
         if (!found) return
         if (field === 'price') found.object.price = parseNumeric(value, null)
@@ -5172,6 +5279,21 @@
       })
     } finally { runtime.preserveRegistryInputs = false }
     render()
+  }
+
+  function layoutRegistryColumns(row, object) {
+    const selected = ui.registryIds.has(object.id)
+    const hasArea = ['lot', 'road', 'water', 'cutout', 'area'].includes(object.kind)
+    const shown = key => !ui.registryHiddenColumns.has(key)
+    for (const key of ['tsubo', 'price', 'memo']) row.querySelector(`.col-${key}`)?.classList.toggle('column-hidden', !shown(key))
+    const areas = ['check kind number number visible visible', 'name name name name name name']
+    const metrics = hasArea ? ['area', ...(shown('tsubo') ? ['tsubo'] : [])] : []
+    if (!selected && object.kind === 'lot' && shown('price')) metrics.push('price')
+    if (metrics.length) areas.push(metrics.flatMap(key => Array(6 / metrics.length).fill(key)).join(' '))
+    if (selected && object.kind === 'lot' && shown('price')) areas.push('price price price price price price')
+    if (shown('memo') && (selected || object.memo)) areas.push('memo memo memo memo memo memo')
+    row.style.gridTemplateAreas = areas.map(value => `"${value}"`).join(' ')
+    row.style.gridTemplateRows = `22px ${areas.slice(1).map(() => 'auto').join(' ')}`
   }
 
   function focusRegistrySelection() {
@@ -5883,10 +6005,7 @@
     const cascade = (ui.clipboardPasteCount + 1) * 24 / runtime.view.zoom
     const created = []
     store.commit('貼り付け', documentModel => {
-      for (const source of ui.clipboard) {
-        const object = K.copyObjectToActivePage(documentModel, source, { x: cascade, y: cascade })
-        if (object) created.push(object.id)
-      }
+      created.push(...K.copyObjectsToActivePage(documentModel, ui.clipboard, { x: cascade, y: cascade }).map(object => object.id))
     })
     ui.clipboardPasteCount += 1
     if (session.command !== 'select') activateCommand('select', { focusCanvas: false })
@@ -6173,7 +6292,7 @@
         commitPendingEdit()
         let restored = null
         store.commit('隅切りを元へ戻す', documentModel => { restored = K.restoreCutout(documentModel, id) })
-        if (!restored) { setStatus('旧形式の隅切りです。区画との合筆を使用してください', 2200); break }
+        if (!restored) { setStatus('元の区画と隅切りが隣接しているか確認してください', 2200); break }
         ui.contextPage = 'object-basic'
         selectObject(restored.id, { openEditor: true })
         setStatus('隅切り前の区画へ戻しました', 1800)
@@ -6496,6 +6615,10 @@
       session.form['stamp-text-scale'] = session.form[key]
       if (editingObjects) ui.batchTouched.add('stamp-text-scale')
     }
+    if (['distance', 'polyline', 'area', 'dimension'].includes(editingKind)) {
+      if (key === 'dimension-size') session.form['text-size'] = DIMENSION_BASE_SIZE * finite(session.form[key], 1) / TEXT_BASE_SIZE
+      if (key === 'text-size') session.form['dimension-size'] = TEXT_BASE_SIZE * finite(session.form[key], 1) / DIMENSION_BASE_SIZE
+    }
     if (key === 'textColor' && ['distance', 'polyline', 'area', 'dimension'].includes(editingKind)) { session.form.dimensionColor = session.form[key]; if (editingObjects) ui.batchTouched.add('dimensionColor') }
     if (key === 'dimensionColor' && ['distance', 'polyline', 'area', 'dimension'].includes(editingKind)) { session.form.textColor = session.form[key]; if (editingObjects) ui.batchTouched.add('textColor') }
     if (key === 'road-type') {
@@ -6549,10 +6672,20 @@
       setStatus(ui.batchDrafts.length ? `${ui.selectedIds.length}件へ反映しました` : '変更しました', 1100)
     }
     syncControlState()
+    if (commit && key === 'table-mode') renderCommandSurface()
     render()
   }
 
   function handleDocumentClick(event) {
+    const roleButton = event.target.closest('#command-controls button[data-text-role]')
+    if (roleButton) {
+      commitPendingEdit()
+      ui.textRole = roleButton.dataset.textRole
+      renderCommandSurface()
+      render()
+      $(`[data-text-role="${ui.textRole}"]`, dom.commandControls)?.focus({ preventScroll: true })
+      return
+    }
     const colorSwatch = event.target.closest('[data-color-swatch]')
     if (colorSwatch) {
       event.preventDefault()
@@ -6722,8 +6855,14 @@
   }
 
   function handleDocumentChange(event) {
-    const textRole = event.target.closest('#command-controls [data-text-role]')
-    if (textRole) { commitPendingEdit(); ui.textRole = textRole.value || 'name'; renderCommandSurface(); render(); return }
+    const registryColumn = event.target.closest('[data-registry-column]')
+    if (registryColumn) {
+      const key = registryColumn.dataset.registryColumn
+      if (registryColumn.checked) ui.registryHiddenColumns.delete(key)
+      else ui.registryHiddenColumns.add(key)
+      renderRegistry()
+      return
+    }
     const dimensionTarget = event.target.closest('#command-controls [data-dimension-target]')
     if (dimensionTarget) { selectDimensionTarget(dimensionTarget.value); return }
     const field = event.target.closest('#command-controls [data-field]')
@@ -6731,10 +6870,10 @@
     const lotTableChoice = event.target.closest('#command-controls [data-lot-table-id]')
     if (lotTableChoice) {
       const id = String(lotTableChoice.dataset.lotTableId || '')
-      const selected = new Set(normalizeLotTableIds(session.form['table-lot-ids']))
+      const selected = new Set(tableSelectionIds(session.form['table-lot-ids']))
       if (lotTableChoice.checked) selected.add(id)
       else selected.delete(id)
-      session.form['table-lot-ids'] = normalizeLotTableIds([...selected])
+      session.form['table-lot-ids'] = tableSelectionIds([...selected])
       if (ui.editDraft || ui.batchDrafts.length) {
         ui.batchTouched.add('table-lot-ids')
         if (ui.batchDrafts.length) applyBatchFormToDrafts()

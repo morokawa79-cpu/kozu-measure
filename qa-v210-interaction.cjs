@@ -842,6 +842,13 @@ async function replaceTextInput(win, selector, value) {
 }
 
 async function chooseSelectOptionWithKeyboard(win, selector, wantedValue) {
+  if (selector === '[data-text-role]') {
+    const rect = await visibleRect(win, `[data-text-role="${wantedValue}"]`)
+    if (!rect) throw new Error('編集対象ボタンが見つかりません')
+    await mouseClick(win, center(rect))
+    await wait(win, 80)
+    return win.webContents.executeJavaScript('document.querySelector("[data-text-role][aria-pressed=true]")?.dataset.textRole', true)
+  }
   const options = await win.webContents.executeJavaScript(`(()=>{
     const select=document.querySelector(${JSON.stringify(selector)});
     return select?[...select.options].map(option=>String(option.value)):[];

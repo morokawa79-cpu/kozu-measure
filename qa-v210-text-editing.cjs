@@ -236,6 +236,45 @@ async function runSuite() {
       assert(after.objects.find(item => item.id === fixture.id)?.text === '変換中の日本語', '変換終了・blur後に本文が保存されません', after)
       return { mode: 'synthetic-composition-events; not an OS IME acceptance test', undoBefore: before.undoDepth, undoDuring: during.undoDepth, undoAfter: after.undoDepth }
     })
+    await run('lot-attribute-colors-stay-independent-and-survive-save', async () => {
+      const fixture = await prepareFixture(win, 'lot')
+      await evaluate(win, `(() => {const api=window.__KOZU_V210__,K=window.KozuV210;const doc=JSON.parse(JSON.stringify(api.store.document));const lot=K.activePage(doc).shapes[0];Object.assign(lot,{label:'',price:900,memo:'備考文',topLabel:'上部',area:989.75,areaLabel:{visible:true},tsuboLabel:{visible:true},labelStyle:{size:14,fontSize:14,color:'#b91c1c'},visibility:{number:true,label:true,price:true,memo:true,topLabel:true,area:true,tsubo:true,dimensions:false}});api.store.replace(doc,{clean:true});api.render();api.renderer.render();})()`)
+      await mouseClick(win, await labelPoint(win, fixture.id, 'shape-label'))
+      const paint = () => evaluate(win, `(() => {const api=window.__KOZU_V210__, rows=[], proto=CanvasRenderingContext2D.prototype, original=proto.fillText;proto.fillText=function(text,...args){rows.push({text:String(text),color:this.fillStyle});return original.call(this,text,...args)};try{api.renderer.render()}finally{proto.fillText=original}return rows})()`)
+      const original = await paint()
+      const get = (rows, text) => rows.find(row => row.text.includes(text === '区画' ? '区画 1' : text))?.color
+      const chooseColor = async (field, index) => {
+        const selector='#command-controls [data-field="'+field+'"]'
+        const values=await evaluate(win, `[...document.querySelector(${JSON.stringify(selector)}).options].map(o=>o.value).filter(v=>/^#[0-9a-f]{6}$/i.test(v))`)
+        const value=values.filter(v=>v.toLowerCase()!=='#b91c1c')[index]
+        await clickSelector(win, '#command-controls [data-color-control]:has([data-field="'+field+'"]) [data-color-trigger]')
+        await clickSelector(win, '[data-color-palette] [data-color-value="'+value+'"]')
+        await wait(win,80)
+        return value.toLowerCase()
+      }
+      await chooseSelect(win,'[data-text-role]','name')
+      const nameColor=await chooseColor('textColor',0)
+      let rows=await paint()
+      assert(get(rows,'区画')===nameColor,'区画名の色が反映されません',rows)
+      for(const text of ['万円','㎡','坪','備考文','上部']) assert(get(rows,text)===get(original,text),'名称の変更が他属性に波及しました',{text,rows,original})
+      for(const [role,field,text,index] of [['price','price-text-color','万円',1],['area','area-label-color','㎡',2],['tsubo','tsubo-label-color','坪',3],['memo','memo-text-color','備考文',4],['topLabel','topLabel-text-color','上部',5]]) {
+        await chooseSelect(win,'[data-text-role]',role)
+        const before=await paint(),color=await chooseColor(field,index)
+        rows=await paint()
+        assert(get(rows,text)===color,'対象属性の色が反映されません',{role,color,rows,state:await readState(win)})
+        for(const other of ['区画','万円','㎡','坪','備考文','上部'].filter(t=>t!==text)) assert(get(rows,other)===get(before,other),'別属性の色が変化しました',{role,other,rows,before})
+      }
+      await evaluate(win, 'window.__KOZU_V210__.undo()')
+      assert(get(await paint(),'上部')===get(original,'上部'),'Undoで直前の色に戻りません')
+      await evaluate(win, 'window.__KOZU_V210__.redo()')
+      assert(get(await paint(),'上部')===get(rows,'上部'),'Redoで色が復元されません')
+      const saved=await evaluate(win, 'window.__KOZU_V210__.serialize()')
+      const restored=await evaluate(win, `window.KozuV210.IO.deserializeProject(${JSON.stringify(saved)}).document`)
+      await evaluate(win, `window.__KOZU_V210__.store.replace(${JSON.stringify(restored)},{clean:true});window.__KOZU_V210__.render()`)
+      const reloaded=await paint()
+      for(const text of ['区画','万円','㎡','坪','備考文','上部']) assert(get(reloaded,text)===get(rows,text),'保存・再読込で色が変わりました',{text,reloaded,rows})
+      return {before:original,after:rows,reloaded}
+    })
     checks.push({ name: 'electron-renderer-console-errors', pass: consoleErrors.length === 0, details: consoleErrors })
   } finally {
     const failed = checks.filter(check => !check.pass)
@@ -330,6 +369,10 @@ async function replaceText(win, selector, value) {
 }
 
 async function chooseSelect(win, selector, value) {
+  if (selector === '[data-text-role]') {
+    await clickSelector(win, `[data-text-role="${value}"]`)
+    return
+  }
   const options = await evaluate(win, `[...document.querySelector(${JSON.stringify(selector)}).options].map(item=>item.value)`)
   const index = options.indexOf(value)
   assert(index >= 0, '書体の選択肢が見つかりません', { selector, value, options })

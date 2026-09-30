@@ -176,7 +176,7 @@ async function run() {
         for (let index = 0; index < after.objects.length; index++) {
           const object = after.objects[index]
           const style = kind === 'lot' ? object.labelStyle : object.textStyle
-          assert.equal(style.color, '#b4232d')
+          assert.equal(kind === 'lot' ? style.attributeColors?.name : style.color, '#b4232d')
           for (const key of ['label', 'text', 'number', 'price', 'memo', 'topLabel']) {
             assert.equal(object[key], before.objects[index][key])
           }

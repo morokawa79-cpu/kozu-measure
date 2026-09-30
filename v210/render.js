@@ -607,7 +607,16 @@
       for (let index = this.labelBoxes.length - 1; index >= 0; index -= 1) {
         const box = this.labelBoxes[index];
         if (kinds && !kinds.has(box.kind)) continue;
-        if (pointInPolygon(target, box.polygon)) return box;
+        if (pointInPolygon(target, box.polygon)) {
+          if (box.lineRoles?.length) {
+            const origin = box.polygon[0], end = box.polygon[box.textVertical ? 1 : 3];
+            const dx = end.x - origin.x, dy = end.y - origin.y;
+            const fraction = ((target.x - origin.x) * dx + (target.y - origin.y) * dy) / (dx * dx + dy * dy || 1);
+            const index = clamp(Math.floor((box.textVertical ? 1 - fraction : fraction) * box.lineRoles.length), 0, box.lineRoles.length - 1);
+            return { ...box, textRole: box.lineRoles[index] };
+          }
+          return box;
+        }
       }
       return null;
     }
@@ -958,7 +967,7 @@
       return visibility.dimensions === true || visibility.dimension === true || shape.showLengths === true;
     }
 
-    _shapeLabelLines(shape, documentModel) {
+    _shapeLabelLines(shape, documentModel, roles = []) {
       const visibility = shape.visibility || {};
       const lines = [];
       if (shape.kind === 'road' || shape.kind === 'water') {
@@ -971,11 +980,11 @@
       if (shape.kind === 'lot') {
         const numberText = visibility.number !== false && shape.number != null ? `区画 ${shape.number}` : '';
         const labelText = visibility.label !== false && shape.label ? String(shape.label) : '';
-        if (numberText || labelText) lines.push([numberText, labelText].filter(Boolean).join('　'));
-      } else if (visibility.label !== false && shape.label) lines.push(String(shape.label));
-      if (visibility.price === true && shape.price != null && shape.price !== '') lines.push(moneyText(shape.price));
-      if (visibility.memo === true && shape.memo) lines.push(String(shape.memo));
-      if (shape.topLabel && visibility.topLabel !== false) lines.unshift(String(shape.topLabel));
+        if (numberText || labelText) { lines.push([numberText, labelText].filter(Boolean).join('　')); roles.push('name'); }
+      } else if (visibility.label !== false && shape.label) { lines.push(String(shape.label)); roles.push('name'); }
+      if (visibility.price === true && shape.price != null && shape.price !== '') { lines.push(moneyText(shape.price)); roles.push('price'); }
+      if (visibility.memo === true && shape.memo) { lines.push(String(shape.memo)); roles.push('memo'); }
+      if (shape.topLabel && visibility.topLabel !== false) { lines.unshift(String(shape.topLabel)); roles.unshift('topLabel'); }
       return lines;
     }
 
@@ -984,7 +993,8 @@
         this._drawRoadLabels(context, shape, documentModel, state);
         return;
       }
-      const lines = this._shapeLabelLines(shape, documentModel);
+      const roles = [];
+      const lines = this._shapeLabelLines(shape, documentModel, roles);
       const center = polygonInteriorAnchor(shape.points);
       const style = mergeStyle(DEFAULTS.label, shape.labelStyle, {
         color: shape.labelColor,
@@ -1017,8 +1027,10 @@
       if (lines.length) {
         primaryBox = this._drawTextBlock(context, anchor, lines, {
           ...style,
-          color: state.preview ? colorWithAlpha(style.color || DEFAULTS.label.color, 0.72) : style.color,
+          lineColors: roles.map(role => { const color = style.attributeColors?.[role] || style.color || DEFAULTS.label.color; return state.preview ? colorWithAlpha(color, 0.72) : color; }),
+          color: state.preview ? colorWithAlpha(style.attributeColors?.name || style.color || DEFAULTS.label.color, 0.72) : (style.attributeColors?.name || style.color),
         }, {
+          lineRoles: roles,
           id: `shape-label:${shape.id}`,
           ownerId: shape.id,
           kind: 'shape-label',
@@ -1060,7 +1072,7 @@
         const label = shape[definition.property] && typeof shape[definition.property] === 'object' ? shape[definition.property] : {};
         return definition.visible && label.visible !== false && !label.position && !definition.legacyPosition;
       });
-      let automaticBottom = primaryAnchor.y + primaryHeight / 2;
+      let automaticBottom = primaryBox?.bottom ?? (primaryAnchor.y + primaryHeight / 2);
       for (const definition of definitions) {
         const label = shape[definition.property] && typeof shape[definition.property] === 'object' ? shape[definition.property] : {};
         if (!definition.visible || label.visible === false) continue;
@@ -1069,7 +1081,7 @@
         const resolvedSize = explicitSize == null
           ? metricSize * Math.max(0.05, finite(customStyle.scale, 1))
           : finite(explicitSize, metricSize);
-        const labelStyle = mergeStyle(DEFAULTS.label, shape.labelStyle, customStyle);
+        const labelStyle = mergeStyle(DEFAULTS.label, customStyle, shape.labelStyle);
         labelStyle.size = resolvedSize;
         labelStyle.fontSize = resolvedSize;
         const automaticIndex = automaticDefinitions.indexOf(definition);
@@ -1104,7 +1116,8 @@
       const center = polygonInteriorAnchor(shape.points);
       const road = shape.road || {};
       const name = road.name || shape.label || road.type || (shape.kind === 'water' ? '水路' : '道路');
-      const nameStyle = mergeStyle(DEFAULTS.label, shape.labelStyle, road.nameStyle);
+      const nameStyle = mergeStyle(DEFAULTS.label, road.nameStyle, shape.labelStyle);
+      nameStyle.color = shape.labelStyle?.attributeColors?.name || nameStyle.color;
       const nameAnchor = point(road.namePosition || shape.labelPosition || {
         x: finite(nameStyle.x, center.x + finite(nameStyle.offsetX, 0)),
         y: finite(nameStyle.y, center.y + finite(nameStyle.offsetY, 0)),
@@ -1124,8 +1137,9 @@
 
       const width = finite(road.widthM ?? road.width, 0);
       let widthText = '';
+      let widthBottom = -Infinity;
       if (visibility.width !== false && width > 0) {
-      const widthStyle = mergeStyle({ ...DEFAULTS.label, size: 10, fontSize: 10 }, shape.widthLabelStyle, road.widthLabelStyle);
+      const widthStyle = mergeStyle({ ...DEFAULTS.label, size: 10, fontSize: 10 }, road.widthLabelStyle, shape.widthLabelStyle);
       // 道路名を縦書きにしたときは、幅員も同じ向きへそろえる。
       // 過去データは幅員側に vertical を持たないため、道路名の設定を継承する。
       if (nameStyle.vertical === true || road.vertical === true) widthStyle.vertical = true;
@@ -1137,7 +1151,7 @@
       widthText = typeof road.widthText === 'string' && road.widthText.trim()
         ? road.widthText
         : `${road.widthPrefix == null ? '幅員 ' : String(road.widthPrefix)}${formatNumber(width, finite(road.widthDigits, 1))}${road.widthUnit === false ? '' : (road.widthUnit || 'm')}`;
-      this._drawTextBlock(context, widthAnchor, widthText, {
+      const widthBox = this._drawTextBlock(context, widthAnchor, widthText, {
         ...widthStyle,
         color: state.preview ? colorWithAlpha(widthStyle.color || DEFAULTS.label.color, 0.72) : widthStyle.color,
       }, {
@@ -1146,6 +1160,7 @@
         kind: 'shape-road-width',
         key: 'road-width',
       });
+      widthBottom = widthAnchor.y + widthBox.height / 2;
       }
       this._drawLotMetricLabels(
         context,
@@ -1155,7 +1170,7 @@
         nameAnchor,
         [visibility.label !== false && name ? String(name) : '', widthText].filter(Boolean),
         nameStyle,
-        nameBox,
+        { ...nameBox, bottom: Math.max(nameAnchor.y + finite(nameBox?.height) / 2, widthBottom) },
       );
     }
 
@@ -1384,7 +1399,7 @@
         const end = points[(index + 1) % points.length];
         const segment = asArray(entity.segments)[index] || {};
         if (segment.hidden === true) continue;
-        const segmentStyle = mergeStyle(DEFAULTS.dimension, entity.dimensionStyle, segment.style);
+        const segmentStyle = mergeStyle(DEFAULTS.dimension, segment.style, entity.dimensionStyle);
         const segmentLength = distance(start, end);
         if (segmentLength <= 1e-7) continue;
         const dx = end.x - start.x;
@@ -1733,7 +1748,7 @@
       return columns;
     }
 
-    _drawLotTableEntity(context, entity, documentModel, pageModel, state) {
+    _lotTableLayout(context, entity, documentModel, pageModel, state) {
       const selectedLotIds = Array.isArray(entity.lotIds) ? new Set(entity.lotIds.map(String)) : null;
       const liveLots = (Array.isArray(pageModel?.shapes) ? pageModel.shapes : []).filter((shape) =>
         shape?.kind === 'lot' && shape.visible !== false && (!selectedLotIds || selectedLotIds.has(String(shape.id)))
@@ -1744,19 +1759,67 @@
       );
       const lots = fixed ? snapshotRows : liveLots;
       const anchor = this._entityAnchor(entity);
-      const zoom = this._renderView.zoom;
       const tableScale = clamp(finite(entity.scale ?? entity.options?.scale ?? entity.worldScale, 1), 0.3, 5);
       const style = this._entityStyle(entity, state);
-      const columns = (Array.isArray(entity.columns) && entity.columns.length ? entity.columns : this._defaultLotTableColumns(entity))
-        .map((column) => ({ ...column, width: Math.max(24, finite(column.width, 70)) * tableScale }));
-      const rowHeight = Math.max(14, finite(entity.rowHeight, 24)) * tableScale;
-      const titleHeight = entity.title === false ? 0 : Math.max(16, finite(entity.titleHeight, 26)) * tableScale;
-      const headerHeight = Math.max(14, finite(entity.headerHeight, 23)) * tableScale;
-      const width = columns.reduce((sum, column) => sum + column.width, 0);
-      const height = titleHeight + headerHeight + rowHeight * (Math.max(1, lots.length) + 1);
       const fontSize = clamp(finite(entity.fontSize ?? entity.textStyle?.fontSize ?? style.fontSize, 10.5), 7, 60) * tableScale;
       const mpp = Math.max(0, finite(documentModel?.calibration?.mpp, 0));
+      const totals = { area: 0, tsubo: 0, price: 0, hasArea: false, hasTsubo: false, hasPrice: false };
+      const rows = lots.length ? lots : [{ number: '', label: fixed ? '固定値なし' : '区画なし', points: [] }];
+      const formattedRows = rows.map(lot => {
+        const area = lot.area != null && Number.isFinite(Number(lot.area)) ? Number(lot.area) : (mpp > 0 && Array.isArray(lot.points) ? polygonArea(lot.points) * mpp * mpp : null);
+        const tsubo = lot.tsubo != null && Number.isFinite(Number(lot.tsubo)) ? Number(lot.tsubo) : (area == null ? null : area / K.TSUBO_M2);
+        const price = lot.price == null || lot.price === '' ? null : Number(String(lot.price).replace(/,/g, ''));
+        if (lots.length && Number.isFinite(area)) { totals.area += area; totals.hasArea = true; }
+        if (lots.length && Number.isFinite(tsubo)) { totals.tsubo += tsubo; totals.hasTsubo = true; }
+        if (lots.length && Number.isFinite(price)) { totals.price += price; totals.hasPrice = true; }
+        return { lot, area, values: {
+          number: lot.number == null ? '' : String(lot.number), label: lot.label || '',
+          area: area == null ? '—' : `${formatNumber(area, 2)}㎡`,
+          tsubo: tsubo == null ? '—' : `${formatNumber(tsubo, 2)}坪`,
+          price: lot.price == null || lot.price === '' ? '—' : moneyText(lot.price), memo: lot.memo || '',
+        } };
+      });
+      const totalValues = {
+        number: '', label: '合計', area: totals.hasArea ? `${formatNumber(totals.area, 2)}㎡` : '—',
+        tsubo: totals.hasTsubo ? `${formatNumber(totals.tsubo, 2)}坪` : '—',
+        price: totals.hasPrice ? moneyText(totals.price) : '—', memo: '',
+      };
+      const lines = value => String(value ?? '').split(/\r?\n/);
+      const cellValue = (row, column) => typeof column.value === 'function'
+        ? column.value(row.lot, { area: row.area, document: documentModel }) : row.values[column.key];
       context.save();
+      context.font = `700 ${fontSize}px ${fontFamily(style.fontFamily)}`;
+      const textWidth = value => Math.max(0, ...lines(value).map(line => evenlySpacedText(style) ? Array.from(line).length * fontSize : context.measureText(line).width));
+      const columns = (Array.isArray(entity.columns) && entity.columns.length ? entity.columns : this._defaultLotTableColumns(entity))
+        .map(column => ({ ...column, width: Math.max(Math.max(24, finite(column.width, 70)) * tableScale,
+          textWidth(column.label || column.key) + 12 * tableScale, textWidth(totalValues[column.key]) + 12 * tableScale,
+          ...formattedRows.map(row => textWidth(cellValue(row, column)) + 12 * tableScale)) }));
+      const lineHeight = fontSize * 1.25;
+      const minimumRowHeight = Math.max(14, finite(entity.rowHeight, 24)) * tableScale;
+      const rowHeights = formattedRows.map(row => Math.max(minimumRowHeight,
+        Math.max(1, ...columns.map(column => lines(cellValue(row, column)).length)) * lineHeight + 6 * tableScale));
+      const rowHeight = Math.max(minimumRowHeight, lineHeight + 6 * tableScale);
+      const titleHeight = entity.title === false ? 0 : Math.max(finite(entity.titleHeight, 26) * tableScale,
+        lines(entity.title || '区画一覧').length * lineHeight + 8 * tableScale);
+      const headerHeight = Math.max(finite(entity.headerHeight, 23) * tableScale,
+        Math.max(1, ...columns.map(column => lines(column.label || column.key).length)) * lineHeight + 8 * tableScale);
+      const titleWidth = titleHeight ? textWidth(entity.title || '区画一覧') + 14 * tableScale : 0;
+      const columnsWidth = columns.reduce((sum, column) => sum + column.width, 0);
+      if (titleWidth > columnsWidth) columns[columns.length - 1].width += titleWidth - columnsWidth;
+      const width = columns.reduce((sum, column) => sum + column.width, 0);
+      const height = titleHeight + headerHeight + rowHeights.reduce((sum, value) => sum + value, 0) + rowHeight;
+      context.restore();
+      return { anchor, tableScale, style, fontSize, columns, rowHeights, rowHeight, titleHeight, headerHeight, width, height, formattedRows, totalValues, lineHeight, lines, cellValue };
+    }
+
+    _drawLotTableEntity(context, entity, documentModel, pageModel, state) {
+      const { anchor, tableScale, style, fontSize, columns, rowHeights, rowHeight, titleHeight, headerHeight, width, height, formattedRows, totalValues, lineHeight, lines, cellValue } = this._lotTableLayout(context, entity, documentModel, pageModel, state);
+      context.save();
+      const drawCell = (value, x, y) => {
+        const parts = lines(value);
+        parts.forEach((line, index) => fillTextWithLayout(context, line, x,
+          y + (index - (parts.length - 1) / 2) * lineHeight, style, fontSize));
+      };
       context.translate(anchor.x, anchor.y);
       context.rotate(radians(entity.rotation ?? entity.angle));
       context.fillStyle = entity.background || 'rgba(255,255,255,0.94)';
@@ -1770,7 +1833,7 @@
       context.fillStyle = style.color;
       if (titleHeight) {
         context.textAlign = 'left';
-        fillTextWithLayout(context, String(entity.title || '区画一覧'), 7 * tableScale, titleHeight / 2, style, fontSize);
+        drawCell(entity.title || '区画一覧', 7 * tableScale, titleHeight / 2);
         y += titleHeight;
         context.beginPath();
         context.moveTo(0, y);
@@ -1783,7 +1846,7 @@
       let x = 0;
       for (const column of columns) {
         context.textAlign = 'center';
-        fillTextWithLayout(context, String(column.label || column.key), x + column.width / 2, y + headerHeight / 2, style, fontSize);
+        drawCell(column.label || column.key, x + column.width / 2, y + headerHeight / 2);
         x += column.width;
         context.beginPath();
         context.moveTo(x, y);
@@ -1792,27 +1855,12 @@
       }
       y += headerHeight;
       context.font = `500 ${fontSize}px ${fontFamily(style.fontFamily)}`;
-      const rows = lots.length ? lots : [{ number: '', label: fixed ? '固定値なし' : '区画なし', points: [] }];
-      const totals = { area: 0, tsubo: 0, price: 0, hasArea: false, hasTsubo: false, hasPrice: false };
-      rows.forEach((lot, rowIndex) => {
+      formattedRows.forEach((row, rowIndex) => {
+        const rowHeight = rowHeights[rowIndex];
         if (rowIndex % 2 === 1) {
           context.fillStyle = 'rgba(33, 64, 94, 0.025)';
           context.fillRect(0, y, width, rowHeight);
         }
-        const area = Number.isFinite(Number(lot.area)) ? Number(lot.area) : (mpp > 0 && Array.isArray(lot.points) ? polygonArea(lot.points) * mpp * mpp : null);
-        const tsubo = Number.isFinite(Number(lot.tsubo)) ? Number(lot.tsubo) : (area == null ? null : area / K.TSUBO_M2);
-        const priceNumber = lot.price == null || lot.price === '' ? null : Number(String(lot.price).replace(/,/g, ''));
-        if (lots.length && area != null && Number.isFinite(area)) { totals.area += area; totals.hasArea = true; }
-        if (lots.length && tsubo != null && Number.isFinite(tsubo)) { totals.tsubo += tsubo; totals.hasTsubo = true; }
-        if (lots.length && Number.isFinite(priceNumber)) { totals.price += priceNumber; totals.hasPrice = true; }
-        const values = {
-          number: lot.number == null ? '' : String(lot.number),
-          label: lot.label || '',
-          area: area == null ? '—' : `${formatNumber(area, 2)}㎡`,
-          tsubo: tsubo == null ? '—' : `${formatNumber(tsubo, 2)}坪`,
-          price: lot.price == null || lot.price === '' ? '—' : moneyText(lot.price),
-          memo: lot.memo || '',
-        };
         x = 0;
         context.fillStyle = style.color;
         for (const column of columns) {
@@ -1820,8 +1868,7 @@
           const align = column.align || 'left';
           context.textAlign = align;
           const textX = align === 'center' ? x + column.width / 2 : align === 'right' ? x + column.width - padding : x + padding;
-          const raw = typeof column.value === 'function' ? column.value(lot, { area, document: documentModel }) : values[column.key];
-          fillTextWithLayout(context, raw == null ? '' : String(raw), textX, y + rowHeight / 2, style, fontSize);
+          drawCell(cellValue(row, column), textX, y + rowHeight / 2);
           x += column.width;
         }
         y += rowHeight;
@@ -1833,13 +1880,6 @@
       context.fillStyle = entity.totalFill || 'rgba(31, 76, 119, 0.13)';
       context.fillRect(0, y, width, rowHeight);
       context.font = `700 ${fontSize}px ${fontFamily(style.fontFamily)}`;
-      const totalValues = {
-        number: '', label: '合計',
-        area: totals.hasArea ? `${formatNumber(totals.area, 2)}㎡` : '—',
-        tsubo: totals.hasTsubo ? `${formatNumber(totals.tsubo, 2)}坪` : '—',
-        price: totals.hasPrice ? moneyText(totals.price) : '0万円',
-        memo: '',
-      };
       x = 0;
       context.fillStyle = style.color;
       for (const column of columns) {
@@ -1847,7 +1887,7 @@
         const align = column.align || 'left';
         context.textAlign = align;
         const textX = align === 'center' ? x + column.width / 2 : align === 'right' ? x + column.width - padding : x + padding;
-        fillTextWithLayout(context, totalValues[column.key] ?? '', textX, y + rowHeight / 2, style, fontSize);
+        drawCell(totalValues[column.key] ?? '', textX, y + rowHeight / 2);
         x += column.width;
       }
       y += rowHeight;
@@ -1861,7 +1901,7 @@
         ownerId: entity.id,
         kind: 'lot-table',
         key: 'table',
-      }, { x: 0, y: 0, width, height }, anchor, 0);
+      }, { x: 0, y: 0, width, height }, anchor, finite(entity.rotation ?? entity.angle));
     }
 
     _drawGuideEntity(context, entity, documentModel, state) {
@@ -1927,7 +1967,14 @@
       const weight = style.fontWeight || style.weight || 500;
       const italic = style.italic ? 'italic ' : '';
       const lineHeight = size * clamp(finite(style.lineHeight, 1.18), 0.8, 2.5);
-      const lines = Array.isArray(content) ? content.map(String) : String(content ?? '').split(/\r?\n/);
+      const sourceLines = Array.isArray(content) ? content.map(String) : [String(content ?? '')];
+      const lines = [], lineColors = [], lineRoles = [];
+      sourceLines.forEach((value, index) => {
+        for (const line of value.split(/\r?\n/)) {
+          lines.push(line); lineColors.push(style.lineColors?.[index]); lineRoles.push(meta.lineRoles?.[index]);
+        }
+      });
+      style.lineColors = lineColors;
       const vertical = style.vertical === true;
       const evenLayout = evenlySpacedText(style);
       const padding = Math.max(0, finite(style.padding, 0)) * fixedWorld;
@@ -1967,6 +2014,7 @@
         const columns = lines.map((line) => Array.from(line || ' '));
         context.textAlign = 'center';
         columns.forEach((characters, columnIndex) => {
+          context.fillStyle = style.lineColors?.[columnIndex] || style.color || DEFAULTS.label.color;
           const x = localX + padding + contentWidth - lineHeight * (columnIndex + 0.5);
           const columnHeight = characters.length * lineHeight;
           const startY = localY + padding + (contentHeight - columnHeight) / 2 + lineHeight / 2;
@@ -1980,7 +2028,10 @@
             ? localX + boxWidth - padding
             : localX + boxWidth / 2;
         const startY = localY + padding + (contentHeight - lines.length * lineHeight) / 2 + lineHeight / 2;
-        lines.forEach((line, index) => fillTextWithLayout(context, line, textX, startY + index * lineHeight, style, size));
+        lines.forEach((line, index) => {
+          context.fillStyle = style.lineColors?.[index] || style.color || DEFAULTS.label.color;
+          fillTextWithLayout(context, line, textX, startY + index * lineHeight, style, size);
+        });
       }
       if (style.underline === true || ['underline', '下線'].includes(boxStyle)) {
         context.beginPath();
@@ -1991,7 +2042,7 @@
         context.stroke();
       }
       context.restore();
-      this._registerBox(meta, { x: localX, y: localY, width: boxWidth, height: boxHeight }, anchor, angleDegrees);
+      this._registerBox({ ...meta, ...(meta.lineRoles ? { lineRoles, textVertical: vertical } : {}) }, { x: localX, y: localY, width: boxWidth, height: boxHeight }, anchor, angleDegrees);
       return { width: boxWidth, height: boxHeight };
     }
 
@@ -2060,6 +2111,7 @@
             : entities.find((item) => String(item?.id) === selectedId);
           if (entity) this._drawEntitySelection(context, entity, overlay);
         }
+        if (overlay.textRole) this._drawTextRoleSelection(context, selectedIds, overlay.textRole);
         if (overlay.hoverId != null && !selectedIds.has(String(overlay.hoverId))) {
           const shape = shapes.find((item) => String(item?.id) === String(overlay.hoverId));
           if (shape) this._drawShapeOutline(context, shape, this.theme.hover, false);
@@ -2117,6 +2169,37 @@
           this._drawSnap(context, overlay.snap.point || overlay.snap);
         }
       }
+    }
+
+    _drawTextRoleSelection(context, selectedIds, role) {
+      const kinds = { name: 'shape-road-name', width: 'shape-road-width', area: 'shape-area-label', tsubo: 'shape-tsubo-label' };
+      const mix = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      context.save();
+      context.lineWidth = 1.5 / Math.max(0.005, this._renderView.zoom);
+      context.strokeStyle = '#1677d2';
+      context.fillStyle = 'rgba(22,119,210,0.10)';
+      context.setLineDash([]);
+      for (const box of this.labelBoxes) {
+        if (!selectedIds.has(String(box.ownerId))) continue;
+        const polygons = [];
+        const p = box.worldPolygon;
+        if (box.lineRoles?.length) {
+          box.lineRoles.forEach((lineRole, index) => {
+            if (lineRole !== role) return;
+            let start = index / box.lineRoles.length, end = (index + 1) / box.lineRoles.length;
+            if (box.textVertical) {
+              [start, end] = [1 - end, 1 - start];
+              polygons.push([mix(p[0], p[1], start), mix(p[0], p[1], end), mix(p[3], p[2], end), mix(p[3], p[2], start)]);
+            } else polygons.push([mix(p[0], p[3], start), mix(p[1], p[2], start), mix(p[1], p[2], end), mix(p[0], p[3], end)]);
+          });
+        } else if (box.kind === kinds[role]) polygons.push(p);
+        for (const polygon of polygons) {
+          context.beginPath();
+          polygon.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+          context.closePath(); context.fill(); context.stroke();
+        }
+      }
+      context.restore();
     }
 
     _drawShapeOutline(context, shape, color, handles) {
@@ -2428,10 +2511,7 @@
         bounds = extendBounds(bounds, anchor.x - halfDiagonal, anchor.y - halfDiagonal);
         bounds = extendBounds(bounds, anchor.x + halfDiagonal, anchor.y + halfDiagonal);
       } else if (entity.kind === 'lot-table') {
-        const columns = Array.isArray(entity.columns) && entity.columns.length ? entity.columns : this._defaultLotTableColumns(entity);
-        const tableScale = clamp(finite(entity.scale ?? entity.options?.scale ?? entity.worldScale, 1), 0.3, 5);
-        const width = finite(entity.worldWidth, columns.reduce((sum, column) => sum + finite(column.width, 70), 0) * tableScale);
-        const height = finite(entity.worldHeight, (80 + finite(entity.rowHeight, 24) * 5) * tableScale);
+        const { width, height } = this._lotTableLayout(this.context, entity, documentModel, activePage(documentModel), {});
         const angle = radians(entity.rotation ?? entity.angle);
         for (const corner of [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }]) {
           const rotated = rotatePoint(corner, angle);

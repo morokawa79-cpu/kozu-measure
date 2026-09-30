@@ -2,7 +2,7 @@
   'use strict'
 
   const K = window.KozuV210 = window.KozuV210 || {}
-  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.12'
+  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.13'
   const desktopVersion = typeof window.kozuDesktop?.version === 'string' ? window.kozuDesktop.version.trim() : ''
   const APP_VERSION = desktopVersion || WEB_APP_VERSION_FALLBACK
   const SCHEMA_VERSION = 7
@@ -1319,6 +1319,7 @@
       if (typeof attributes[key] !== 'string') return
       entity[key] = key === 'fontFamily' ? normalizeFontToken(attributes[key]) : attributes[key]
     })
+    if (kind === 'lot-table' && attributes.title === false) entity.title = false
     booleanFields.forEach(key => { if (typeof attributes[key] === 'boolean') entity[key] = attributes[key] })
     structuredFields.forEach(key => { if (attributes[key] != null) entity[key] = clone(attributes[key]) })
     if (entity.dimensionStyle && typeof entity.dimensionStyle === 'object') entity.dimensionStyle = normalizeStyle(entity.dimensionStyle, DEFAULTS.dimensionStyle)
@@ -1474,7 +1475,7 @@
       })
       const lotIds = new Set(pageValue.shapes.filter(shape => shape.kind === 'lot').map(shape => String(shape.id)))
       pageValue.entities.forEach(entity => {
-        if (entity.kind !== 'lot-table' || !Array.isArray(entity.lotIds)) return
+        if (entity.kind !== 'lot-table' || entity.dynamic === false || entity.snapshot === true || entity.options?.mode === 'snapshot' || !Array.isArray(entity.lotIds)) return
         entity.lotIds = [...new Set(entity.lotIds.map(String))].filter(id => lotIds.has(id))
       })
     })
@@ -1519,7 +1520,7 @@
       pageValue.entities = pageValue.entities.filter(value => !idSet.has(value.id))
       const lotIds = new Set(pageValue.shapes.filter(value => value.kind === 'lot').map(value => String(value.id)))
       pageValue.entities.forEach(entity => {
-        if (entity.kind === 'lot-table' && Array.isArray(entity.lotIds)) {
+        if (entity.kind === 'lot-table' && entity.dynamic !== false && entity.snapshot !== true && entity.options?.mode !== 'snapshot' && Array.isArray(entity.lotIds)) {
           entity.lotIds = [...new Set(entity.lotIds.map(String))].filter(id => lotIds.has(id))
         }
       })
@@ -1530,12 +1531,22 @@
   function translateObject(object, dx, dy) {
     const shift = { x: finite(dx), y: finite(dy) }
     if (Array.isArray(object.points)) object.points = object.points.map(p => add(p, shift))
-    for (const key of ['position', 'tip', 'labelPosition', 'areaLabelPosition', 'tsuboLabelPosition']) if (isPoint(object[key])) object[key] = add(object[key], shift)
+    for (const key of ['position', 'tip', 'anchor', 'labelPosition', 'areaLabelPosition', 'tsuboLabelPosition']) if (isPoint(object[key])) object[key] = add(object[key], shift)
     for (const key of ['areaLabel', 'tsuboLabel']) {
       if (object[key] && typeof object[key] === 'object' && isPoint(object[key].position)) object[key].position = add(object[key].position, shift)
     }
     if (object.road?.namePosition && isPoint(object.road.namePosition)) object.road.namePosition = add(object.road.namePosition, shift)
     if (object.road?.widthLabelPosition && isPoint(object.road.widthLabelPosition)) object.road.widthLabelPosition = add(object.road.widthLabelPosition, shift)
+    if (object.labelStyle && Number.isFinite(object.labelStyle.x) && Number.isFinite(object.labelStyle.y)) {
+      object.labelStyle.x += shift.x; object.labelStyle.y += shift.y
+    }
+    if (Array.isArray(object.options?.baselinePoints)) object.options.baselinePoints = object.options.baselinePoints.map(p => add(p, shift))
+    if (Array.isArray(object.parentOriginalPoints)) object.parentOriginalPoints = object.parentOriginalPoints.map(p => add(p, shift))
+    if (Array.isArray(object.parentOriginalEdges)) object.parentOriginalEdges.forEach(edge => {
+      if (isPoint(edge.from)) edge.from = add(edge.from, shift)
+      if (isPoint(edge.to)) edge.to = add(edge.to, shift)
+    })
+    for (const state of Object.values(object.kindStates || {})) if (state) translateObject(state, shift.x, shift.y)
     if (Array.isArray(object.edges)) object.edges.forEach(edge => {
       if (isPoint(edge.from)) edge.from = add(edge.from, shift)
       if (isPoint(edge.to)) edge.to = add(edge.to, shift)
@@ -1573,19 +1584,29 @@
       pageValue.entities.push(copy)
     }
     if (!copy) return null
+    if (copy.kind === 'cutout') {
+      delete copy.parentShapeId
+      if (Array.isArray(copy.parentOriginalEdges)) copy.parentOriginalEdges = copy.parentOriginalEdges.map(edge => ({ ...edge, id: allocId(document, 'edge') }))
+    }
     translateObject(copy, finite(offset?.x, 24), finite(offset?.y, 24))
     return copy
   }
+  function copyObjectsToActivePage(document, sources, offset = { x: 24, y: 24 }) {
+    const pairs = sources.map(source => ({ source, copy: copyObjectToActivePage(document, source, offset) })).filter(pair => pair.copy)
+    const ids = new Map(pairs.map(pair => [pair.source.id, pair.copy.id]))
+    for (const { source, copy } of pairs) {
+      if (copy.kind === 'cutout' && ids.has(source.parentShapeId)) copy.parentShapeId = ids.get(source.parentShapeId)
+      if (copy.kind === 'lot-table') {
+        if (Array.isArray(copy.lotIds)) copy.lotIds = copy.lotIds.map(id => ids.get(id) || id)
+        if (Array.isArray(copy.rows)) copy.rows.forEach(row => { if (ids.has(row.lotId)) row.lotId = ids.get(row.lotId) })
+      }
+    }
+    return pairs.map(pair => pair.copy)
+  }
   function duplicateObjects(document, ids, offset = { x: 24, y: 24 }) {
     const pageValue = activePage(document)
-    const copies = []
-    for (const id of Array.isArray(ids) ? ids : [ids]) {
-      const found = objectById(document, id)
-      if (!found || found.page.id !== pageValue.id) continue
-      const copy = copyObjectToActivePage(document, found.object, offset)
-      if (copy) copies.push(copy)
-    }
-    return copies
+    const sources = (Array.isArray(ids) ? ids : [ids]).map(id => objectById(document, id)).filter(found => found && found.page.id === pageValue.id).map(found => found.object)
+    return copyObjectsToActivePage(document, sources, offset)
   }
   function nextLotNumber(document, pageId = document.activePageId) {
     const pageValue = (document.pages || []).find(value => value.id === pageId) || activePage(document)
@@ -1836,6 +1857,7 @@
     }
     const converted = createShape(document, targetKind, source.points, attributes)
     converted.id = source.id
+    if (targetKind === 'lot' && converted.number != null && found.page.shapes.some(shape => shape.id !== source.id && shape.kind === 'lot' && Number(shape.number) === Number(converted.number))) converted.number = nextLotNumber(document, found.page.id)
     const index = found.collection.indexOf(source)
     if (index < 0) return null
     found.collection.splice(index, 1, converted)
@@ -1958,8 +1980,17 @@
     const parentFound = cutout.parentShapeId ? objectById(document, cutout.parentShapeId) : null
     if (!parentFound || parentFound.type !== 'shape' || parentFound.page.id !== cutoutFound.page.id || parentFound.object.kind !== 'lot') return null
     if (!Array.isArray(cutout.parentOriginalPoints) || !validPolygon(cutout.parentOriginalPoints)) return null
-    parentFound.object.points = cleanPoints(cutout.parentOriginalPoints)
-    parentFound.object.edges = edgeMetadata(document, parentFound.object.points, cutout.parentOriginalEdges || parentFound.object.edges)
+    // 復元は現在の親区画との合筆に限定し、分割前・移動前の全形を上書きしない。
+    const relation = polygonPairRelation(parentFound.object.points, cutout.points, GEOMETRY_EPSILON)
+    if (relation.type !== 'shared-edge') return null
+    const restoredPoints = mergeConnectedPolygons([parentFound.object.points, cutout.points], GEOMETRY_EPSILON)
+    if (!restoredPoints) return null
+    const original = cleanPoints(cutout.parentOriginalPoints)
+    const originalGeometry = original.length === restoredPoints.length && original.every(p => restoredPoints.some(q => samePoint(p, q, GEOMETRY_EPSILON)))
+    const points = originalGeometry ? original : restoredPoints
+    const edges = originalGeometry ? (cutout.parentOriginalEdges || parentFound.object.edges) : [...(parentFound.object.edges || []), ...(cutout.parentOriginalEdges || [])]
+    parentFound.object.points = points
+    parentFound.object.edges = edgeMetadata(document, points, edges)
     cutoutFound.page.shapes = cutoutFound.page.shapes.filter(shape => shape.id !== cutout.id)
     return parentFound.object
   }
@@ -2287,7 +2318,7 @@
     validPolygon, validOperationPolygon, splitPolygonByLine, splitPolygonByPolyline, analyzePolygonSplitByPolyline,
     polygonPairRelation, mergeAdjacentPolygons, analyzeShapeMerge, mergeShapeGroup, cornerCut, parallelLine, boundsOfPoints, unionBounds,
     createCalibration, createOutputLayout, createPage, createDocument, normalizeDocument, normalizeFontToken, activePage, ensurePage, setActivePage, allocId, edgeMetadata, createShape, createEntity, segmentMetadata, objectById,
-    addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, duplicateObjects, nextLotNumber, lotNumbersNeedRenumber, renumberLots,
+    addShape, addEntity, removeObjects, translateObject, updateObjectVertex, copyObjectToActivePage, copyObjectsToActivePage, duplicateObjects, nextLotNumber, lotNumbersNeedRenumber, renumberLots,
     splitShape, splitAllLots, splitShapeByPolyline, splitAllLotsByPolyline, convertShapeKind, mergeLotShapes, cutShapeCorner, restoreCutout, objectSegments, snapPoint, hitTestDocument,
     metersFromPixels, squareMetersFromPixels, squareMetersToTsubo, applyRounding, formatMeasurement,
     shapeMetrics, entityMetrics, registrySummary, documentBounds, DocumentStore, CommandSession
