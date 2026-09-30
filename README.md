@@ -4,7 +4,7 @@
 
 ## 現在の版
 
-- バージョン: 2.1.0-alpha.11
+- バージョン: 2.1.0-alpha.12（限定テスト版）
 - 対応OS: Windows 64bit
 - 実行基盤: Electron
 
@@ -22,6 +22,8 @@
 
 ## 開発時の起動
 
+alpha.12には2026-09-30の文字編集・右台帳・PDF日本語表示の改善を反映しています。変更内容は `CHANGELOG.md` を参照してください。
+
 ```powershell
 npm install
 npm start
@@ -32,9 +34,17 @@ npm start
 ```powershell
 npm run qa:v210
 node qa-v210-interaction.cjs
+node qa-v210-text-editing.cjs
+node qa-v210-registry.cjs
+node qa-v210-pdf-fonts.cjs
+node test-v210-edit-safety.cjs
 ```
 
 alpha.11 は総合QA 311 / 311項目、実操作QA 24 / 24項目に合格しています。
+
+2026-09-30の開発ソースは、総合315 / 315、実操作25 / 25、文字編集15 / 15、台帳14 / 14、編集保護8 / 8項目に合格しています。
+
+PDF文字消失・台帳密度の追補後は、総合315 / 315、台帳15 / 15、PDFフォント描画2 / 2項目を再検証しています。PDFを下絵として読み込んでも、地番・道路名は台帳へ自動転記されません。台帳の区画番号はアプリ側の管理番号です。
 
 ## Windowsインストーラー作成
 

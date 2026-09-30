@@ -39,9 +39,9 @@
     area: Object.freeze([['object-basic', '面積・坪'], ['object-dimension', '辺寸法'], ['object-text', '文字・位置'], ['object-special', '線']]),
     dimension: Object.freeze([['object-basic', '値・表示'], ['object-dimension', '寸法'], ['object-text', '文字'], ['object-special', '線']]),
     line: Object.freeze([['object-special', '線']]),
-    arrow: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '線・矢印']]),
-    text: Object.freeze([['object-basic', '内容'], ['object-text', '文字・配置']]),
-    callout: Object.freeze([['object-basic', '内容'], ['object-text', '文字・位置'], ['object-special', '引出線']]),
+    arrow: Object.freeze([['object-basic', '文字'], ['object-special', '線・矢印']]),
+    text: Object.freeze([['object-basic', '文字']]),
+    callout: Object.freeze([['object-basic', '文字'], ['object-special', '引出線']]),
     north: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・配置']]),
     house: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・寸法']]),
     parking: Object.freeze([['object-basic', '基本'], ['object-appearance', '表示'], ['object-text', '文字'], ['object-special', '大きさ・寸法']]),
@@ -144,7 +144,7 @@
     parking: { category: 'note', name: '駐車', icon: 'i-parking', template: 'controls-stamp', hint: '幅・奥行・角度を確認して配置' },
     'lot-table': { category: 'note', name: '面積表', icon: 'i-table', template: 'controls-place-table', hint: '配置前プレビューを確認して位置を指定' },
     'display-settings': { category: 'select', name: '表示設定', icon: 'i-display', template: 'controls-display-settings', hint: '図面全体の表示・吸着を設定' },
-    'typography-settings': { category: 'select', name: '文字サイズ設定', icon: 'i-text', template: 'controls-typography-settings', hint: '反映先を選び、入力終了時に自動保存' }
+    'typography-settings': { category: 'select', name: '文字サイズ設定', icon: 'i-text', template: 'controls-typography-settings', hint: '反映先を選び、入力終了時に図面へ反映' }
   })
 
   const UI_COMMAND_ALIASES = Object.freeze({
@@ -260,6 +260,9 @@
     fileDragDepth: 0,
     compositionEndedAt: 0,
     inputTransaction: null,
+    backgroundControlsPending: false,
+    preserveRegistryInputs: false,
+    registryRowsPending: false,
     activeColorSelect: null,
     activeColorTrigger: null,
     backgroundTaskToken: 0,
@@ -1204,7 +1207,7 @@
     if (command === 'move-all') return { small: points ? '移動先' : '基準点', strong: points ? '2/2' : '1/2' }
     if (command === 'vertex-edit') return { small: session.vertexIndex == null ? '頂点選択' : '移動先', strong: session.vertexIndex == null ? '1/2' : '2/2' }
     if (['text', 'north', 'house', 'parking', 'lot-table'].includes(command)) return { small: '配置位置', strong: '1/1' }
-    return { small: ui.selectedIds.length ? '編集中' : '対象選択', strong: ui.selectedIds.length ? '編集' : '1/1' }
+    return { small: ui.selectedIds.length ? '選択中' : '対象選択', strong: ui.selectedIds.length ? `${ui.selectedIds.length}件` : '1/1' }
   }
 
   function addDynamicCommandControls(command) {
@@ -1388,7 +1391,9 @@
     dom.commandControls.replaceChildren()
     if (ui.textRole === 'name') {
       const label = object.kind === 'lot' ? '区画名・番号' : object.kind === 'water' ? '水路名' : '道路名'
-      content = `<span class="control-label text-value-note">内容は「基本」で編集</span>`
+      content = targets.length > 1
+        ? '<span class="control-label text-value-note">名称・番号は各図形で個別に編集します。書式はまとめて変更できます。</span>'
+        : `${object.kind === 'lot' ? '<label class="field-inline"><span>番号</span><input class="ctrl-input number-small" data-field="lot-number" type="number" min="1" step="1"></label>' : ''}<label class="field-inline text-name-field"><span>${object.kind === 'lot' ? '区画名' : label}</span><textarea class="ctrl-input" data-field="object-label" rows="2" spellcheck="false"></textarea></label>`
       style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="font-family">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="text-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label><label class="field-inline"><span>角度</span><input class="ctrl-input number-small" data-field="text-angle" type="number" step="1"><em>°</em></label><label class="check-control"><input data-field="text-vertical" type="checkbox">縦書き</label>${colorSelectMarkup('textColor', '文字色', 'ink')}<label class="check-control"><input data-field="text-frame" type="checkbox">枠</label><label class="check-control"><input data-field="text-underline" type="checkbox">下線</label><button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="name">${label}を自動位置へ戻す</button>`
     } else if (ui.textRole === 'width') {
       const widthName = object.kind === 'water' ? '水路幅' : '幅員'
@@ -1406,6 +1411,9 @@
       style = `<label class="field-inline"><span>書体</span><select class="ctrl-select compact-select" data-field="${prefix}-font">${fontOptionsMarkup()}</select></label><label class="field-inline"><span>大きさ</span><input class="ctrl-input number-small" data-field="${prefix}-size" type="number" min="0.3" max="5" step="0.1"><em>倍</em></label>${colorSelectMarkup(`${prefix}-color`, '文字色', 'ink')}<button class="ctrl-btn" type="button" data-action="reset-text-role-position" data-text-position-role="${ui.textRole}">${label}を自動位置へ戻す</button><button class="ctrl-btn metric-standard-reset" type="button" data-action="reset-metric-hidden-style" data-metric-role="${ui.textRole}" hidden>標準表示へ戻す</button>`
     }
     dom.commandControls.insertAdjacentHTML('beforeend', `<div class="text-value-row text-value-content-row">${targetControl}${content}</div><div class="text-value-row text-value-style-row"><span class="control-section-title">書式・位置</span>${style}</div>`)
+    if (ui.textRole !== 'name') {
+      $('.text-value-content-row', dom.commandControls)?.insertAdjacentHTML('beforeend', '<button class="ctrl-btn" type="button" data-action="reset-text-role-value">自動表示に戻す</button>')
+    }
   }
 
   function escapeMarkup(value) {
@@ -1436,6 +1444,8 @@
       dom.commandControls.insertAdjacentHTML('beforeend', `<label class="field-inline"><span>間隔</span><input class="ctrl-input number-small" data-field="parallel-distance-edit" type="number" min="0.1" step="0.1" ${hasBaseline ? '' : 'disabled'}><em>m</em></label><button class="ctrl-btn" type="button" data-action="flip-selected-parallel" ${hasBaseline ? '' : 'disabled'}>反転</button>${hasBaseline ? '' : '<span class="control-label context-optional">旧形式の平行線は線の書式だけ編集できます</span>'}`)
     }
   }
+
+  const BATCH_CONTENT_FIELDS = new Set(['lot-number', 'object-label', 'lot-top-label', 'lot-price', 'object-memo'])
 
   function showBatchEditor() {
     const objects = ui.batchDrafts.length ? ui.batchDrafts : selectedObjects()
@@ -1469,7 +1479,7 @@
     const hasEditableText = !['line', 'guide', 'parallel', 'lot-table'].includes(kind)
     const hasLineStyle = LINE_STYLE_KINDS.has(kind)
     configureObjectEditorPages(kind)
-    if (ui.contextPage) dom.commandControls.append(cloneTemplate(`controls-${ui.contextPage}`))
+    if (ui.contextPage) dom.commandControls.append(cloneTemplate(['text', 'callout', 'arrow'].includes(kind) && ui.contextPage === 'object-basic' ? 'controls-text-editor' : `controls-${ui.contextPage}`))
     if (ui.contextPage === 'object-basic') {
       $$('.shape-kind-convert', dom.commandControls).forEach(element => { element.hidden = true })
       $$('[data-field="object-type"],[data-field="lot-number"],[data-field="object-label"]', dom.commandControls).forEach(field => {
@@ -1516,9 +1526,15 @@
     $$('.measurement-only', dom.commandControls).forEach(element => { element.hidden = !isMeasurement })
     $$('.area-only', dom.commandControls).forEach(element => { element.hidden = kind !== 'area' })
     $$('.edge-approx-only', dom.commandControls).forEach(element => { element.hidden = !['lot', 'road', 'water', 'cutout'].includes(kind) })
+    $$('[data-field]', dom.commandControls).forEach(field => {
+      if (!BATCH_CONTENT_FIELDS.has(field.dataset.field)) return
+      field.disabled = true
+      const container = field.closest('label') || field
+      container.hidden = true
+    })
     const notice = document.createElement('div')
     notice.className = 'batch-edit-notice'
-    notice.innerHTML = `<strong>${objectDisplayName(object).replace(/\s+$/, '')}ほか ${objects.length}件</strong><span>変更した項目だけを全件へ反映します。番号・名称・価格・メモは変えません。</span>`
+    notice.innerHTML = `<strong>${objects.length}件を一括編集</strong><span>変更した項目だけを全件へ反映します。番号・名称・価格・メモは変えません。</span>`
     if (ui.contextPage !== 'object-text') dom.commandControls.append(notice)
   }
 
@@ -1622,7 +1638,8 @@
     const hasEditableText = !['line', 'guide', 'parallel', 'lot-table'].includes(object.kind)
     const hasSegmentSelection = Number.isInteger(ui.editEdgeIndex) || Number.isInteger(ui.editSegmentIndex)
     configureObjectEditorPages(object.kind)
-    const templateId = `controls-${ui.contextPage}`
+    const templateId = ['text', 'callout', 'arrow'].includes(object.kind) && ui.contextPage === 'object-basic'
+      ? 'controls-text-editor' : `controls-${ui.contextPage}`
     dom.commandControls.replaceChildren(cloneTemplate(templateId))
     if (ui.contextPage === 'object-basic' && isShape && vertexButton) dom.commandControls.prepend(vertexButton)
     if (ui.contextPage === 'object-basic') {
@@ -1700,10 +1717,23 @@
       return
     }
     runtime.renderingCommandSurface = true
+    const canvasBefore = ui.workspace === 'drawing' ? dom.canvas.getBoundingClientRect() : null
     try {
       renderCommandSurfaceNow()
     } finally {
       runtime.renderingCommandSurface = false
+    }
+    // 編集欄が広がっても、クリックした文字の画面上の位置を保つ。
+    if (canvasBefore && ui.workspace === 'drawing') {
+      const canvasAfter = dom.canvas.getBoundingClientRect()
+      const dx = canvasBefore.left - canvasAfter.left
+      const dy = canvasBefore.top - canvasAfter.top
+      if (dx || dy) {
+        runtime.view = { ...runtime.view, x: runtime.view.x + dx, y: runtime.view.y + dy }
+        render()
+        // 次のクリックが同じフレーム内でも、新しい座標で当たり判定する。
+        renderer.render()
+      }
     }
     if (runtime.commandSurfaceRenderPending) {
       runtime.commandSurfaceRenderPending = false
@@ -1712,7 +1742,8 @@
   }
 
   function renderCommandSurfaceNow() {
-    dom.controlBar?.classList.remove('object-editing', 'batch-editing')
+    runtime.backgroundControlsPending = false
+    dom.controlBar?.classList.remove('object-editing', 'batch-editing', 'text-editing-active')
     if (ui.workspace !== 'drawing') {
       renderWorkspaceCommandSurface()
       return
@@ -1755,10 +1786,41 @@
       const required = String(element.dataset.forCommand || '').split(',').map(value => value.trim()).filter(Boolean).map(value => UI_COMMAND_ALIASES[value] || value)
       element.hidden = !required.includes(session.command)
     })
+    const textEditing = Boolean($('.text-editor, .text-value-row, .dimension-editor-row, textarea[data-field="note-text"]:not([hidden])', dom.commandControls)) && session.command !== 'line'
+    dom.controlBar?.classList.toggle('text-editing-active', textEditing)
+    if (textEditing && ui.selectedIds.length && session.command === 'select' && !$('[data-edit-context]', dom.commandControls)) {
+      dom.commandControls.insertAdjacentHTML('afterbegin', '<div class="edit-context-banner" data-edit-context></div>')
+    }
     initializeFieldControls()
     syncControlState()
     syncRail()
     syncWorkspaceLabels()
+  }
+
+  // UIは作成時・編集時とも同じ文字サイズ。保存形式の倍率は維持する。
+  function configureFontSizeField(field) {
+    const key = field.dataset.field
+    const kind = (ui.editDraft || currentObject())?.kind
+    if (key === 'text-size' && (kind === 'lot-table' || session.command === 'lot-table')) return
+    const base = { 'text-size': TEXT_BASE_SIZE, 'stamp-text-scale': TEXT_BASE_SIZE, 'dimension-size': DIMENSION_BASE_SIZE, 'part-size': DIMENSION_BASE_SIZE, 'road-width-size': ROAD_WIDTH_BASE_SIZE, 'area-label-size': METRIC_BASE_SIZE, 'tsubo-label-size': METRIC_BASE_SIZE }[key]
+    if (!base || field.dataset.sizeBase) return
+    field.dataset.sizeBase = String(base)
+    if (field.min) field.min = String(Number(field.min) * base)
+    if (field.max) field.max = String(Number(field.max) * base)
+    field.step = '0.1'
+    const label = field.closest('label')
+    const caption = label?.querySelector('span')
+    if (caption) caption.textContent = '文字サイズ'
+    const unit = label?.querySelector('em')
+    if (unit) unit.textContent = ''
+    field.title = '作成時と共通の文字サイズ'
+  }
+
+  function setFieldDisplayValue(field, value) {
+    const base = Number(field.dataset.sizeBase)
+    field.value = base && value !== '' ? String(Math.round(Number(value) * base * 1000000) / 1000000) : value
+    field.dataset.initialDisplay = field.value
+    field.dataset.initialValue = String(value)
   }
 
   function initializeFieldControls() {
@@ -1766,6 +1828,7 @@
     $$('[data-field]', dom.commandControls).forEach(field => {
       const key = field.dataset.field
       if (!(key in session.form)) return
+      configureFontSizeField(field)
       const mixed = ui.mixedFields.has(key)
       field.toggleAttribute('data-mixed', mixed)
       if (mixed) field.setAttribute('aria-label', `${field.closest('label')?.querySelector('span')?.textContent || key}：複数値`)
@@ -1792,7 +1855,7 @@
           option.textContent = `現在の色 ${value}`
           field.prepend(option)
         }
-        field.value = value
+        setFieldDisplayValue(field, value)
       }
     })
     syncColorSelects()
@@ -2115,6 +2178,21 @@
       manualMetricState.classList.remove('error')
     }
     syncColorSelects()
+    const context = $('[data-edit-context]', dom.commandControls)
+    if (context) {
+      const objects = ui.batchDrafts.length ? ui.batchDrafts : ui.editDraft ? [ui.editDraft] : selectedObjects()
+      const fullName = objectDisplayName(objects[0]).replace(/\s+/g, ' ')
+      const name = fullName.length > 64 ? `${fullName.slice(0, 64)}…` : fullName
+      const description = objects.length > 1 ? `${objects.length}件の書式を一括編集` : `1件を編集：${name}`
+      context.textContent = context.classList.contains('edit-context-banner') && objects.length === 1 && ui.contextPage === 'object-text' && ui.textRole === 'name'
+        ? `${description}　｜　Enterで改行・Ctrl+Enterで反映・Escで入力取消` : description
+      context.title = objects.length > 1 ? description : `1件を編集：${fullName}`
+    }
+    const resetValue = $('[data-action="reset-text-role-value"]', dom.commandControls)
+    if (resetValue) {
+      const key = ui.textRole === 'width' ? 'road-width-text' : `${ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'}-text`
+      resetValue.disabled = !ui.mixedFields.has(key) && !String(session.form[key] ?? '').trim()
+    }
     const step = commandStepText()
     dom.commandStep.innerHTML = `<small>${step.small}</small><strong>${step.strong}</strong>`
   }
@@ -2141,7 +2219,8 @@
     if (!object) return '未選択'
     if (object.kind === 'lot') return `区画 ${object.number ?? ''}${object.label ? ` ${object.label}` : ''}`
     const names = { road: '道路', water: '水路', distance: '距離', polyline: '折れ線', area: '面積', line: '線', arrow: '矢印', text: '文字', callout: '引出線', north: '北マーク', house: '家屋', parking: '駐車', 'lot-table': '面積表', guide: 'ガイド', parallel: '平行線', cutout: '隅切り' }
-    return `${names[object.kind] || object.kind}${object.label || object.text ? ` ${object.label || object.text}` : ''}`
+    const label = object.road?.name || object.label || object.text
+    return `${names[object.kind] || object.kind}${label ? ` ${label}` : ''}`
   }
 
   function updateStatus() {
@@ -2945,7 +3024,7 @@
 
   function applyBatchFormToDrafts(objects = ui.batchDrafts) {
     if (!objects.length || !ui.batchTouched.size) return
-    const touched = key => ui.batchTouched.has(key)
+    const touched = key => ui.batchTouched.has(key) && (objects.length === 1 || !BATCH_CONTENT_FIELDS.has(key))
     const anyTouched = (...keys) => keys.some(touched)
     for (const object of objects) {
       const shape = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
@@ -3387,7 +3466,7 @@
           if (labelHit?.kind === 'shape-dimension') {
             runtime.drag = {
               type: 'label', id, labelKind: 'shape-dimension', edgeIndex: edgeHit.index, segmentIndex: null,
-              start: world, anchor: Array.isArray(labelHit.worldPolygon) ? K.polygonCentroid(labelHit.worldPolygon) : null,
+              start: world, startScreen: { ...screen }, anchor: Array.isArray(labelHit.worldPolygon) ? K.polygonCentroid(labelHit.worldPolygon) : null,
               original: deepClone(K.objectById(store.document, id)?.object)
             }
             setStatus(`辺 ${edgeHit.index + 1} の寸法文字をドラッグして移動できます`, 0)
@@ -3435,7 +3514,7 @@
       if (labelHit) {
         runtime.drag = {
           type: 'label', id, labelKind: labelHit.kind, edgeIndex: labelHit.edgeIndex, segmentIndex: labelHit.segmentIndex,
-          start: world, anchor: Array.isArray(labelHit.worldPolygon) ? K.polygonCentroid(labelHit.worldPolygon) : null,
+          start: world, startScreen: { ...screen }, anchor: Array.isArray(labelHit.worldPolygon) ? K.polygonCentroid(labelHit.worldPolygon) : null,
           original: deepClone(K.objectById(store.document, id)?.object)
         }
       } else if (command === 'select') {
@@ -4143,7 +4222,31 @@
     }
   }
 
+  function focusSelectedTextContent() {
+    if (ui.workspace !== 'drawing' || session.command !== 'select' || ui.selectedIds.length !== 1) return false
+    const object = ui.editDraft || currentObject()
+    if (!object) return false
+    let key = 'object-label'
+    if (['lot', 'road', 'water'].includes(object.kind)) {
+      if (ui.contextPage === 'object-dimension' && (Number.isInteger(ui.editEdgeIndex) || Number.isInteger(ui.editSegmentIndex))) {
+        key = Number.isInteger(ui.editEdgeIndex) ? 'edge-custom-text' : 'segment-custom-text'
+      } else {
+        if (ui.contextPage !== 'object-text') ui.textRole = 'name'
+        ui.contextPage = 'object-text'
+        key = { width: 'road-width-text', area: 'area-label-text', tsubo: 'tsubo-label-text' }[ui.textRole] || key
+      }
+    } else if (['text', 'callout', 'arrow'].includes(object.kind)) ui.contextPage = 'object-basic'
+    else return false
+    renderCommandSurface()
+    const field = $(`[data-field="${key}"]`, dom.commandControls)
+    if (!field || field.disabled || !field.getClientRects().length) return false
+    field.focus()
+    field.select?.()
+    return true
+  }
+
   function handleDoubleClick(event) {
+    if (session.command === 'select' && focusSelectedTextContent()) { event.preventDefault(); return }
     if (ui.workspace !== 'drawing' || !DOUBLE_CLICK_FINISH_COMMANDS.has(session.command)) return
     event.preventDefault()
     if (!canFinishCommand()) return
@@ -4196,6 +4299,7 @@
     runtime.hoverSnap = value.snap
     handleCanvasPoint(value.world, value.screen, false, event)
     if (runtime.drag) {
+      runtime.drag.startClient = { x: event.clientX, y: event.clientY }
       try { dom.canvas.setPointerCapture?.(event.pointerId) } catch (_) { /* pointer may already be released */ }
     }
   }
@@ -4233,7 +4337,9 @@
     }
     if (runtime.drag?.type === 'selection-direct' || runtime.drag?.type === 'vertex-direct') {
       const drag = runtime.drag
-      const screenDistance = Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y)
+      const screenDistance = drag.startClient
+        ? Math.hypot(event.clientX - drag.startClient.x, event.clientY - drag.startClient.y)
+        : Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y)
       if (!drag.moved && screenDistance >= 4) {
         drag.moved = true
         setStatus(drag.type === 'vertex-direct' ? '頂点をドラッグして移動しています' : `${drag.originals.length}件をドラッグして移動しています`, 0)
@@ -4290,11 +4396,19 @@
       return
     }
     if (runtime.drag?.type === 'label') {
+      const drag = runtime.drag
+      const screenDistance = drag.startClient
+        ? Math.hypot(event.clientX - drag.startClient.x, event.clientY - drag.startClient.y)
+        : Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y)
+      if (!runtime.drag.moved && screenDistance < 4) {
+        render()
+        return
+      }
       const original = runtime.drag.original
       if (original) {
         const dx = world.x - runtime.drag.start.x
         const dy = world.y - runtime.drag.start.y
-        if (dx !== 0 || dy !== 0) runtime.drag.moved = true
+        runtime.drag.moved = true
         ui.editDraft = deepClone(original)
         if (runtime.drag.labelKind === 'shape-road-name') {
           const center = K.polygonCentroid(original.points || [])
@@ -4596,7 +4710,9 @@
           session.category = COMMAND[currentCommand].category
         }
       }
-      renderCommandSurface()
+      // 描画完了が遅れても、縮尺などの入力中の欄を作り直さない。
+      if (!pageChanged && isTypingTarget(document.activeElement) && document.activeElement.closest('#command-controls')) runtime.backgroundControlsPending = true
+      else renderCommandSurface()
       const pageScale = resolvedMapScale()
       const pageScaleLabel = Number.isFinite(pageScale) && pageScale > 0
         ? `1:${Math.round(pageScale).toLocaleString('ja-JP')}`
@@ -4805,16 +4921,38 @@
     return active.entities.filter(entity => ['lot-table', 'guide', 'parallel'].includes(entity.kind))
   }
 
+  function registryTabForObject(object) {
+    if (['lot', 'road', 'water', 'cutout'].includes(object?.kind)) return 'lots'
+    if (['distance', 'polyline', 'area', 'dimension'].includes(object?.kind)) return 'measures'
+    if (['text', 'callout', 'line', 'arrow', 'north', 'house', 'parking'].includes(object?.kind)) return 'notes'
+    return 'tables'
+  }
+
+  function revealRegistrySelection() {
+    const visibleIds = new Set(filteredRegistryObjects().map(object => object.id))
+    const ids = [...new Set([...ui.selectedIds, ...ui.registryIds])].filter(id => Boolean(K.objectById(store.document, id)?.object))
+    const id = ids.find(value => !visibleIds.has(value)) || ids[0]
+    const object = K.objectById(store.document, id)?.object
+    if (!object) return
+    ui.registryTab = registryTabForObject(object)
+    byId('registry-search').value = ''
+    byId('registry-filter').value = 'all'
+    renderRegistry({ preserveScroll: false })
+    const row = [...dom.registryRows.children].find(value => value.dataset.objectId === id)
+    row?.scrollIntoView({ block: 'nearest' })
+    $('.registry-name-button', row)?.focus({ preventScroll: true })
+  }
+
   function filteredRegistryObjects() {
     const search = String(byId('registry-search')?.value || '').trim().toLowerCase()
     const filter = byId('registry-filter')?.value || 'all'
     const sort = byId('registry-sort')?.value || 'number'
     const objects = registryObjects()
       .filter(object => filter === 'all' || object.kind === filter)
-      .filter(object => !search || [object.number, object.topLabel, object.label, object.text, object.memo, object.kind].some(value => String(value ?? '').toLowerCase().includes(search)))
+      .filter(object => !search || [object.number, object.topLabel, object.road?.name, object.label, object.text, object.memo, object.kind].some(value => String(value ?? '').toLowerCase().includes(search)))
     objects.sort((a, b) => {
       if (sort === 'area') return K.polygonArea(b.points || []) - K.polygonArea(a.points || [])
-      if (sort === 'name') return String(a.label || a.text || '').localeCompare(String(b.label || b.text || ''), 'ja')
+      if (sort === 'name') return String(a.road?.name || a.label || a.text || '').localeCompare(String(b.road?.name || b.label || b.text || ''), 'ja')
       return finite(a.number, 999999) - finite(b.number, 999999)
     })
     return objects
@@ -4830,8 +4968,23 @@
     const documentModel = store.document
     const active = page(documentModel)
     const objects = filteredRegistryObjects()
-    dom.registryRows.replaceChildren()
-    if (!objects.length) {
+    if (!runtime.preserveRegistryInputs) {
+      runtime.registryRowsPending = false
+      dom.registryRows.replaceChildren()
+    }
+    if (runtime.preserveRegistryInputs) {
+      // blur/change中の再構築は、次にクリック・Tab移動した入力欄を失わせる。
+      // 入力要素を保ち、表示用の値だけ更新する。行の並べ直しは入力終了後。
+      for (const row of dom.registryRows.children) {
+        const object = K.objectById(documentModel, row.dataset.objectId)?.object
+        if (!object) continue
+        const price = $('.registry-price-value', row)
+        const memo = $('.registry-memo-value', row)
+        if (price) price.textContent = Number.isFinite(object.price) ? `${object.price.toLocaleString('ja-JP')}万円` : '未入力'
+        if (memo) { memo.textContent = object.memo || '未入力'; memo.title = object.memo || '' }
+        row.classList.toggle('has-memo', Boolean(object.memo))
+      }
+    } else if (!objects.length) {
       const row = document.createElement('tr')
       row.className = 'empty-row'
       const cell = document.createElement('td')
@@ -4849,7 +5002,8 @@
     const waters = totals.waterCount || 0
     const notes = active?.entities.length || 0
     const priceTotal = totals.price
-    dom.registrySummary.textContent = `区画 ${lots}・道路 ${roads}・水路 ${waters}・要素 ${notes}・価格合計 ${Math.round(priceTotal).toLocaleString('ja-JP')}万円`
+    dom.registrySummary.textContent = `${lots + roads + waters}区画等・注記ほか ${notes}件`
+    dom.registrySummary.title = `区画 ${lots}・道路 ${roads}・水路 ${waters}・要素 ${notes}・価格合計 ${Math.round(priceTotal).toLocaleString('ja-JP')}万円`
     if (dom.registryAreaSummary) {
       const calibrated = finite(documentModel.calibration?.mpp) > 0
       const groups = {
@@ -4877,7 +5031,15 @@
         button.title = `${key === 'all' ? '区画・道路・水路 合計' : key === 'lot' ? '区画' : key === 'road' ? '道路' : '水路'}: ${group.count || 0}件 / ${areaText} / ${tsuboText}`
       })
     }
-    $$('[data-registry-tab]').forEach(button => button.classList.toggle('active', button.dataset.registryTab === ui.registryTab))
+    $$('[data-registry-tab]').forEach(button => {
+      button.classList.toggle('active', button.dataset.registryTab === ui.registryTab)
+      button.setAttribute('aria-pressed', String(button.dataset.registryTab === ui.registryTab))
+    })
+    const filterField = byId('registry-filter')
+    const filterLabel = filterField?.closest('label')
+    if (filterLabel) filterLabel.hidden = ui.registryTab !== 'lots'
+    const filterState = byId('registry-filter-state')
+    if (filterState) filterState.textContent = filterField?.value !== 'all' ? `（${filterField?.selectedOptions[0]?.textContent || ''}）` : ''
     const checkAll = byId('registry-check-all')
     if (checkAll) {
       const ids = objects.map(object => object.id)
@@ -4886,6 +5048,16 @@
       checkAll.disabled = ids.length === 0
     }
     const selectedCount = [...ui.registryIds].filter(id => Boolean(K.objectById(documentModel, id)?.object)).length
+    const visibleIds = new Set(objects.map(object => object.id))
+    const selectedIds = [...new Set([...ui.registryIds, ...ui.selectedIds])].filter(id => Boolean(K.objectById(documentModel, id)?.object))
+    const hiddenSelected = selectedIds.filter(id => !visibleIds.has(id))
+    const registryStatus = byId('registry-selection-status')
+    if (registryStatus) {
+      registryStatus.textContent = `${objects.length}件表示・一括 ${selectedCount}件${hiddenSelected.length ? `（一覧外に選択 ${hiddenSelected.length}件）` : ''}`
+      registryStatus.title = 'チェックは一括操作の対象、名称を押すと図面の文字を編集します。'
+    }
+    const revealSelection = $('[data-action="registry-reveal-selection"]')
+    if (revealSelection) revealSelection.hidden = hiddenSelected.length === 0
     $$('[data-action="registry-focus"], [data-action="toggle-selected-visibility"], [data-action="delete-registry-selection"]').forEach(button => {
       button.disabled = selectedCount === 0
       button.title = selectedCount ? `${selectedCount}件に実行` : '一覧で対象を選択してください'
@@ -4914,6 +5086,12 @@
     const row = document.createElement('tr')
     row.dataset.objectId = object.id
     row.classList.toggle('selected', ui.registryIds.has(object.id))
+    row.classList.toggle('is-editing', ui.selectedIds.includes(object.id))
+    row.classList.toggle('has-area', ['lot', 'road', 'water', 'cutout', 'area'].includes(object.kind))
+    row.classList.toggle('has-price', object.kind === 'lot')
+    row.classList.toggle('has-memo', Boolean(object.memo))
+    row.dataset.kind = object.kind
+    row.setAttribute('aria-selected', String(ui.registryIds.has(object.id)))
     const shape = ['lot', 'road', 'water', 'cutout'].includes(object.kind)
     const metrics = shape ? K.shapeMetrics(object, store.document.calibration.mpp) : K.entityMetrics(object, store.document.calibration.mpp)
     const kindName = { lot: '区画', road: '道路', water: '水路', cutout: '隅切り', distance: '距離', polyline: '折れ線', area: '面積', dimension: '寸法', text: '文字', callout: '引出線', line: '線', arrow: '矢印', north: '北', house: '家屋', parking: '駐車', 'lot-table': '面積表', guide: 'ガイド', parallel: '平行線' }[object.kind] || object.kind
@@ -4925,20 +5103,53 @@
     checkbox.setAttribute('aria-label', `${kindName}${object.number ? ` ${object.number}` : ''}を一括操作の対象にする`)
     checkbox.title = '一括操作の対象'
     checkboxCell.append(checkbox); cells.push(checkboxCell)
-    const values = [object.number ?? '', kindName, [object.topLabel, object.label || object.text].filter(Boolean).join(' / '), formatArea(metrics.areaM2), formatArea(metrics.tsubo)]
-    values.forEach(value => { const cell = document.createElement('td'); cell.textContent = String(value); cells.push(cell) })
+    const explicitName = [object.topLabel, object.road?.name || object.label || object.text].filter(value => String(value || '').trim()).join(' / ')
+    const name = explicitName || `${kindName}${object.number != null ? ` ${object.number}` : ''}`
+    const values = [object.number ?? '', kindName, name, formatArea(metrics.areaM2), formatArea(metrics.tsubo)]
+    const columns = ['number', 'kind', 'name', 'area', 'tsubo']
+    values.forEach((value, index) => {
+      const cell = document.createElement('td')
+      cell.className = `col-${columns[index]}`
+      if (index === 2) {
+        const button = document.createElement('button')
+        button.type = 'button'; button.className = 'registry-name-button'
+        button.dataset.action = 'registry-edit-object'; button.dataset.objectId = object.id
+        button.textContent = name; button.title = `${name} — ${explicitName ? '押すと編集' : '名称未入力・押すと名前を入力'}`
+        button.setAttribute('aria-label', `${kindName} ${object.number ?? ''} ${name}を編集`)
+        cell.append(button)
+        if (ui.selectedIds.includes(object.id)) {
+          const badge = document.createElement('span')
+          badge.className = 'registry-editing-badge'
+          badge.textContent = session.command === 'select' ? '編集中' : '図面選択中'
+          cell.append(badge)
+        }
+      } else { cell.textContent = String(value); cell.title = String(value) }
+      cells.push(cell)
+    })
     const priceCell = document.createElement('td')
+    priceCell.className = 'col-price'
     if (object.kind === 'lot') {
+      const value = document.createElement('span')
+      value.className = 'registry-price-value'
+      value.textContent = Number.isFinite(object.price) ? `${object.price.toLocaleString('ja-JP')}万円` : '未入力'
+      priceCell.append(value)
       const input = document.createElement('input')
       input.className = 'registry-inline-input'; input.inputMode = 'numeric'; input.value = object.price ?? ''; input.dataset.registryField = 'price'; input.dataset.objectId = object.id
+      input.setAttribute('aria-label', `${kindName} ${object.number ?? ''}の価格（万円）`)
       priceCell.append(input)
     } else priceCell.textContent = '—'
     cells.push(priceCell)
     const memoCell = document.createElement('td')
+    memoCell.className = 'col-memo'
+    const memoValue = document.createElement('span')
+    memoValue.className = 'registry-memo-value'; memoValue.textContent = object.memo || '未入力'; memoValue.title = object.memo || ''
+    memoCell.append(memoValue)
     const memo = document.createElement('input')
     memo.className = 'registry-inline-input'; memo.value = object.memo || ''; memo.dataset.registryField = 'memo'; memo.dataset.objectId = object.id
+    memo.setAttribute('aria-label', `${kindName} ${object.number ?? ''}のメモ`)
     memoCell.append(memo); cells.push(memoCell)
     const visibleCell = document.createElement('td')
+    visibleCell.className = 'col-visible'
     const visible = document.createElement('input')
     visible.type = 'checkbox'; visible.checked = object.visible !== false; visible.dataset.registryField = 'visible'; visible.dataset.objectId = object.id
     visible.setAttribute('aria-label', `${kindName}${object.number ? ` ${object.number}` : ''}を図面に表示`)
@@ -4949,13 +5160,17 @@
   }
 
   function updateRegistryObject(id, field, value) {
-    store.commit('台帳編集', documentModel => {
-      const found = K.objectById(documentModel, id)
-      if (!found) return
-      if (field === 'price') found.object.price = parseNumeric(value, null)
-      else if (field === 'memo') found.object.memo = String(value || '')
-      else if (field === 'visible') found.object.visible = Boolean(value)
-    })
+    runtime.preserveRegistryInputs = true
+    runtime.registryRowsPending = true
+    try {
+      store.commit('台帳編集', documentModel => {
+        const found = K.objectById(documentModel, id)
+        if (!found) return
+        if (field === 'price') found.object.price = parseNumeric(value, null)
+        else if (field === 'memo') found.object.memo = String(value || '')
+        else if (field === 'visible') found.object.visible = Boolean(value)
+      })
+    } finally { runtime.preserveRegistryInputs = false }
     render()
   }
 
@@ -5990,6 +6205,17 @@
             : (drafts.length > 1 ? `${drafts.length}件の文字位置を中央へ戻しました` : '文字位置を中央へ戻しました'), 1400)
         }
         break
+      case 'reset-text-role-value': {
+        const key = ui.textRole === 'width' ? 'road-width-text' : `${ui.textRole === 'tsubo' ? 'tsubo-label' : 'area-label'}-text`
+        const field = $(`[data-field="${key}"]`, dom.commandControls)
+        if (field) {
+          runtime.inputTransaction = null
+          field.value = ''
+          handleCommandFieldInput(field, true)
+          setStatus('表示文字を自動計算に戻しました', 1400)
+        }
+        break
+      }
       case 'reset-text-role-position':
         if (ui.editDraft || ui.batchDrafts.length) {
           const drafts = ui.batchDrafts.length ? ui.batchDrafts : [ui.editDraft]
@@ -6098,6 +6324,17 @@
         if (ui.registryIds.size) store.commit('一覧選択削除', documentModel => K.removeObjects(documentModel, [...ui.registryIds]))
         ui.registryIds.clear(); renderRegistry(); render(); break
       case 'registry-focus': focusRegistrySelection(); break
+      case 'registry-reveal-selection': revealRegistrySelection(); break
+      case 'registry-edit-object': {
+        const id = source?.dataset.objectId
+        if (!id || !K.objectById(store.document, id)) break
+        flushActiveEditor()
+        if (ui.workspace !== 'drawing') setWorkspace('drawing')
+        if (session.command !== 'select') activateCommand('select', { focusCanvas: false })
+        selectObject(id, { openEditor: true })
+        focusSelectedTextContent()
+        break
+      }
       case 'place-area-table': setWorkspace('drawing'); activateCommand('lot-table'); break
       case 'refresh-output-preview': await refreshOutputPreview(); break
       case 'center-drawing-on-paper': centerDrawingOnPaper(); break
@@ -6114,6 +6351,11 @@
 
   function fieldValue(field) {
     if (field.type === 'checkbox') return field.checked
+    const base = Number(field.dataset.sizeBase)
+    if (base && field.value !== '') {
+      if (field.value === field.dataset.initialDisplay) return field.dataset.initialValue
+      return String(Number(field.value) / base)
+    }
     return field.value
   }
 
@@ -6285,7 +6527,7 @@
         const target = $(`[data-field="${fieldName}"]`, dom.commandControls)
         if (!target || document.activeElement === target) continue
         if (target.type === 'checkbox') target.checked = Boolean(session.form[fieldName])
-        else target.value = session.form[fieldName] ?? ''
+        else setFieldDisplayValue(target, session.form[fieldName] ?? '')
       }
     }
     if (key === 'object-type' && ui.editDraft) {
@@ -6455,7 +6697,10 @@
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
         if (ui.registryIds.has(id)) ui.registryIds.delete(id); else ui.registryIds.add(id)
       } else ui.registryIds = new Set([id])
-      setObjectSelection([...ui.registryIds], { openEditor: true, syncRegistry: false })
+      const ids = [...ui.registryIds]
+      if (ui.workspace !== 'drawing') setWorkspace('drawing')
+      if (session.command !== 'select') activateCommand('select', { focusCanvas: false })
+      setObjectSelection(ids, { openEditor: true })
       return
     }
     if (!event.target.closest('.menu-root')) closeMenus()
@@ -6528,11 +6773,15 @@
 
   function handleDocumentFocusOut(event) {
     const transaction = runtime.inputTransaction
-    if (!transaction || transaction.field !== event.target || runtime.composing) return
+    if (runtime.composing) return
     setTimeout(() => {
-      if (runtime.inputTransaction !== transaction) return
-      runtime.inputTransaction = null
-      commitInputElement(transaction.field)
+      if (transaction?.field === event.target && runtime.inputTransaction === transaction) {
+        runtime.inputTransaction = null
+        commitInputElement(transaction.field)
+      }
+      if (runtime.backgroundControlsPending && !document.activeElement?.closest('#command-controls [data-field]')) renderCommandSurface()
+      // 台帳内の次のクリックも終わるまで行を保つ（mousedownとclickの間に消さない）。
+      if (runtime.registryRowsPending && document.activeElement !== document.body && !document.activeElement?.closest('#registry-workspace')) renderRegistry()
     }, 0)
   }
 
@@ -6559,7 +6808,8 @@
   }
 
   function handleKeyDown(event) {
-    if (event.key === 'Process' || event.keyCode === 229) return
+    if (runtime.composing || event.isComposing || event.key === 'Process' || event.keyCode === 229) return
+    if (['Enter', ' '].includes(event.key) && event.target.closest?.('button,summary')) return
     const focusedColorSwatch = event.target.closest?.('[data-color-swatch]')
     if (focusedColorSwatch && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
@@ -6606,7 +6856,12 @@
     if (event.key === ' ') { if (!typing) { runtime.spaceDown = true; event.preventDefault() }; return }
     if (event.key === 'Enter') {
       if (runtime.composing || event.isComposing || Date.now() - runtime.compositionEndedAt < 90) return
-      if (typing && !event.target.matches('textarea,[contenteditable="true"]')) {
+      if (typing && commandKey && event.target.matches('#command-controls textarea[data-field]')) {
+        event.preventDefault()
+        runtime.inputTransaction = null
+        commitInputElement(event.target)
+        dom.canvas.focus({ preventScroll: true })
+      } else if (typing && !event.target.matches('textarea,[contenteditable="true"]')) {
         event.preventDefault()
         runtime.inputTransaction = null
         if (event.target.matches('[data-field="manual-scale"]')) applyManualPageScale(event.target.value)
@@ -6624,10 +6879,13 @@
             setStatus('0より大きい実距離を入力してください', 1800)
           }
         }
-        else commitInputElement(event.target)
+        else {
+          commitInputElement(event.target)
+          if (event.target.isConnected && event.target.matches('[data-registry-field]') && document.activeElement === event.target) beginInputTransaction(event.target)
+        }
       } else if (!typing) {
         event.preventDefault()
-        finishCommand()
+        if (!focusSelectedTextContent()) finishCommand()
       }
       return
     }

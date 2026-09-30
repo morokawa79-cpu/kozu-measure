@@ -324,7 +324,7 @@ async function runElectronSuite() {
     const report = {
       generatedAt: new Date().toISOString(),
       target: {
-        version: '2.1.0-alpha.11',
+        version: '2.1.0-alpha.12',
         entry: 'index-v210.html',
         installerBuilt: false
       },
@@ -481,7 +481,7 @@ function staticChecks(add) {
   ].sort()
   const allowedScripts = ['vendor/pdf.min.js', 'v210/core.js', 'v210/render.js', 'v210/io.js', 'v210/app.js']
 
-  add('package-version-v210-alpha11', packageJson.version === '2.1.0-alpha.11', packageJson.version)
+  add('package-version-v210-alpha12', packageJson.version === '2.1.0-alpha.12', packageJson.version)
   add('package-main-v210-only', packageJson.main === 'main-v210.js', packageJson.main)
   add('main-loads-v210-entry', /loadFile\(['"]index-v210\.html['"]\)/.test(main) && !/loadFile\(['"]index\.html['"]\)/.test(main))
   add('main-title-uses-package-version', /const VERSION = app\.getVersion\(\)/.test(main) && /TITLE = `土地区画作成工房 v\$\{VERSION\}`/.test(main))
@@ -821,7 +821,7 @@ async function rendererSuite() {
   window.addEventListener('error', event => runtimeErrors.push(event.error?.stack || event.message))
   window.addEventListener('unhandledrejection', event => runtimeErrors.push(event.reason?.stack || String(event.reason)))
 
-  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.11', document.title)
+  add('document-title-version', document.title === '土地区画作成工房 v2.1.0-alpha.12', document.title)
   add('core-api-loaded', Boolean(K?.createDocument && K?.DocumentStore && K?.CommandSession && K?.Renderer), Object.keys(K || {}))
   add('io-api-loaded', Boolean(IO?.serializeProject && IO?.deserializeProject && IO?.migrateLegacyV3 && IO?.loadUnderlayFile), Object.keys(IO || {}))
   add('application-debug-api-loaded', Boolean(api?.store && api?.session && api?.runtime && api?.renderer && api?.activateCommand && api?.setWorkspace), api ? Object.keys(api) : null)
@@ -1810,10 +1810,10 @@ async function rendererSuite() {
     const lotAppearancePage = await clickCreatePage('create-appearance')
     const lotAppearanceChanges = await changeEditFields({ 'show-area': true, 'show-tsubo': false, 'show-lengths': true })
     const lotTextPage = await clickCreatePage('create-text')
-    const lotTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.3 })
+    const lotTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 18.2 })
     const lotDimensionPage = await clickCreatePage('create-dimension')
     const lotApproxButton = await toggleApproxButton()
-    const lotDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'ceil', 'dimension-adjustment': 0.2, 'dimension-font': 'even', 'dimension-size': 1.4 })
+    const lotDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'ceil', 'dimension-adjustment': 0.2, 'dimension-font': 'even', 'dimension-size': 14 })
     api.session.points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]
     api.session.step = 4
     const lotFinished = api.finishCommand(); await sleep(35)
@@ -1836,10 +1836,10 @@ async function rendererSuite() {
     const waterInitialMetrics = readFields(['show-area', 'show-tsubo', 'show-lengths'])
     const waterAppearanceChanges = await changeEditFields({ 'show-area': true, 'show-tsubo': true, 'show-lengths': true })
     const waterTextPage = await clickCreatePage('create-text')
-    const waterTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 1.5, 'road-width-font': 'even', 'road-width-size': 1.25 })
+    const waterTextChanges = await changeEditFields({ 'font-family': 'mincho', 'text-size': 21, 'road-width-font': 'even', 'road-width-size': 12.5 })
     const waterDimensionPage = await clickCreatePage('create-dimension')
     const waterApproxButton = await toggleApproxButton()
-    const waterDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'floor', 'dimension-adjustment': -0.1, 'dimension-font': 'even', 'dimension-size': 1.6 })
+    const waterDimensionChanges = await changeEditFields({ 'dimension-decimals': 1, 'dimension-rounding': 'floor', 'dimension-adjustment': -0.1, 'dimension-font': 'even', 'dimension-size': 16 })
     api.session.points = [{ x: 120, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 50 }, { x: 120, y: 50 }]
     api.session.step = 4
     const waterFinished = api.finishCommand(); await sleep(35)
@@ -1881,6 +1881,14 @@ async function rendererSuite() {
       lot: lotSelectedAppearance['show-area'] === true && lotSelectedAppearance['show-tsubo'] === false && lotSelectedDimension['dimension-visible'] === true && lotSelectedApproxButton.active && lotSelectedApproxButton.pressed === 'true' && lotSelectedDimension['dimension-rounding'] === 'ceil' && lotSelectedDimension['dimension-font'] === 'even' && lotSelectedText['font-family'] === 'mincho',
       water: waterSelectedAppearance['show-area'] === true && waterSelectedAppearance['show-tsubo'] === true && waterSelectedDimension['dimension-visible'] === true && waterSelectedApproxButton.active && waterSelectedApproxButton.pressed === 'true' && waterSelectedDimension['dimension-rounding'] === 'floor' && waterSelectedDimension['dimension-font'] === 'even' && waterSelectedText['font-family'] === 'mincho' && waterSelectedWidthText['road-width-font'] === 'even'
     }
+    const textSizesMatch = [
+      [lot?.labelStyle?.fontSize, 18.2], [lot?.dimensionStyle?.fontSize, 14],
+      [water?.labelStyle?.fontSize, 21], [water?.dimensionStyle?.fontSize, 16], [water?.road?.widthLabelStyle?.fontSize, 12.5],
+      [restoredLot?.labelStyle?.fontSize, 18.2], [restoredLot?.dimensionStyle?.fontSize, 14],
+      [restoredWater?.labelStyle?.fontSize, 21], [restoredWater?.dimensionStyle?.fontSize, 16], [restoredWater?.road?.widthLabelStyle?.fontSize, 12.5],
+      [lotSelectedText['text-size'], 18.2], [lotSelectedDimension['dimension-size'], 14],
+      [waterSelectedText['text-size'], 21], [waterSelectedDimension['dimension-size'], 16], [waterSelectedWidthText['road-width-size'], 12.5]
+    ].every(([actual, expected]) => Math.abs(Number(actual) - expected) < 1e-8)
     return {
       pass: lotAppearancePage && lotTextPage && lotDimensionPage && lotFinished && roadBasicPage && waterAppearancePage && waterTextPage && waterDimensionPage && waterFinished &&
         allActual(creationChanges) && lotApproxButton.active && waterApproxButton.active && afterWaterSwitch.form.type === '水路' && afterWaterSwitch.form.name === '側溝' && afterWaterSwitch.form.width === 1.25 &&
@@ -1889,10 +1897,10 @@ async function rendererSuite() {
         afterWaterSwitch.form.labelFont === 'mincho' && afterWaterSwitch.form.widthFont === 'even' && afterWaterSwitch.form.dimensionFont === 'gothic' &&
         waterInitialMetrics['show-area'] === false && waterInitialMetrics['show-tsubo'] === false && waterInitialMetrics['show-lengths'] === false &&
         lotSelectedAppearancePage && lotSelectedDimensionPage && lotSelectedTextPage && waterSelectedAppearancePage && waterSelectedDimensionPage && waterSelectedTextPage &&
-        Object.values(shapeChecks).every(Boolean) && Object.values(selectedChecks).every(Boolean),
+        Object.values(shapeChecks).every(Boolean) && Object.values(selectedChecks).every(Boolean) && textSizesMatch,
       details: {
         creationPages: { lotAppearancePage, lotTextPage, lotDimensionPage, roadBasicPage, waterAppearancePage, waterTextPage, waterDimensionPage },
-        creationChanges, approxButtons: { lotApproxButton, waterApproxButton, lotSelectedApproxButton, waterSelectedApproxButton }, afterWaterSwitch, waterInitialMetrics, shapeChecks, selectedChecks,
+        creationChanges, approxButtons: { lotApproxButton, waterApproxButton, lotSelectedApproxButton, waterSelectedApproxButton }, afterWaterSwitch, waterInitialMetrics, shapeChecks, selectedChecks, textSizesMatch,
         selected: { lotAppearance: lotSelectedAppearance, lotDimension: lotSelectedDimension, lotText: lotSelectedText, waterAppearance: waterSelectedAppearance, waterDimension: waterSelectedDimension, waterText: waterSelectedText, waterWidthText: waterSelectedWidthText },
         restored: { lot: restoredLot, water: restoredWater }
       }
@@ -2919,9 +2927,9 @@ async function rendererSuite() {
     const doc = K.createDocument(); doc.calibration.mpp = 0.1
     api.store.replace(doc, { clean: true })
     const placements = [
-      ['house', { x: 100, y: 100 }, { 'stamp-label': '母屋', 'stamp-width': 10, 'stamp-depth': 8, 'stamp-scale': 1.6, 'stamp-text-scale': 1.4 }],
-      ['parking', { x: 300, y: 100 }, { 'stamp-label': 'P1', 'stamp-width': 2.5, 'stamp-depth': 5, 'stamp-scale': 1.8, 'stamp-text-scale': 1.2 }],
-      ['north', { x: 500, y: 100 }, { 'stamp-label': 'N', 'stamp-scale': 1.5, 'stamp-text-scale': 1.7 }]
+      ['house', { x: 100, y: 100 }, { 'stamp-label': '母屋', 'stamp-width': 10, 'stamp-depth': 8, 'stamp-scale': 1.6, 'stamp-text-scale': 19.6 }],
+      ['parking', { x: 300, y: 100 }, { 'stamp-label': 'P1', 'stamp-width': 2.5, 'stamp-depth': 5, 'stamp-scale': 1.8, 'stamp-text-scale': 16.8 }],
+      ['north', { x: 500, y: 100 }, { 'stamp-label': 'N', 'stamp-scale': 1.5, 'stamp-text-scale': 23.8 }]
     ]
     const visibleField = name => {
       const field = document.querySelector(`#command-controls [data-field="${name}"]`)
@@ -2974,7 +2982,7 @@ async function rendererSuite() {
         textScale: visibleField('text-size'),
         label: labelVisible
       }
-      const textChanges = await changeEditFields({ 'text-size': 2 })
+      const textChanges = await changeEditFields({ 'text-size': 28 })
       const entity = K.objectById(api.store.document, item.id)?.object
       edited.push({ command: item.command, pages: { basicPage, sizePage, textPage }, fields, actualFields: [...labelChanges, ...scaleChanges, ...textChanges].every(change => !change.temporary), entity: clone(entity) })
     }
@@ -3033,14 +3041,20 @@ async function rendererSuite() {
   await run('app-command-and-workspace-never-auto-fit', async () => {
     if (!api?.activateCommand || !api?.setWorkspace) return { pass: false, details: 'debug API unavailable' }
     Object.assign(api.runtime.view, { x: -73.25, y: 49.5, zoom: 1.37 }); api.renderer.setView(api.runtime.view)
-    const baseline = clone(api.runtime.view); const rows = []
+    const screenView = () => {
+      const rect = document.getElementById('drawing-canvas').getBoundingClientRect()
+      return { x: api.runtime.view.x + rect.left, y: api.runtime.view.y + rect.top, zoom: api.runtime.view.zoom }
+    }
+    const baseline = screenView(); const rows = []
     for (const command of ['parcel', 'road', 'split', 'distance', 'text', 'select']) {
-      api.activateCommand(command, { focusCanvas: false }); rows.push({ operation: command, view: clone(api.runtime.view) })
+      api.activateCommand(command, { focusCanvas: false }); rows.push({ operation: command, view: screenView() })
     }
+    const drawingView = clone(api.runtime.view)
     for (const workspace of ['registry', 'output', 'drawing']) {
-      api.setWorkspace(workspace); await sleep(20); rows.push({ operation: workspace, view: clone(api.runtime.view) })
+      api.setWorkspace(workspace); await sleep(20)
+      rows.push({ operation: workspace, view: workspace === 'drawing' ? screenView() : null, hiddenViewPreserved: JSON.stringify(api.runtime.view) === JSON.stringify(drawingView) })
     }
-    return { pass: rows.every(row => JSON.stringify(row.view) === JSON.stringify(baseline)), details: { baseline, rows } }
+    return { pass: rows.every(row => row.view ? ['x', 'y', 'zoom'].every(key => Math.abs(row.view[key] - baseline[key]) < 0.001) : row.hiddenViewPreserved), details: { baseline, rows } }
   })
 
   await run('app-ime-composition-enter-is-ignored', async () => {
@@ -3072,14 +3086,14 @@ async function rendererSuite() {
     api.selectObject(lot.id, { openEditor: true, preserveSubselection: true }); api.renderCommandSurface()
     const edgeValueControl = Boolean(document.querySelector('[data-field="part-rounding"]'))
     const edgeApproxButton = Boolean(document.querySelector('[data-action="apply-legacy-approx"][data-approx-scope="part"]'))
-    await changeEditFields({ 'part-approximate': true, 'part-decimals': 1, 'part-rounding': 'floor', 'part-adjustment': 0.15, 'part-font': 'mincho', 'part-size': 1.6, 'part-color': '#b4232d' })
+    await changeEditFields({ 'part-approximate': true, 'part-decimals': 1, 'part-rounding': 'floor', 'part-adjustment': 0.15, 'part-font': 'mincho', 'part-size': 16, 'part-color': '#b4232d' })
     const savedEdge = K.objectById(api.store.document, lot.id)?.object?.edges?.[0]
 
     api.ui.editEdgeIndex = null; api.ui.editSegmentIndex = 0; api.ui.contextPage = 'object-dimension'; api.ui.segmentPanel = 'style'
     api.selectObject(polyline.id, { openEditor: true, preserveSubselection: true }); api.renderCommandSurface()
     const segmentStyleControl = Boolean(document.querySelector('[data-field="part-font"]'))
     const segmentApproxControl = Boolean(document.querySelector('[data-field="part-approximate"],[data-action="apply-legacy-approx"][data-approx-scope="part"]'))
-    await changeEditFields({ 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'even', 'part-size': 1.3, 'part-color': '#1d4ed8' })
+    await changeEditFields({ 'part-decimals': 0, 'part-rounding': 'ceil', 'part-adjustment': -0.1, 'part-font': 'even', 'part-size': 13, 'part-color': '#1d4ed8' })
     const savedSegment = K.objectById(api.store.document, polyline.id)?.object?.segments?.[0]
 
     api.selectObject(house.id, { openEditor: true }); await sleep(15)
@@ -3142,7 +3156,7 @@ async function rendererSuite() {
     const startScreen = api.worldToScreen(startWorld)
     api.runtime.drag = {
       type: 'label', id: lot.id, labelKind: 'shape-dimension', edgeIndex: 2, segmentIndex: null,
-      start: startWorld, anchor: null, original: JSON.parse(JSON.stringify(K.objectById(api.store.document, lot.id)?.object))
+      start: startWorld, startScreen: { ...startScreen }, anchor: null, original: JSON.parse(JSON.stringify(K.objectById(api.store.document, lot.id)?.object))
     }
     const dragCommandDuringDrag = api.session.command
     const endWorld = { x: startWorld.x + 12, y: startWorld.y - 5 }
@@ -3351,8 +3365,8 @@ async function rendererSuite() {
       polyline: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       area: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
       dimension: ['object-basic', 'object-dimension', 'object-text', 'object-special'],
-      line: ['object-special'], arrow: ['object-basic', 'object-text', 'object-special'], text: ['object-basic', 'object-text'],
-      callout: ['object-basic', 'object-text', 'object-special'], north: ['object-basic', 'object-appearance', 'object-text', 'object-special'],
+      line: ['object-special'], arrow: ['object-basic', 'object-special'], text: ['object-basic'],
+      callout: ['object-basic', 'object-special'], north: ['object-basic', 'object-appearance', 'object-text', 'object-special'],
       house: ['object-basic', 'object-appearance', 'object-text', 'object-special'], parking: ['object-basic', 'object-appearance', 'object-text', 'object-special'],
       'lot-table': ['object-special', 'object-text'], guide: ['object-special'], parallel: ['object-special']
     }
@@ -4890,7 +4904,7 @@ async function rendererSuite() {
     api.store.replace(empty, { clean: true }); api.activateCommand('select', { focusCanvas: false }); api.selectObject(text.id, { openEditor: true }); await sleep(25)
     const labelField = document.querySelector('[data-field="object-label"]')
     const labelControl = labelField?.closest('label')
-    const directTextField = Boolean(labelField && labelControl?.parentElement?.id === 'command-controls' && labelControl.querySelector('span')?.textContent === '文字')
+    const directTextField = Boolean(labelField?.matches('textarea') && labelField.closest('#command-controls .text-editor') && labelControl.querySelector('span')?.textContent === '文字' && labelField.getClientRects().length && document.querySelector('#command-controls .text-editor [data-field="text-size"]'))
     api.store.replace(K.createDocument(), { clean: true }); api.activateCommand('text', { focusCanvas: false }); api.runtime.pointerWorld = { x: 70, y: 70 }
     const emptyTextFinished = api.finishCommand(); await sleep(25)
     const placedDefaultText = pageOf(api.store.document).entities.find(entity => entity.kind === 'text')

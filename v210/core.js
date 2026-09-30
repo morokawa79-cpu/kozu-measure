@@ -2,7 +2,7 @@
   'use strict'
 
   const K = window.KozuV210 = window.KozuV210 || {}
-  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.11'
+  const WEB_APP_VERSION_FALLBACK = '2.1.0-alpha.12'
   const desktopVersion = typeof window.kozuDesktop?.version === 'string' ? window.kozuDesktop.version.trim() : ''
   const APP_VERSION = desktopVersion || WEB_APP_VERSION_FALLBACK
   const SCHEMA_VERSION = 7

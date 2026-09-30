@@ -108,8 +108,15 @@ async function runElectronSuite() {
 
     await runCase(win, 'scale-unset-guidance-clears-after-manual-scale-setting', async () => {
       await setRealFileInput(win, '#underlay-input', pdfPath)
-      const loaded = await waitUntil(async () => (await readState(win)).background?.type === 'pdf', 20000, 100)
-      if (!loaded) throw new Error('PDF underlay did not load before scale setting')
+      // Metadata becomes available before the PDF raster. This case verifies
+      // Enter/Tab on the ready editor, not typing across the render-completion
+      // rebuild of the command controls.
+      const loaded = await waitUntil(async () => {
+        const state = await readState(win)
+        return state.background?.type === 'pdf' && state.backgroundSource?.width > 0 &&
+          !/描画中|読み込み中/.test(state.status)
+      }, 20000, 100)
+      if (!loaded) throw new Error('PDF underlay did not finish rendering before scale setting')
       const before = await readScaleState(win)
       const statusScaleRect = await visibleRect(win, '#status-scale')
       if (!statusScaleRect) throw new Error('visible scale status control was not found')
@@ -134,6 +141,50 @@ async function runElectronSuite() {
         afterTab.mpp > 0 && Math.abs(afterTab.mapScale - 600) < 1e-6 &&
         /縮尺\s*1\s*:\s*600/.test(afterTab.statusText) && afterTab.unsetGuidance.length === 0,
         { before, opened, hasLegacyApplyButton: Boolean(applyRect), typedEnterValue, afterEnter, typedTabValue, afterTab })
+    })
+
+    await runCase(win, 'pdf-render-completion-preserves-active-scale-input-and-focus', async () => {
+      await deferUnderlayRenderCompletion(win)
+      await setRealFileInput(win, '#underlay-input', pdfPath)
+      const editorReady = await waitUntil(async () => {
+        const state = await readState(win)
+        return state.background?.type === 'pdf' && state.command === 'calibrate'
+      }, 20000, 100)
+      if (!editorReady) throw new Error('Scale editor did not appear while PDF rendering was deferred')
+      const typedBefore = await replaceTextInput(win, '[data-field="manual-scale"]', '600')
+      const before = await win.webContents.executeJavaScript(`(()=>{
+        const field=document.querySelector('[data-field="manual-scale"]');
+        window.__KOZU_INTERACTION_RENDER_FIELD__=field;
+        return{value:field?.value,focused:document.activeElement===field};
+      })()`, true)
+      const rasterReady = await waitUntil(async () => win.webContents.executeJavaScript(
+        'Boolean(window.__KOZU_INTERACTION_RENDER_GATE__?.ready)', true), 20000, 100)
+      if (!rasterReady) {
+        const diagnostics = await win.webContents.executeJavaScript(`({gate:window.__KOZU_INTERACTION_RENDER_GATE__?{ready:window.__KOZU_INTERACTION_RENDER_GATE__.ready,called:window.__KOZU_INTERACTION_RENDER_GATE__.called,error:window.__KOZU_INTERACTION_RENDER_GATE__.error}:null,status:document.getElementById('status-message')?.textContent})`, true)
+        throw new Error(`Deferred PDF raster did not finish: ${JSON.stringify(diagnostics)}`)
+      }
+      await win.webContents.executeJavaScript('window.__KOZU_INTERACTION_RENDER_GATE__.release()', true)
+      const rendered = await waitUntil(async () => (await readState(win)).backgroundSource?.width > 0, 20000, 100)
+      await wait(win, 100)
+      const afterRender = await win.webContents.executeJavaScript(`(()=>{
+        const field=document.querySelector('[data-field="manual-scale"]');
+        return{value:field?.value,focused:document.activeElement===field,sameField:field===window.__KOZU_INTERACTION_RENDER_FIELD__};
+      })()`, true)
+      // Continue through the existing focus, without clicking or refocusing.
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] })
+      await wait(win, 40)
+      win.webContents.insertText('700')
+      await wait(win, 80)
+      const typedAfter = await win.webContents.executeJavaScript('document.querySelector(\'[data-field="manual-scale"]\')?.value', true)
+      await pressKey(win, 'ENTER')
+      await wait(win, 140)
+      const afterEnter = await readScaleState(win)
+      add('pdf-render-completion-preserves-active-scale-input-and-focus',
+        rendered && typedBefore === '600' && before.focused && before.value === '600' &&
+        afterRender.sameField && afterRender.focused && afterRender.value === '600' && typedAfter === '700' &&
+        Math.abs(afterEnter.mapScale - 700) < 1e-6 && afterEnter.mpp > 0 && afterEnter.unsetGuidance.length === 0,
+        { rendered, typedBefore, before, afterRender, typedAfter, afterEnter })
     })
 
     await runCase(win, 'two-point-calibration-completes-with-real-pointer-and-enter', async () => {
@@ -676,6 +727,43 @@ async function reloadForCase(win) {
   await waitForReady(win)
 }
 
+async function deferUnderlayRenderCompletion(win) {
+  // Install before app.js captures the frozen IO API. Keep the actual PDF
+  // rasterization; delay only its completion so input/render ordering is exact.
+  if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+  await win.webContents.debugger.sendCommand('Page.enable')
+  const { identifier } = await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+    source: `(()=>{
+      const K=window.KozuV210=window.KozuV210||{};
+      const state=window.__KOZU_INTERACTION_RENDER_GATE__={ready:false};
+      const released=new Promise(resolve=>{state.release=resolve});
+      let wrapped;
+      Object.defineProperty(K,'IO',{
+        configurable:true,
+        get(){return wrapped},
+        set(original){
+          wrapped=Object.freeze({...original,async renderUnderlayPage(...args){
+            state.called=true;
+            let result;
+            try{result=await original.renderUnderlayPage(...args)}catch(error){state.error=String(error);throw error}
+            state.ready=true;
+            await released;
+            return result;
+          }});
+        }
+      });
+    })();`
+  })
+  try {
+    await win.loadFile(path.join(root, 'index-v210.html'))
+    await waitForReady(win)
+    const installed = await win.webContents.executeJavaScript('Boolean(window.__KOZU_INTERACTION_RENDER_GATE__)', true)
+    if (!installed) throw new Error('Deferred-render fixture was not installed before app startup')
+  } finally {
+    await win.webContents.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier })
+  }
+}
+
 async function waitForReady(win) {
   await win.webContents.executeJavaScript(`Promise.all([
     document.fonts?.ready || Promise.resolve(),
@@ -745,7 +833,9 @@ async function replaceTextInput(win, selector, value) {
   const rect = await visibleRect(win, selector)
   if (!rect) throw new Error(`visible text input not found: ${selector}`)
   await mouseClick(win, center(rect))
-  win.webContents.selectAll()
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] })
+  await wait(win, 40)
   win.webContents.insertText(String(value))
   await wait(win, 80)
   return win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)})?.value ?? null`, true)

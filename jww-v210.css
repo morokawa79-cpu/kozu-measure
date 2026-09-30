@@ -18,7 +18,7 @@
   --control-h: 116px;
   --status-h: 28px;
   --rail-w: 54px;
-  --registry-w: clamp(232px, 19vw, 288px);
+  --registry-w: clamp(280px, 24vw, 350px);
   font-family: "Yu Gothic UI", Meiryo, sans-serif;
   color-scheme: light;
 }
@@ -1453,8 +1453,8 @@ body[data-workspace="output"] [data-workspace-target="output"] {
 .workspace-spacer { flex: 1; }
 .registry-select-all { min-height: 28px; align-items: center; gap: 4px; white-space: nowrap; }
 
-/* compact registry dock: always visible beside the canvas, never above it */
-.registry-dock {
+/* Registry dock: readable cards beside the canvas. */
+.registry-dock.workspace-sheet {
   position: relative;
   inset: auto;
   z-index: 3;
@@ -1462,7 +1462,7 @@ body[data-workspace="output"] [data-workspace-target="output"] {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 43px auto minmax(0, 1fr) auto;
+  grid-template-rows: 44px 38px minmax(0, 1fr) auto;
   overflow: hidden;
   border-left: 1px solid var(--border);
   background: #eef1f4;
@@ -1478,94 +1478,168 @@ body[data-workspace="output"] [data-workspace-target="output"] {
   width: 100%;
   display: grid;
   grid-template-columns: 17px minmax(0, 1fr);
-  grid-template-rows: 17px 15px;
+  grid-template-rows: 19px 17px;
   gap: 0 5px;
 }
 
-.registry-dock .workspace-title .panel-icon { grid-row: 1 / 3; width: 16px; height: 16px; align-self: center; }
-.registry-dock .workspace-title strong { overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; }
+.registry-dock .workspace-title .panel-icon {
+  grid-row: 1 / 3;
+  width: 16px;
+  height: 16px;
+  align-self: center;
+}
+
+.registry-dock .workspace-title strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+}
+
 .registry-dock .workspace-title small {
   grid-column: 2;
   display: block;
   overflow: hidden;
-  font-size: 9.5px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 17px;
   text-overflow: ellipsis;
 }
 
 .registry-dock .workspace-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
   gap: 2px;
-  padding: 3px;
+  padding: 3px 4px;
 }
 
 .registry-dock .workspace-tabs button {
   width: 100%;
   min-width: 0;
-  height: 28px;
-  padding: 0 3px;
+  height: 32px;
+  padding: 0 2px;
   border: 1px solid #9ca6af;
-  font-size: 10.5px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.registry-dock .workspace-tabs button.active { border-bottom: 1px solid var(--active-dark); }
+.registry-dock .workspace-tabs button.active {
+  border-bottom: 1px solid var(--active-dark);
+}
 
 .registry-dock .registry-main {
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 4px;
-  padding: 4px;
+  grid-template-rows: minmax(0, auto) auto minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px;
   overflow: hidden;
+  container-type: size;
 }
 
 .registry-dock .registry-area-summary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
+  gap: 5px;
   padding-bottom: 0;
+  padding: 6px;
 }
 
 .registry-dock .registry-area-summary button {
-  min-height: 34px;
-  grid-template-rows: 15px 13px;
-  gap: 0 3px;
-  padding: 1px 4px;
+  min-height: 62px;
+  grid-template-rows: repeat(3, 18px);
+  gap: 0;
+  padding: 3px 6px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.registry-dock .registry-area-summary strong { font-size: 9.5px; }
-.registry-dock .registry-area-summary button > span { font-size: 10px; }
-.registry-dock .registry-area-summary small { font-size: 9px; }
+.registry-dock .registry-area-summary strong {
+  font-size: 9.5px;
+}
+
+.registry-dock .registry-area-summary button > span {
+  font-size: 10px;
+}
+
+.registry-dock .registry-area-summary small {
+  font-size: 9px;
+}
 
 .registry-dock .registry-toolbar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
+  gap: 6px;
   overflow: visible;
+  padding: 6px;
 }
 
-.registry-dock .registry-toolbar .workspace-field { width: 100%; display: block; }
+.registry-dock .registry-toolbar .workspace-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
 .registry-dock .registry-toolbar .workspace-field > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  position: static;
+  width: auto;
+  height: auto;
   padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  margin: 0;
+  overflow: visible;
+  clip: auto;
   white-space: nowrap;
   border: 0;
+  font-size: 12px;
+  line-height: 18px;
 }
-.registry-dock .registry-toolbar input,
-.registry-dock .registry-toolbar select { width: 100%; min-height: 28px; height: 28px; padding: 1px 4px; font-size: 10.5px; }
-.registry-dock .registry-toolbar .search-field { grid-column: 1 / -1; }
-.registry-dock .registry-toolbar .registry-select-all { grid-column: 1; min-width: 0; height: 28px; font-size: 9.5px; }
-.registry-dock .registry-toolbar .registry-select-all input { width: 18px; min-height: 18px; height: 18px; margin: 0; }
-.registry-dock .registry-toolbar .sheet-button { grid-column: 2; min-height: 28px; height: 28px; font-size: 9.5px; }
 
-.registry-dock .registry-table-wrap { border-color: #a5adb6; overflow: auto; }
-.registry-dock #registry-table { min-width: 0; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.registry-dock .registry-toolbar input,
+.registry-dock .registry-toolbar select {
+  width: 100%;
+  min-height: 32px;
+  height: 32px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+
+.registry-dock .registry-toolbar .search-field {
+  grid-column: 1 / -1;
+}
+
+.registry-dock .registry-toolbar .registry-select-all {
+  grid-column: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 9.5px;
+}
+
+.registry-dock .registry-toolbar .registry-select-all input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.registry-dock .registry-toolbar .sheet-button {
+  grid-column: 2;
+  min-height: 28px;
+  height: 28px;
+  font-size: 9.5px;
+}
+
+.registry-dock .registry-table-wrap {
+  border-color: #a5adb6;
+  overflow: auto;
+  border: 1px solid #aeb8c3;
+  scrollbar-gutter: stable;
+}
+
+.registry-dock #registry-table {
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
 .registry-dock #registry-table thead {
   position: absolute;
   width: 1px;
@@ -1577,68 +1651,503 @@ body[data-workspace="output"] [data-workspace-target="output"] {
   white-space: nowrap;
   border: 0;
 }
-.registry-dock #registry-table tbody { display: block; }
+
+.registry-dock #registry-table tbody {
+  display: block;
+}
+
 .registry-dock #registry-table tbody tr {
   width: 100%;
-  min-height: 82px;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 30px 30px 38px minmax(0, 1fr) 54px;
-  grid-template-rows: 28px 24px 30px;
-  grid-template-areas:
-    "check number kind name visible"
-    ". area area tsubo tsubo"
-    ". price price memo memo";
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: 22px auto auto;
+  grid-template-areas: "check kind number number visible visible"
+    "name name name name name name"
+    "area area tsubo tsubo price price";
   align-items: center;
-  padding: 1px 2px;
-  border-bottom: 1px solid #bfc6ce;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid #bac4cf;
   background: #fff;
+  gap: 2px 5px;
 }
 
-.registry-dock #registry-table tbody tr:nth-child(even) { background: #f7f9fb; }
-.registry-dock #registry-table tbody tr:hover { background: #eef6ff; }
-.registry-dock #registry-table tbody tr.selected { box-shadow: inset 3px 0 0 var(--active); background: #dbeeff; }
+.registry-dock #registry-table tbody tr:nth-child(even) {
+  background: #f7f9fb;
+}
+
+.registry-dock #registry-table tbody tr:hover {
+  background: #eef6ff;
+}
+
+.registry-dock #registry-table tbody tr.selected {
+  grid-template-rows: 22px auto auto auto auto;
+  grid-template-areas: "check kind number number visible visible"
+    "name name name name name name"
+    "area area area tsubo tsubo tsubo"
+    "price price price price price price"
+    "memo memo memo memo memo memo";
+  box-shadow: inset 3px 0 0 var(--active);
+  background: #e8f2fd;
+}
+
 .registry-dock #registry-table td {
   width: auto !important;
-  height: 28px;
+  height: auto;
   min-width: 0;
-  padding: 1px 2px;
+  padding: 2px 0;
   border: 0;
   overflow: hidden;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-height: 24px;
 }
 
-.registry-dock #registry-table td:nth-child(1) { grid-area: check; text-align: center; }
-.registry-dock #registry-table td:nth-child(2) { grid-area: number; font-weight: 700; }
-.registry-dock #registry-table td:nth-child(3) { grid-area: kind; color: #53606c; }
-.registry-dock #registry-table td:nth-child(4) { grid-area: name; font-weight: 600; }
-.registry-dock #registry-table td:nth-child(5) { grid-area: area; color: #3d4c5a; }
-.registry-dock #registry-table td:nth-child(6) { grid-area: tsubo; color: #3d4c5a; }
-.registry-dock #registry-table td:nth-child(7) { grid-area: price; display: flex; align-items: center; gap: 2px; }
-.registry-dock #registry-table td:nth-child(8) { grid-area: memo; display: flex; align-items: center; gap: 2px; }
-.registry-dock #registry-table td:nth-child(9) { grid-area: visible; display: flex; align-items: center; justify-content: center; gap: 2px; text-align: center; }
-.registry-dock #registry-table td:nth-child(5)::before { content: "㎡ "; color: #75818c; font-size: 9px; }
-.registry-dock #registry-table td:nth-child(6)::before { content: "坪 "; color: #75818c; font-size: 9px; }
-.registry-dock #registry-table td:nth-child(7)::before { content: "価格 "; color: #75818c; font-size: 9px; }
-.registry-dock #registry-table td:nth-child(8)::before { content: "メモ "; color: #75818c; font-size: 9px; }
-.registry-dock #registry-table td:nth-child(9)::before { content: "表示 "; color: #75818c; font-size: 9px; }
+.registry-dock #registry-table td:nth-child(1) {
+  grid-area: check;
+  text-align: center;
+}
+
+.registry-dock #registry-table td:nth-child(2) {
+  grid-area: number;
+  font-weight: 700;
+}
+
+.registry-dock #registry-table td:nth-child(3) {
+  grid-area: kind;
+  color: #53606c;
+}
+
+.registry-dock #registry-table td:nth-child(4) {
+  grid-area: name;
+  font-weight: 600;
+}
+
+.registry-dock #registry-table td:nth-child(5) {
+  grid-area: area;
+  color: #3d4c5a;
+}
+
+.registry-dock #registry-table td:nth-child(6) {
+  grid-area: tsubo;
+  color: #3d4c5a;
+}
+
+.registry-dock #registry-table td:nth-child(7) {
+  grid-area: price;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.registry-dock #registry-table td:nth-child(8) {
+  grid-area: memo;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.registry-dock #registry-table td:nth-child(9) {
+  grid-area: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.registry-dock #registry-table td:nth-child(5)::before {
+  content: "㎡ ";
+  color: #75818c;
+  font-size: 9px;
+}
+
+.registry-dock #registry-table td:nth-child(6)::before {
+  content: "坪 ";
+  color: #75818c;
+  font-size: 9px;
+}
+
+.registry-dock #registry-table td:nth-child(7)::before {
+  content: "価格 ";
+  color: #75818c;
+  font-size: 9px;
+}
+
+.registry-dock #registry-table td:nth-child(8)::before {
+  content: "メモ ";
+  color: #75818c;
+  font-size: 9px;
+}
+
+.registry-dock #registry-table td:nth-child(9)::before {
+  content: "表示 ";
+  color: #75818c;
+  font-size: 9px;
+}
+
 .registry-dock #registry-table td:nth-child(1) input[type="checkbox"],
-.registry-dock #registry-table td:nth-child(9) input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; margin: 0; accent-color: var(--active); cursor: pointer; }
-.registry-dock .registry-inline-input { width: 100%; min-width: 0; height: 28px; padding: 0 2px; border: 1px solid #b3bbc4; font-size: 10.5px; }
-.registry-dock .empty-row { display: block !important; min-height: 52px !important; }
-.registry-dock .empty-row td { display: block; width: 100% !important; padding: 12px 5px !important; white-space: normal !important; }
+.registry-dock #registry-table td:nth-child(9) input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--active);
+  cursor: pointer;
+}
+
+.registry-dock .registry-inline-input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 2px;
+  border: 1px solid #b3bbc4;
+  font-size: 10.5px;
+}
+
+.registry-dock .empty-row {
+  display: block !important;
+  min-height: 52px !important;
+}
+
+.registry-dock .empty-row td {
+  display: block;
+  width: 100% !important;
+  padding: 12px 5px !important;
+  white-space: normal !important;
+}
 
 .registry-dock .workspace-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
   padding: 4px;
 }
 
-.registry-dock .workspace-actions .sheet-button { min-width: 0; min-height: 28px; height: 28px; padding: 0 3px; font-size: 9px; overflow: hidden; }
-.registry-dock .workspace-actions .workspace-spacer { display: none; }
+.registry-dock .workspace-actions .sheet-button {
+  min-width: 0;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 2px;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.registry-dock .workspace-actions .workspace-spacer {
+  display: none;
+}
+
+.registry-dock .registry-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(240px, max(70px, 42cqh));
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.registry-dock .registry-controls > .search-field {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  min-height: 32px;
+  background: #fff;
+}
+
+.registry-dock .registry-controls > .search-field > span {
+  flex: 0 0 30px;
+  font-size: 12px;
+}
+
+.registry-dock .registry-controls > .search-field input {
+  height: 32px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.registry-dock #registry-options {
+  flex: 0 0 auto;
+  min-width: 0;
+  border: 1px solid #b8c1cb;
+  background: #f7f9fb;
+}
+
+.registry-dock #registry-options > summary {
+  min-height: 30px;
+  padding: 6px 8px;
+  color: #354354;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.registry-dock #registry-options[open] > summary {
+  border-bottom: 1px solid #ccd3dc;
+}
+
+.registry-dock .registry-area-summary strong,
+.registry-dock .registry-area-summary button > span,
+.registry-dock .registry-area-summary small {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.registry-dock .registry-area-summary button > span,
+.registry-dock .registry-area-summary small {
+  text-align: left;
+}
+
+.registry-dock .registry-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+
+.registry-dock .registry-secondary-actions .sheet-button {
+  min-width: 0;
+  min-height: 32px;
+  height: auto;
+  padding: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: normal;
+}
+
+.registry-dock .registry-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  min-width: 0;
+  padding: 2px 0;
+  color: #445363;
+  font-size: 12px;
+}
+
+.registry-dock .registry-selection-bar .registry-select-all {
+  flex: 0 0 auto;
+  min-height: 24px;
+  font-size: 12px;
+}
+
+.registry-dock .registry-selection-bar input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0 4px 0 0;
+  accent-color: var(--active);
+}
+
+.registry-dock #registry-selection-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.registry-dock .registry-selection-bar .sheet-button {
+  min-height: 28px;
+  height: auto;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.registry-dock #registry-table tbody tr.is-editing {
+  box-shadow: inset 3px 0 0 #15579b;
+  background: #e2effd;
+}
+
+.registry-dock #registry-table td.col-number {
+  color: #354354;
+  text-align: right;
+}
+
+.registry-dock #registry-table td.col-number:not(:empty)::before {
+  content: "No. ";
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.registry-dock #registry-table td.col-kind {
+  font-size: 12px;
+}
+
+.registry-dock #registry-table td.col-name {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.registry-dock .registry-name-button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 0;
+  border: 0;
+  color: #163954;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.registry-dock .registry-name-button:hover {
+  color: #0b5597;
+  text-decoration: underline;
+}
+
+.registry-dock .registry-name-button:focus-visible {
+  outline: 2px solid #4d94da;
+  outline-offset: 1px;
+}
+
+.registry-dock .registry-editing-badge {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 5px;
+  border: 1px solid #a5bed8;
+  color: #23517d;
+  background: #f7fbff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  vertical-align: top;
+}
+
+.registry-dock .registry-editing-badge:empty {
+  display: none;
+}
+
+.registry-dock #registry-table td.col-area,
+.registry-dock #registry-table td.col-tsubo {
+  border-top: 1px solid #d9e0e7;
+  font-variant-numeric: tabular-nums;
+}
+
+.registry-dock #registry-table td.col-area::before {
+  content: "面積 ";
+}
+
+.registry-dock #registry-table td.col-area::after {
+  content: " ㎡";
+}
+
+.registry-dock #registry-table td.col-tsubo::before {
+  content: "坪 ";
+}
+
+.registry-dock #registry-table td:nth-child(n+5)::before,
+.registry-dock #registry-table td.col-area::after {
+  color: #526273;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.registry-dock #registry-table td.col-price,
+.registry-dock #registry-table td.col-memo {
+  align-items: flex-start;
+  gap: 7px;
+  white-space: normal;
+}
+
+.registry-dock #registry-table td.col-price::before,
+.registry-dock #registry-table td.col-memo::before {
+  flex: 0 0 30px;
+  padding-top: 2px;
+}
+
+.registry-dock .registry-price-value,
+.registry-dock .registry-memo-value {
+  display: block;
+  min-width: 0;
+  padding-top: 2px;
+  color: #26394b;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.registry-dock .registry-price-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.registry-dock #registry-table .registry-inline-input {
+  display: none;
+  min-width: 0;
+  height: 30px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+
+.registry-dock #registry-table .selected .registry-inline-input {
+  display: block;
+}
+
+.registry-dock #registry-table .selected .col-price:has(input)::after {
+  content: "万円";
+  flex: 0 0 auto;
+  padding-top: 4px;
+  color: #526273;
+  font-size: 12px;
+}
+
+.registry-dock #registry-table .selected .col-price:has(input) .registry-price-value,
+.registry-dock #registry-table .selected .col-memo:has(input) .registry-memo-value {
+  display: none;
+}
+
+.registry-dock #registry-table tr:not(.has-area) .col-area,
+.registry-dock #registry-table tr:not(.has-area) .col-tsubo,
+.registry-dock #registry-table tr:not(.has-price) .col-price,
+.registry-dock #registry-table tr:not(.has-memo):not(.selected) .col-memo {
+  display: none;
+}
+
+.registry-dock #registry-table tr:not(.selected) .col-memo {
+  display: none;
+}
+
+.registry-dock #registry-table tr:not(.selected) .col-area::before,
+.registry-dock #registry-table tr:not(.selected) .col-tsubo::before,
+.registry-dock #registry-table tr:not(.selected) .col-price::before {
+  content: none;
+}
+
+.registry-dock #registry-table tr:not(.selected) .col-tsubo::after {
+  content: " 坪";
+  color: #526273;
+  font-size: 12px;
+}
+
+.registry-dock #registry-table tr:not(.selected) .col-price {
+  display: block;
+  border-top: 1px solid #d9e0e7;
+}
+
+.registry-dock #registry-table tr:not(.selected) .registry-price-value {
+  padding-top: 0;
+  white-space: nowrap;
+}
+
+.registry-dock #registry-table tr:not(.has-price):not(.selected) .col-price {
+  display: none;
+}
 
 /* output */
 #output-workspace {
@@ -1998,9 +2507,6 @@ kbd {
   .workspace-tabs button { height: 28px; }
   .workspace-actions { padding-top: 3px; padding-bottom: 3px; }
   .registry-main { grid-template-rows: 34px minmax(0, 1fr); padding: 5px; }
-  .registry-dock { grid-template-rows: 39px auto minmax(0, 1fr) auto; }
-  .registry-dock .registry-main { grid-template-rows: auto minmax(0, 1fr); padding: 3px; }
-  .registry-dock #registry-table tbody tr { min-height: 82px; grid-template-rows: 28px 24px 30px; }
   .output-main { padding: 6px; }
   .form-card { padding: 7px; }
   .form-grid { gap: 5px; }
@@ -2013,4 +2519,260 @@ kbd {
 @media (max-height: 500px) {
   .tool-rail button { height: 28px; flex-basis: 28px; }
   .tool-label { font-size: 9.5px; }
+}
+
+/* Text content and formatting share one visible, flexible editing area. */
+#app-shell:has(> #control-bar.text-editing-active) {
+  grid-template-rows: var(--top-h) auto minmax(0, 1fr) var(--status-h);
+}
+
+#control-bar.text-editing-active {
+  max-height: 50vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 7px;
+}
+
+#control-bar.text-editing-active .control-row-tool {
+  height: auto;
+  min-height: 36px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+#control-bar.text-editing-active #command-actions,
+#control-bar.text-editing-active #command-pages {
+  height: auto;
+  min-height: 32px;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+#control-bar.text-editing-active .control-row-settings,
+#control-bar.text-editing-active #command-controls {
+  height: auto;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+#control-bar.text-editing-active #command-controls {
+  width: 100%;
+  row-gap: 6px;
+}
+
+#command-controls .text-editor {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.text-editor-content {
+  min-width: 0;
+  padding: 7px 8px 5px;
+  border: 1px solid var(--border-light);
+  background: #eef1f4;
+}
+
+.text-editor-content-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  color: #354354;
+  font-size: 12px;
+}
+
+.text-editor-content-field > span {
+  padding-top: 7px;
+  font-weight: 600;
+}
+
+#command-controls .text-editor-content-field textarea,
+#command-controls .note-text-field textarea {
+  display: block;
+  width: 100%;
+  height: 56px;
+  min-width: 0;
+  min-height: 56px;
+  max-height: 140px;
+  padding: 5px 8px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.text-editor-content-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 3px 16px;
+  min-width: 0;
+  margin: 4px 0 0 72px;
+}
+
+.text-editor-context {
+  color: #354354;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.text-editor-context:empty { display: none; }
+
+#control-bar.text-editing-active .edit-context-banner {
+  flex: 0 1 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 8px;
+  color: #354354;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-editor-help {
+  display: block;
+  color: #56616d;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.text-editor-format {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.text-editor-format .field-inline {
+  font-size: 12px;
+}
+
+.text-editor-format .ctrl-input.number-small { width: 64px; }
+.text-editor-format .ctrl-select.compact-select { width: 92px; }
+
+#control-bar.text-editing-active .note-text-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  order: -1;
+  flex: 1 1 100%;
+  height: auto;
+  padding: 7px 8px 5px;
+  border: 1px solid var(--border-light);
+  background: #eef1f4;
+  font-size: 12px;
+}
+
+#control-bar.text-editing-active .note-text-field > span:first-child {
+  padding-top: 7px;
+  color: #354354;
+  font-weight: 600;
+}
+
+.text-editor-input-wrap { display: block; min-width: 0; }
+.text-editor-input-wrap .text-editor-help { margin-top: 4px; }
+
+#control-bar.text-editing-active .text-value-row,
+#control-bar.text-editing-active .dimension-editor-row {
+  height: auto;
+  min-height: 32px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: visible;
+  white-space: normal;
+}
+
+#control-bar.text-editing-active .text-value-content-row {
+  padding: 7px 8px;
+  border: 1px solid var(--border-light);
+  background: #eef1f4;
+}
+
+#control-bar.text-editing-active .text-value-row .field-inline {
+  font-size: 12px;
+}
+
+#control-bar.text-editing-active .text-role-select { width: 136px; }
+
+#control-bar.text-editing-active .text-name-field {
+  height: auto;
+  min-width: min(440px, 100%);
+  flex: 1 1 440px;
+  align-items: flex-start;
+  gap: 8px;
+  border-left: 0;
+}
+
+#control-bar.text-editing-active .text-name-field > span:first-child {
+  flex: 0 0 auto;
+  padding-top: 7px;
+  color: #354354;
+  font-weight: 600;
+}
+
+#control-bar.text-editing-active .text-name-field textarea {
+  width: 100%;
+  height: 56px;
+  min-width: 0;
+  min-height: 56px;
+  max-height: 140px;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+#control-bar.text-editing-active .text-value-content-row .field-inline:has(input[type="text"]) {
+  min-width: min(360px, 100%);
+  flex: 1 1 360px;
+}
+
+#control-bar.text-editing-active .text-value-content-row input[type="text"].ctrl-input {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+#control-bar.text-editing-active .text-value-note {
+  max-width: none;
+  height: auto;
+  overflow: visible;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+#control-bar.text-editing-active .text-value-style-row,
+#control-bar.text-editing-active .dimension-style-row {
+  padding-top: 6px;
+}
+
+#control-bar.text-editing-active .text-value-style-row .ctrl-input.number-small,
+#control-bar.text-editing-active .dimension-editor-row .ctrl-input.number-small { width: 64px; }
+#control-bar.text-editing-active .text-value-style-row .ctrl-select.compact-select,
+#control-bar.text-editing-active .dimension-editor-row .ctrl-select.compact-select { width: 92px; }
+
+@media (max-width: 640px) {
+  .text-editor-content-field,
+  #control-bar.text-editing-active .note-text-field {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .text-editor-content-info { margin-left: 53px; }
 }

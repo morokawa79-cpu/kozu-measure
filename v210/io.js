@@ -5,7 +5,7 @@
   const FORMAT = 'kozu-measure';
   const PROJECT_VERSION = 7;
   const desktopVersion = typeof global.kozuDesktop?.version === 'string' ? global.kozuDesktop.version.trim() : '';
-  const APP_VERSION = K.APP_VERSION || desktopVersion || '2.1.0-alpha.11';
+  const APP_VERSION = K.APP_VERSION || desktopVersion || '2.1.0-alpha.12';
   const PDF_WORKER_SRC = 'vendor/pdf.worker.min.js';
   // 300dpi出力時にも下絵PDFが拡大ぼけしない解像度（72dpi × 4.2 ≒ 302dpi）。
   const PDF_RENDER_SCALE = 4.2;
@@ -48,10 +48,15 @@
     // serves pdfjs-dist directly from this project, avoiding an external CDN
     // (and keeping the same Japanese CID/CAD PDF support in both runtimes).
     const desktopRuntime = Boolean(global.kozuDesktop);
+    // PDF.js may fetch resources inside vendor/pdf.worker.min.js. Resolve
+    // browser URLs against the document so they do not move under vendor/.
+    const resourceUrl = directory => global.document?.baseURI
+      ? new URL(`node_modules/pdfjs-dist/${directory}/`, global.document.baseURI).href
+      : `node_modules/pdfjs-dist/${directory}/`;
     return {
-      cMapUrl: desktopRuntime ? 'pdfres://cmaps/' : 'node_modules/pdfjs-dist/cmaps/',
+      cMapUrl: desktopRuntime ? 'pdfres://cmaps/' : resourceUrl('cmaps'),
       cMapPacked: true,
-      standardFontDataUrl: desktopRuntime ? 'pdfres://standard_fonts/' : 'node_modules/pdfjs-dist/standard_fonts/',
+      standardFontDataUrl: desktopRuntime ? 'pdfres://standard_fonts/' : resourceUrl('standard_fonts'),
       useSystemFonts: true,
     };
   }
